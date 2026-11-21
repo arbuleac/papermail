@@ -35,6 +35,12 @@ struct ProviderQuota: Sendable, Equatable {
     /// the backfill. Nil where the calendar has a quota of its own (Google Calendar's, apart from Gmail's): nothing is
     /// charged, and a throttle there holds back only the calendar.
     var calendarRequestCost: Double?
+    /// What the rules lane spends (docs/ARCHITECTURE.md, "Rules"), as live spend: each request of a read of the server
+    /// rules, and a create or a delete of one. Both providers' rules share the mail's quota, so a throttle on them pauses
+    /// the backfill as any live throttle does.
+    var ruleReadCost: Double = 1
+    var ruleCreateCost: Double = 1
+    var ruleDeleteCost: Double = 1
 
     static func standard(for kind: ProviderKind) -> ProviderQuota {
         switch kind {
@@ -44,8 +50,10 @@ struct ProviderQuota: Sendable, Equatable {
             // format=metadata and 60 with format=full, messages.attachments.get 5, history.list 2. Two requests in
             // flight, because a Gmail batch already carries several calls and more parallel batches only reach the
             // limit sooner. Google Calendar is another API with a quota of its own, so its requests cost nothing here.
+            // Filters are Gmail settings, priced per call as mail is: settings.filters.list 1, create and delete 5.
             return ProviderQuota(unitsPerMinute: 6_000, listCost: 5, metadataCostPerMessage: 20, bodyCost: 60,
-                                 attachmentCost: 5, changesCost: 2, maxBackfillConcurrency: 2)
+                                 attachmentCost: 5, changesCost: 2, maxBackfillConcurrency: 2,
+                                 ruleReadCost: 1, ruleCreateCost: 5, ruleDeleteCost: 5)
         case .microsoft:
             // Outlook allows 10,000 requests per 10 minutes per app per mailbox, so a unit is one request.
             // Graph counts each request inside a $batch against that limit on its own, so metadata fetched by id
@@ -53,9 +61,11 @@ struct ProviderQuota: Sendable, Equatable {
             // one request. A body takes the message and its attachment list; an attachment's bytes are one GET of
             // its `$value`. A mailbox allows 4 concurrent requests; the backfill takes 2 so the live lane always has
             // the other 2. The calendar is the same mailbox: a page of its events, a create or a delete is one request.
+            // Inbox rules are the same mailbox: a page of them, or a delete, is one request; a create reads the rules
+            // first, for the order it goes in, so it is two.
             return ProviderQuota(unitsPerMinute: 1_000, listCost: 1, metadataCostPerMessage: 1, bodyCost: 2,
                                  attachmentCost: 1, changesCost: 1, maxBackfillConcurrency: 2, inlineMetadata: true,
-                                 calendarRequestCost: 1)
+                                 calendarRequestCost: 1, ruleReadCost: 1, ruleCreateCost: 2, ruleDeleteCost: 1)
         }
     }
 

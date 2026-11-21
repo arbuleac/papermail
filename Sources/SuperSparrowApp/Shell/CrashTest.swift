@@ -3,7 +3,7 @@ import Foundation
 import Sentry
 
 /// `--crash-test=<kind>` (debug builds): ends or stalls the app on purpose so a report can be followed from the crash
-/// to Sentry (docs/CRASH-REPORTING.md). The SDK sends a crash at the next launch; an error or a hang at once.
+/// to Sentry (docs/ANALYTICS-AND-REPORTS.md). The SDK sends a crash at the next launch; an error or a hang at once.
 enum CrashTest {
     enum Kind: String, CaseIterable {
         /// The SDK's own test crash (a bad memory access).

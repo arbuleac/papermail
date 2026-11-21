@@ -10,6 +10,8 @@ final class DesignGalleryAvatar: NSView {
         case sender(initials: String, address: String)
         case tinted(initials: String, tint: Quire.AvatarTint)
         case account(monogram: String, slot: Int)
+        /// A paper face (§5.55), drawn from the renderer's bitmap cache as every surface draws it.
+        case paper(Quire.PaperFace)
     }
 
     private let face: Face
@@ -33,6 +35,11 @@ final class DesignGalleryAvatar: NSView {
         let rect = NSRect(x: (bounds.width - diameter) / 2, y: (bounds.height - diameter) / 2, width: diameter, height: diameter)
         let appearance = NSAppearance.currentDrawing()
         let image: NSImage
+        if case .paper(let paper) = face {
+            QuireAvatarRenderer.drawPaperFace(paper, in: rect)
+            if let ring { QuireAvatarRenderer.drawRing(around: rect, accountSlot: ring) }
+            return
+        }
         switch face {
         case .sender(let initials, let address):
             image = QuireAvatarRenderer.shared.face(initials: initials, tint: QuireAvatarRenderer.tint(forAddress: address),
@@ -41,6 +48,8 @@ final class DesignGalleryAvatar: NSView {
             image = QuireAvatarRenderer.shared.face(initials: initials, tint: tint, diameter: diameter, appearance: appearance)
         case .account(let monogram, let slot):
             image = QuireAvatarRenderer.shared.accountFace(monogram: monogram, slot: slot, diameter: diameter, appearance: appearance)
+        case .paper:
+            return
         }
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         if let ring { QuireAvatarRenderer.drawRing(around: rect, accountSlot: ring) }

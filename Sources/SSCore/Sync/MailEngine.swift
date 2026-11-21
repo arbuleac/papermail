@@ -306,13 +306,53 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return account
     }
 
-    /// What a reconnect asks for beyond mail: the permissions queued work waits for (an answered invitation), and those
-    /// the account granted before, so signing in again never takes one away. Reading the old grant is a keychain read on
-    /// the reconnect's own path, which already writes the new tokens; one that fails just leaves the old grant out.
-    private func permissionsToAsk(for account: Account) -> Set<AccountPermission> {
+    // MARK: Server rules
+
+    /// Each rules lane reads the server's rules at its next chance: at once when idle, after its turn under way otherwise,
+    /// and once the account is free to send when it waits for sign-in or its first live cycle. A lane inside a failure's
+    /// backoff reads when the backoff ends.
+    public func refreshServerRules(accountID: AccountID?) {
+        let targets: [AccountContext]
+        if let accountID {
+            targets = registry.context(for: accountID).map { [$0] } ?? []
+        } else {
+            targets = registry.all()
+        }
+        for context in targets {
+            context.syncer.refreshRules()
+        }
+    }
+
+    /// The reconnect asks for the rules scope on top of what the account holds, and the rules are read (and the rules
+    /// waiting sent) once the new grant is stored, rather than at the next live cycle.
+    public func connectRules(_ account: Account) async throws -> Account {
+        let connected = try await reconnect(account, adding: [.rules])
+        refreshServerRules(accountID: connected.id)
+        return connected
+    }
+
+    /// Asked of the account's provider, which reads the scopes its token was granted (through the token provider, which
+    /// holds the newest grant; the keychain otherwise): no request. The demo's made-up servers grant it.
+    public func hasRulesPermission(_ accountID: AccountID) async -> Bool {
+        guard let context = try? context(forAccountID: accountID), let rules = context.provider as? RuleProvider else { return false }
+        return await rules.hasRulesPermission()
+    }
+
+    /// What a reconnect asks for beyond mail: the permissions queued work waits for (an answered invitation; a sender
+    /// rule on its way to the server), and those the account granted before, so signing in again never takes one away.
+    /// Reading the old grant is a keychain read on the reconnect's own path, which already writes the new tokens; one
+    /// that fails just leaves the old grant out.
+    func permissionsToAsk(for account: Account) -> Set<AccountPermission> {
         let waiting = statusCenter.status(for: account.id)?.permissionsNeeded ?? []
         let granted = OAuthEndpoints.permissions(grantedBy: (try? tokenStore.tokens(for: account.id))??.scope, kind: account.kind)
-        return waiting.union(granted)
+        return waiting.union(granted).union(rulesWaiting(for: account) ? [.rules] : [])
+    }
+
+    /// Whether sender rules set or removed on this Mac wait for the server on an account that keeps server rules: they
+    /// need the rules scope, which the account may not have granted yet (the rules lane then says `.notConnected`).
+    private func rulesWaiting(for account: Account) -> Bool {
+        guard context(for: account).syncer.hasRulesLane else { return false }
+        return !((try? store.pendingSenderRules(accountID: account.id)) ?? []).isEmpty
     }
 
     /// Browser sign-in plus a profile read under a provisional id, whose tokens the caller keeps or drops.
@@ -423,6 +463,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         wakeOutbox(for: operations)
     }
 
+    /// Stored at once as a change on its way to the server; the account's rules lane sends it (docs/ARCHITECTURE.md,
+    /// "Rules").
     public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                               performing steps: [MailActionRecord.Step]) throws {
         let now = Date()
@@ -430,6 +472,7 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         let operations = Self.operations(of: steps, at: now).filter { $0.accountID == accountID }
         try store.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
         wakeOutbox(for: operations)
+        registry.context(for: accountID)?.syncer.sendRuleWrites()
     }
 
     /// Steps a millisecond apart, as `setSnoozes` spaces them, so the outbox replays an undo's steps in their order.

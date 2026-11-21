@@ -10,9 +10,9 @@ import SSDesign
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    static let undoSendChoices: [TimeInterval] = [5, 10, 20]
+    nonisolated static let undoSendChoices: [TimeInterval] = [5, 10, 20]
 
-    /// Posted after the row display preferences below change (density, account initials), so AppKit views that
+    /// Posted after the row display preferences below change (density, account faces), so AppKit views that
     /// cache laid-out rows can rebuild without observing each property. The Font setting is not posted here: it
     /// lives in `QuireEnvironment`, whose change notification every Quire surface already follows.
     static let displayPreferencesChanged = Notification.Name("AppSettings.displayPreferencesChanged")
@@ -38,10 +38,11 @@ final class AppSettings: ObservableObject {
         /// The reader's own size, from ⌘+ and ⌘−; absent while the reader follows Text size.
         static let readerTextSize = "readerTextSize"
         static let listDensity = "listDensity"
-        static let showAccountInitials = "showAccountInitials"
+        // Named for the initial tile the faces replaced (Quire 1.10), and kept, so a choice made then still holds.
+        static let showAccountFaces = "showAccountInitials"
         static let originalColorsNoticeDismissed = "originalColorsNoticeDismissed"
-        static let accountInitialsTurnedOnAutomatically = "accountInitialsTurnedOnAutomatically"
-        static let accountInitialsChosenByUser = "accountInitialsChosenByUser"
+        static let accountFacesTurnedOnAutomatically = "accountInitialsTurnedOnAutomatically"
+        static let accountFacesChosenByUser = "accountInitialsChosenByUser"
         static let sevenAccountsNoticePending = "sevenAccountsNoticePending"
         /// The main window's account scope: `unifiedScopeValue` or an account id's raw value.
         static let accountScope = "accountScope"
@@ -56,25 +57,50 @@ final class AppSettings: ObservableObject {
         static let showsDayColumn = "showsDayColumn"
         /// Some account had granted the calendar permission when the engine last said (spec §5.54, the calendar toggle).
         static let hasCalendarAccess = "hasCalendarAccess"
-        /// Settings › General › Crash reports (`CrashReporting` reads it at launch, before the app delegate exists).
-        static let sendsCrashReports = CrashReporting.enabledDefaultsKey
+        /// Settings › General › Analytics and reports (`CrashReporting` and `Analytics` read it at launch, before the app
+        /// delegate exists). Named for crash reports, which it governed first, so a choice made then still holds.
+        static let sendsAnalyticsAndReports = CrashReporting.enabledDefaultsKey
+        /// Settings › AI › Provider (§5.56): an `AIProviderKind` raw value; absent while Help Me Write is off.
+        static let aiProvider = "aiProvider"
+        /// The model chosen for each provider, under this prefix and the provider's raw value.
+        static let aiModelPrefix = "aiModel."
+        /// The CLI chosen with Choose… for Claude Code and Codex, under this prefix and the provider's raw value.
+        static let aiCLIPathPrefix = "aiCLIPath."
+        /// The providers the user allowed to receive a conversation (the consent sheet's Allow), as raw values.
+        static let aiConsent = "aiConsent"
+        /// The demo's own, so an Allow given where nothing leaves the Mac never stands for the user's real mail.
+        static let demoAIConsent = "aiConsent.demo"
+        /// The demo's Allows for a CLI it runs for real (`--live-ai-clis`), apart again: an Allow on the demo's “Nothing
+        /// is sent” sheet never stands for a send.
+        static let liveDemoAIConsent = "aiConsent.demo.live"
+        /// The demo's provider, models and CLIs, kept apart for the same reason: a choice made while trying the demo
+        /// never turns Help Me Write on for the user's own mail.
+        static let demoAIProvider = "aiProvider.demo"
+        static let demoAIModelPrefix = "demoAIModel."
+        static let demoAICLIPathPrefix = "demoAICLIPath."
     }
 
     /// Account ids are UUIDs, so this can never be one.
     private static let unifiedScopeValue = "unified"
 
-    /// Spec §4.2: with this many accounts, colours alone can look alike, so account initials turn on once.
-    static let accountInitialsThreshold = 7
+    /// Spec §4.2: with this many accounts, colours alone can look alike, so account faces turn on once.
+    static let accountFacesThreshold = 7
 
     private let defaults: UserDefaults
 
     @Published var notificationsEnabled: Bool {
-        didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) }
+        didSet {
+            defaults.set(notificationsEnabled, forKey: Key.notifications)
+            if oldValue != notificationsEnabled { report(.notifications(notificationsEnabled)) }
+        }
     }
 
     /// Sender and subject in the notification body. On by default: this is a personal client on the user's own Mac.
     @Published var showPreviews: Bool {
-        didSet { defaults.set(showPreviews, forKey: Key.previews) }
+        didSet {
+            defaults.set(showPreviews, forKey: Key.previews)
+            if oldValue != showPreviews { report(.notificationPreviews(showPreviews)) }
+        }
     }
 
     /// Read live: by the sanitizer for bodies synced from now on, and by the reader, which renders every
@@ -83,13 +109,17 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(loadRemoteImages, forKey: Key.remoteImages)
             applyRemoteImages()
+            if oldValue != loadRemoteImages { report(.remoteImages(loadRemoteImages)) }
         }
     }
 
     /// Spec §5.40 General › Keep mail on this Mac: how far back bodies stay whole on this Mac. Each environment's engine
     /// follows it (`AppEnvironment.follow`), sweeping at once when it narrows; Everything is the default.
     @Published var keepMail: MailRetention {
-        didSet { defaults.set(keepMail.rawValue, forKey: Key.keepMail) }
+        didSet {
+            defaults.set(keepMail.rawValue, forKey: Key.keepMail)
+            if oldValue != keepMail { report(.keepMail(keepMail)) }
+        }
     }
 
     /// The popup's choices, in the order it lists them.
@@ -109,7 +139,10 @@ final class AppSettings: ObservableObject {
     @Published var sendAction: SendAction {
         didSet {
             defaults.set(sendAction.rawValue, forKey: Key.sendAction)
-            if oldValue != sendAction { NotificationCenter.default.post(name: SendActionPreference.didChange, object: self) }
+            if oldValue != sendAction {
+                NotificationCenter.default.post(name: SendActionPreference.didChange, object: self)
+                report(.sendAction(sendAction))
+            }
         }
     }
 
@@ -117,6 +150,7 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(undoSendDelay, forKey: Key.undoSend)
             applyUndoSendDelay()
+            if oldValue != undoSendDelay { report(.undoSend(undoSendDelay)) }
         }
     }
 
@@ -126,6 +160,7 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(typeface.rawValue, forKey: Key.typeface)
             applyTypeface()
+            if oldValue != typeface { report(.font(typeface)) }
         }
     }
 
@@ -139,7 +174,10 @@ final class AppSettings: ObservableObject {
             // Quire still held the old size, broadcast that and measure every body at a size nobody chose, then
             // measure them all again at the new one.
             applyTextSize()
-            if oldValue != textSize { readerTextSize = nil }
+            if oldValue != textSize {
+                readerTextSize = nil
+                report(.textSize(textSize))
+            }
         }
     }
 
@@ -175,6 +213,7 @@ final class AppSettings: ObservableObject {
         didSet {
             defaults.set(theme.rawValue, forKey: Key.theme)
             applyTheme()
+            if oldValue != theme { report(.theme(theme)) }
         }
     }
 
@@ -182,7 +221,10 @@ final class AppSettings: ObservableObject {
     @Published var appearance: AppAppearance {
         didSet {
             defaults.set(appearance.rawValue, forKey: Key.appearance)
-            if oldValue != appearance { applyAppearance() }
+            if oldValue != appearance {
+                applyAppearance()
+                report(.appearance(appearance))
+            }
         }
     }
 
@@ -190,20 +232,24 @@ final class AppSettings: ObservableObject {
     /// that declares its own colours opens adapted to the theme's inks (on, the default) or as sent on a white page
     /// (off). ⇧⌘O still switches one message. The reader reads it for every render.
     @Published var adaptsMailColours: Bool {
-        didSet { defaults.set(adaptsMailColours, forKey: Key.adaptsMailColours) }
+        didSet {
+            defaults.set(adaptsMailColours, forKey: Key.adaptsMailColours)
+            if oldValue != adaptsMailColours { report(.adaptMailColours(adaptsMailColours)) }
+        }
     }
 
     @Published var listDensity: ListDensity {
         didSet {
             defaults.set(listDensity.rawValue, forKey: Key.listDensity)
             postDisplayChange()
+            if oldValue != listDensity { report(.listDensity(listDensity)) }
         }
     }
 
-    /// Spec §5.7: an initial tile beside the account ring in unified views, a second, non-colour account cue.
-    @Published var showAccountInitials: Bool {
+    /// Spec §5.7: the account's face (or its initial) before the time in unified views, a second, non-colour account cue.
+    @Published var showAccountFaces: Bool {
         didSet {
-            defaults.set(showAccountInitials, forKey: Key.showAccountInitials)
+            defaults.set(showAccountFaces, forKey: Key.showAccountFaces)
             postDisplayChange()
         }
     }
@@ -213,16 +259,16 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(originalColorsNoticeDismissed, forKey: Key.originalColorsNoticeDismissed) }
     }
 
-    /// Spec §5.40 Seven accounts: account initials were turned on by a seventh account, not by the user.
+    /// Spec §5.40 Seven accounts: account faces were turned on by a seventh account, not by the user.
     /// While this holds and the user has not touched the checkbox, General captions it.
-    @Published private(set) var accountInitialsTurnedOnAutomatically: Bool {
-        didSet { defaults.set(accountInitialsTurnedOnAutomatically, forKey: Key.accountInitialsTurnedOnAutomatically) }
+    @Published private(set) var accountFacesTurnedOnAutomatically: Bool {
+        didSet { defaults.set(accountFacesTurnedOnAutomatically, forKey: Key.accountFacesTurnedOnAutomatically) }
     }
 
-    /// The user changed Show account initials themselves; their choice is kept and an eighth account does not
+    /// The user changed Show account faces themselves; their choice is kept and an eighth account does not
     /// turn it back on.
-    @Published private(set) var accountInitialsChosenByUser: Bool {
-        didSet { defaults.set(accountInitialsChosenByUser, forKey: Key.accountInitialsChosenByUser) }
+    @Published private(set) var accountFacesChosenByUser: Bool {
+        didSet { defaults.set(accountFacesChosenByUser, forKey: Key.accountFacesChosenByUser) }
     }
 
     /// Settings › Accounts shows the seven-accounts notice until it is dismissed or followed, across launches.
@@ -232,24 +278,27 @@ final class AppSettings: ObservableObject {
 
     /// General's caption under the Rows checkbox: “Turned on when you added a seventh account.”
     var showsSevenAccountsCaption: Bool {
-        showAccountInitials && accountInitialsTurnedOnAutomatically && !accountInitialsChosenByUser
+        showAccountFaces && accountFacesTurnedOnAutomatically && !accountFacesChosenByUser
     }
 
     /// The Rows checkbox: the user's own choice, which ends the automatic state for good.
-    func setShowAccountInitialsByUser(_ on: Bool) {
-        accountInitialsChosenByUser = true
+    func setShowAccountFacesByUser(_ on: Bool) {
+        accountFacesChosenByUser = true
         sevenAccountsNoticePending = false
-        if showAccountInitials != on { showAccountInitials = on }
+        if showAccountFaces != on {
+            showAccountFaces = on
+            report(.accountFaces(on))
+        }
     }
 
-    /// Called after an account is added. The seventh account turns initials on, once ever, unless the user
+    /// Called after an account is added. The seventh account turns faces on, once ever, unless the user
     /// already chose (spec §4.2).
     func accountWasAdded(totalAccounts: Int) {
-        guard totalAccounts >= Self.accountInitialsThreshold, !accountInitialsTurnedOnAutomatically, !accountInitialsChosenByUser,
-              !showAccountInitials else { return }
-        accountInitialsTurnedOnAutomatically = true
+        guard totalAccounts >= Self.accountFacesThreshold, !accountFacesTurnedOnAutomatically, !accountFacesChosenByUser,
+              !showAccountFaces else { return }
+        accountFacesTurnedOnAutomatically = true
         sevenAccountsNoticePending = true
-        showAccountInitials = true
+        showAccountFaces = true
     }
 
     /// The main window's day column is on (spec §5.54, D): kept here rather than in the split view's autosave, so the
@@ -259,24 +308,150 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showsDayColumn, forKey: Key.showsDayColumn) }
     }
 
-    /// Whether some account had granted the calendar permission when the engine last said. Not a setting: the main
-    /// window keeps it so the calendar toggle (and a hidden column's strip) is in place from a launch's first frame,
-    /// before the engine has looked at any account's permission.
-    /// Settings › General › Crash reports › Send to Sentry: on unless turned off. Turning it off closes the crash reporter at once;
-    /// on starts it again (`CrashReporting.setEnabled`).
-    @Published var sendsCrashReports: Bool {
+    /// Settings › General › Analytics and reports: crash reports (Sentry) and analytics (TelemetryDeck) together, on
+    /// unless turned off. Turning it off stops both at once and deletes what they had queued; on starts crash reports
+    /// again, and analytics too unless it already ran in this process, when it waits for the next launch
+    /// (`CrashReporting.setEnabled`, `Analytics.setEnabled`).
+    @Published var sendsAnalyticsAndReports: Bool {
         didSet {
-            guard oldValue != sendsCrashReports else { return }
-            defaults.set(sendsCrashReports, forKey: Key.sendsCrashReports)
-            onCrashReportsChanged(sendsCrashReports)
+            guard oldValue != sendsAnalyticsAndReports else { return }
+            defaults.set(sendsAnalyticsAndReports, forKey: Key.sendsAnalyticsAndReports)
+            onAnalyticsAndReportsChanged(sendsAnalyticsAndReports)
         }
     }
 
-    /// Applies Crash reports; the app's crash reporter unless a test sets its own.
-    var onCrashReportsChanged: (Bool) -> Void = { CrashReporting.setEnabled($0) }
+    /// Applies Analytics and reports; the app's crash reporter and analytics unless a test sets its own.
+    var onAnalyticsAndReportsChanged: (Bool) -> Void = { on in
+        CrashReporting.setEnabled(on)
+        Analytics.setEnabled(on)
+    }
 
+    /// Whether some account had granted the calendar permission when the engine last said. Not a setting: the main
+    /// window keeps it so the calendar toggle (and a hidden column's strip) is in place from a launch's first frame,
+    /// before the engine has looked at any account's permission.
     @Published var hasCalendarAccess: Bool {
         didSet { if oldValue != hasCalendarAccess { defaults.set(hasCalendarAccess, forKey: Key.hasCalendarAccess) } }
+    }
+
+    // MARK: Help Me Write (§5.56)
+
+    /// Settings › AI › Provider: where Help Me Write sends a conversation when the user asks it to write. Nil is Off, the
+    /// default, and nothing is ever sent while it is. The demo writer is never a choice, so it is never stored.
+    @Published var aiProvider: AIProviderKind? {
+        didSet { if oldValue != aiProvider { Self.store(aiProvider, in: defaults, key: Key.aiProvider) } }
+    }
+
+    /// The demo's own choice of provider, kept apart: Off until chosen in the demo, and never the user's.
+    @Published var demoAIProvider: AIProviderKind? {
+        didSet { if oldValue != demoAIProvider { Self.store(demoAIProvider, in: defaults, key: Key.demoAIProvider) } }
+    }
+
+    /// The model chosen for each provider, so switching providers keeps each one's choice. Absent is the provider's
+    /// default (the CLI's own for Claude Code and Codex).
+    @Published private(set) var aiModels: [AIProviderKind: String]
+
+    /// The CLI the user chose with Choose… for Claude Code or Codex; absent means the standard folders.
+    @Published private(set) var aiCLIPaths: [AIProviderKind: String]
+
+    /// The demo's models and CLIs, as `aiModels` and `aiCLIPaths`, kept apart.
+    @Published private(set) var demoAIModels: [AIProviderKind: String]
+    @Published private(set) var demoAICLIPaths: [AIProviderKind: String]
+
+    /// The providers the user allowed to receive a conversation, outside the demo.
+    @Published private(set) var aiConsent: Set<AIProviderKind>
+
+    /// The demo's Allows, kept apart: nothing leaves the Mac there, so they never stand for the user's real mail.
+    @Published private(set) var demoAIConsent: Set<AIProviderKind>
+
+    /// The demo's Allows for its CLIs run for real (`--live-ai-clis`): the conversation does leave the Mac there, so an
+    /// Allow given where replies are made up never counts for them.
+    @Published private(set) var liveDemoAIConsent: Set<AIProviderKind>
+
+    /// What Help Me Write uses now for the user's own mail, or nil while it is off.
+    var aiConfiguration: AIProviderConfiguration? { aiConfiguration(demo: false) }
+
+    /// What Help Me Write uses now, the demo's in the demo, or nil while it is off there.
+    func aiConfiguration(demo: Bool) -> AIProviderConfiguration? {
+        aiProvider(demo: demo).map { kind in
+            AIProviderConfiguration(kind: kind, model: aiModel(for: kind, demo: demo), cliPath: aiCLIPath(for: kind, demo: demo))
+        }
+    }
+
+    func aiProvider(demo: Bool) -> AIProviderKind? {
+        demo ? demoAIProvider : aiProvider
+    }
+
+    func setAIProvider(_ kind: AIProviderKind?, demo: Bool) {
+        if demo { demoAIProvider = kind } else { aiProvider = kind }
+    }
+
+    func aiModel(for kind: AIProviderKind, demo: Bool) -> String? {
+        (demo ? demoAIModels : aiModels)[kind]
+    }
+
+    func aiCLIPath(for kind: AIProviderKind, demo: Bool) -> String? {
+        (demo ? demoAICLIPaths : aiCLIPaths)[kind]
+    }
+
+    func setAIModel(_ model: String?, for kind: AIProviderKind, demo: Bool = false) {
+        let value = model.flatMap { $0.isEmpty ? nil : $0 }
+        if demo { demoAIModels[kind] = value } else { aiModels[kind] = value }
+        Self.store(value, in: defaults, key: (demo ? Key.demoAIModelPrefix : Key.aiModelPrefix) + kind.rawValue)
+    }
+
+    func setAICLIPath(_ path: String?, for kind: AIProviderKind, demo: Bool = false) {
+        let value = path.flatMap { $0.isEmpty ? nil : $0 }
+        if demo { demoAICLIPaths[kind] = value } else { aiCLIPaths[kind] = value }
+        Self.store(value, in: defaults, key: (demo ? Key.demoAICLIPathPrefix : Key.aiCLIPathPrefix) + kind.rawValue)
+    }
+
+    /// The demo writer is never a choice, so it is never stored.
+    private static func store(_ kind: AIProviderKind?, in defaults: UserDefaults, key: String) {
+        if let kind, kind != .demo { defaults.set(kind.rawValue, forKey: key) } else { defaults.removeObject(forKey: key) }
+    }
+
+    private static func store(_ value: String?, in defaults: UserDefaults, key: String) {
+        if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+    }
+
+    /// Whether the user allowed `kind` to receive a conversation: the demo's Allows in the demo (`live`: those for a CLI the
+    /// demo runs for real), the real ones elsewhere.
+    func hasAIConsent(for kind: AIProviderKind, demo: Bool, live: Bool = false) -> Bool {
+        if !demo { return aiConsent.contains(kind) }
+        return (live ? liveDemoAIConsent : demoAIConsent).contains(kind)
+    }
+
+    /// The consent sheet's Allow (`given`), or Settings › AI's Forget, which makes the sheet ask again next time.
+    func setAIConsent(_ given: Bool, for kind: AIProviderKind, demo: Bool, live: Bool = false) {
+        var kinds = !demo ? aiConsent : live ? liveDemoAIConsent : demoAIConsent
+        if given { kinds.insert(kind) } else { kinds.remove(kind) }
+        let stored = kinds.map(\.rawValue).sorted()
+        if !demo {
+            aiConsent = kinds
+            defaults.set(stored, forKey: Key.aiConsent)
+        } else if live {
+            liveDemoAIConsent = kinds
+            defaults.set(stored, forKey: Key.liveDemoAIConsent)
+        } else {
+            demoAIConsent = kinds
+            defaults.set(stored, forKey: Key.demoAIConsent)
+        }
+    }
+
+    private static func storedProvider(_ defaults: UserDefaults, _ key: String) -> AIProviderKind? {
+        defaults.string(forKey: key).flatMap(AIProviderKind.init(rawValue:)).flatMap { AIProviderKind.selectable.contains($0) ? $0 : nil }
+    }
+
+    private static func storedKinds(_ defaults: UserDefaults, _ key: String) -> Set<AIProviderKind> {
+        Set((defaults.stringArray(forKey: key) ?? []).compactMap(AIProviderKind.init(rawValue:)).filter { $0 != .demo })
+    }
+
+    private static func storedValues(_ defaults: UserDefaults, prefix: String) -> [AIProviderKind: String] {
+        var values: [AIProviderKind: String] = [:]
+        for kind in AIProviderKind.selectable {
+            if let value = defaults.string(forKey: prefix + kind.rawValue), !value.isEmpty { values[kind] = value }
+        }
+        return values
     }
 
     /// The account scope an earlier launch left the main window on, or nil when none is saved. Not a setting: the
@@ -307,10 +482,10 @@ final class AppSettings: ObservableObject {
             Key.typeface: QuireFont.Typeface.newYork.rawValue,
             Key.textSize: QuireFont.TextSize.default.rawValue,
             Key.listDensity: ListDensity.standard.rawValue,
-            Key.showAccountInitials: false,
+            Key.showAccountFaces: false,
             Key.originalColorsNoticeDismissed: false,
-            Key.accountInitialsTurnedOnAutomatically: false,
-            Key.accountInitialsChosenByUser: false,
+            Key.accountFacesTurnedOnAutomatically: false,
+            Key.accountFacesChosenByUser: false,
             Key.sevenAccountsNoticePending: false,
             Key.keepMail: MailRetention.everything.rawValue,
             Key.sendAction: SendAction.default.rawValue,
@@ -318,7 +493,7 @@ final class AppSettings: ObservableObject {
             Key.appearance: AppAppearance.automatic.rawValue,
             Key.adaptsMailColours: true,
             Key.showsDayColumn: true,
-            Key.sendsCrashReports: true,
+            Key.sendsAnalyticsAndReports: true,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
@@ -339,14 +514,24 @@ final class AppSettings: ObservableObject {
         appearance = AppAppearance(rawValue: defaults.string(forKey: Key.appearance) ?? "") ?? .automatic
         adaptsMailColours = defaults.object(forKey: Key.adaptsMailColours) as? Bool ?? true
         listDensity = ListDensity(rawValue: defaults.string(forKey: Key.listDensity) ?? "") ?? .standard
-        showAccountInitials = defaults.bool(forKey: Key.showAccountInitials)
+        showAccountFaces = defaults.bool(forKey: Key.showAccountFaces)
         originalColorsNoticeDismissed = defaults.bool(forKey: Key.originalColorsNoticeDismissed)
-        accountInitialsTurnedOnAutomatically = defaults.bool(forKey: Key.accountInitialsTurnedOnAutomatically)
-        accountInitialsChosenByUser = defaults.bool(forKey: Key.accountInitialsChosenByUser)
+        accountFacesTurnedOnAutomatically = defaults.bool(forKey: Key.accountFacesTurnedOnAutomatically)
+        accountFacesChosenByUser = defaults.bool(forKey: Key.accountFacesChosenByUser)
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
-        sendsCrashReports = defaults.bool(forKey: Key.sendsCrashReports)
+        sendsAnalyticsAndReports = defaults.bool(forKey: Key.sendsAnalyticsAndReports)
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
         hasCalendarAccess = defaults.bool(forKey: Key.hasCalendarAccess)
+        // A raw value this version does not know (a provider from a later one) is Off: nothing is sent to a guess.
+        aiProvider = Self.storedProvider(defaults, Key.aiProvider)
+        demoAIProvider = Self.storedProvider(defaults, Key.demoAIProvider)
+        aiModels = Self.storedValues(defaults, prefix: Key.aiModelPrefix)
+        aiCLIPaths = Self.storedValues(defaults, prefix: Key.aiCLIPathPrefix)
+        demoAIModels = Self.storedValues(defaults, prefix: Key.demoAIModelPrefix)
+        demoAICLIPaths = Self.storedValues(defaults, prefix: Key.demoAICLIPathPrefix)
+        aiConsent = Self.storedKinds(defaults, Key.aiConsent)
+        demoAIConsent = Self.storedKinds(defaults, Key.demoAIConsent)
+        liveDemoAIConsent = Self.storedKinds(defaults, Key.liveDemoAIConsent)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
     }
@@ -376,6 +561,11 @@ final class AppSettings: ObservableObject {
     /// Shows the saved appearance. Called by `appearance`'s observer; the app delegate applies it itself at launch.
     func applyAppearance() {
         NSApplication.shared.appearance = appearance.nsAppearance
+    }
+
+    /// A setting the user changed, for analytics: which, and its new value from a closed set.
+    private func report(_ change: AnalyticsSignal.SettingChange) {
+        Analytics.send(.settingChanged(change))
     }
 
     private func postDisplayChange() {

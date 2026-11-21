@@ -26,10 +26,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private static let autosaveDelay: TimeInterval = 1.5
     private static let logger = Logger(subsystem: "io.supersparrow.mac", category: "compose")
 
-    private let client: MailClient
-    private let accounts: [Account]
+    let client: MailClient
+    let accounts: [Account]
     let mode: ComposeMode
-    private var account: Account
+    private(set) var account: Account
     /// This message's identity in `ComposeDraftStore`.
     private(set) var draftID = UUID()
     /// The provider's draft this message continues (Continue Editing on a synced Drafts row); sending it
@@ -51,6 +51,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// What the bottom bar's status says now (the app's tests read it).
     var status: ComposeStatus? { statusBoard.current }
 
+    /// Send was pressed and the message is not yet handed over: the button shows it is sending (the app's tests read it).
+    var sendIsStarting: Bool { isSending }
+
     /// The message this composer replies to (not a forward): the reader disables its quick reply while one
     /// of its conversation's messages has a reply open here (§5.18).
     var repliesTo: MessageID? {
@@ -58,7 +61,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         return nil
     }
 
-    private let content = ComposeContentView()
+    let content = ComposeContentView()
     private let fromPopup: QuirePopUpButton
     private let toField = AddressTokenField()
     private let ccField = AddressTokenField()
@@ -96,7 +99,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var baseline = ComposeDraft.Fingerprint()
     private var prefillTask: Task<Void, Never>?
     private var isPrefilling = false
-    private var isSending = false
+    private(set) var isSending = false
     private var closesWithoutSaving = false
     private var statusBoard = ComposeStatusBoard() {
         didSet { if oldValue != statusBoard { showStatus() } }
@@ -105,15 +108,33 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// A draft of this window is on disk, so “nothing worth keeping” must remove it.
     private var hasStoredDraft = false
     private var linkPopover: ComposeLinkPopover?
+    /// Help me write on the body of a reply (§5.56), made the first time it is reached (`bodyWriteSession`).
+    var writeSession: WriteSession?
+    /// Help me write's marks in the body's text (§5.56), made with the session; the pill floats on the body's page, which
+    /// holds it where it hangs under the body's last line.
+    private(set) lazy var bodyWriteLayer = WriteInlineLayer(textView: textView, floatHost: bodyDocument)
+    /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`),
+    /// and so does everything else that would take the half-written reply or edit around it: Send, ⌘↩, Send and Archive
+    /// and Send Later, which would send it; From, whose signature swap the body would refuse; and the other fields,
+    /// whose edits the silenced undo would not record (§5.56). The attachment strip is not the body: Attach Files…, a drop
+    /// or a pasted file still attach.
+    var refusesBodyEdits = false {
+        didSet {
+            guard oldValue != refusesBodyEdits else { return }
+            updateEditLock()
+            updateSendEnabled()
+        }
+    }
     private var statusObservation: StoreObservation?
     /// The body holds, or held, a signature this window put there, or is a reopened draft left as the user had it.
     /// A From change then replaces only a signature still in the body: one the user deleted is not added again.
     private var signaturePlaced = false
     /// Set while a From change replaces the signature, so that edit is not taken for the user's own (§5.20 Status).
     private var isReplacingSignature = false
-    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default; a Send Later time schedules this
-    /// message for it.
+    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default; a row's key pressed while it is
+    /// open sends as ⌘↩ or ⇧⌘↩ would; a Send Later time schedules this message for it.
     private lazy var sendActionMenu = SendActionMenu(choose: { SendActionPreference.choose($0) },
+                                                     send: { [weak self] action in self?.send(fromMenu: action) },
                                                      sendLater: { [weak self] date in self?.sendLater(at: date) })
 
     // MARK: Presenting
@@ -122,13 +143,16 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// draft opens with what was written; one already open comes forward.
     ///
     /// `body` is text already written for it (the quick reply's, §5.18): it opens in the editor with the caret
-    /// at its end, below anything a kept draft held. With `attach`, the Attach Files panel follows at once.
+    /// at its end, below anything a kept draft held. With `attach`, the Attach Files panel follows at once; `dropped` is
+    /// what was dropped on the quick reply, attached as a drop on this window would attach it.
     @discardableResult
     static func present(client: MailClient, account: Account, accounts: [Account], mode: ComposeMode, body: String = "",
-                        attach: Bool = false) -> ComposeWindowController {
+                        attach: Bool = false, dropped: [AttachmentDropItem] = []) -> ComposeWindowController {
         let typed = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : body
         let controller: ComposeWindowController
         var caret: Int?
+        // For analytics: a window opened, and as what; a kept draft's window only brought forward opens none.
+        let started: AnalyticsSignal.ComposeKind?
         // A reply scheduled with Send Later keeps its draft until it goes; R again starts another reply rather than
         // reopening that one, which would leave the same message scheduled and open for sending at once.
         if var kept = ComposeDraftStore.shared.keptDraft(for: mode, accounts: accounts),
@@ -138,8 +162,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 kept.body = joined.body
                 caret = joined.caret
             }
-            controller = present(client: client, accounts: accounts, draft: kept)
+            let reopened = reopen(client: client, accounts: accounts, draft: kept)
+            controller = reopened.controller
+            started = reopened.opened ? .draft : nil
         } else {
+            started = AnalyticsSignal.ComposeKind(mode)
             controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: mode)
             caret = controller.startBody(typed: typed.isEmpty ? nil : ComposeTextView.plainBody(typed))
             controller.show()
@@ -149,7 +176,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             controller.textView.setSelectedRange(NSRange(location: caret ?? (controller.textView.string as NSString).length, length: 0))
             controller.draftChanged(body: true)
         }
+        if !dropped.isEmpty { controller.attachDropped(dropped) }
         if attach { controller.attachFile(nil) }
+        if let started { Analytics.send(.composeStarted(started, .app, Analytics.trigger)) }
         return controller
     }
 
@@ -161,6 +190,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         controller.startBody(typed: nil)
         controller.show()
         controller.window?.makeFirstResponder(controller.subjectField)
+        Analytics.send(.composeStarted(.new, .app, Analytics.trigger))
         return controller
     }
 
@@ -180,6 +210,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             // The end of the link's body, above the signature.
             controller.textView.setSelectedRange(NSRange(location: bodyEnd, length: 0))
         }
+        Analytics.send(.composeStarted(.new, .mailLink, nil))
         return controller
     }
 
@@ -192,6 +223,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         let controller = ComposeWindowController(client: client, account: account, accounts: accounts, mode: .new)
         controller.fill(from: service)
         controller.show()
+        Analytics.send(.composeStarted(.new, .service, nil))
         return controller
     }
 
@@ -199,22 +231,29 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// already open.
     @discardableResult
     static func present(client: MailClient, accounts: [Account], draft: ComposeDraft) -> ComposeWindowController {
+        reopen(client: client, accounts: accounts, draft: draft).controller
+    }
+
+    /// `present(client:accounts:draft:)`, saying whether a window opened rather than one already open came forward.
+    private static func reopen(client: MailClient, accounts: [Account], draft: ComposeDraft) -> (controller: ComposeWindowController, opened: Bool) {
         if let open = ComposeWindowRegistry.shared.openControllers.first(where: { $0.draftID == draft.id }) {
             open.window?.makeKeyAndOrderFront(nil)
             NSApp.activate()
-            return open
+            return (open, false)
         }
         let controller = ComposeWindowController(client: client, account: draft.account, accounts: accounts, mode: draft.mode)
         controller.restore(draft)
         controller.show()
-        return controller
+        return (controller, true)
     }
 
     /// Opens the kept draft `id` (the Drafts view's Continue Editing); false when it is gone.
     @discardableResult
     static func reopenKeptDraft(id: UUID, client: MailClient, accounts: [Account]) -> Bool {
         guard let draft = ComposeDraftStore.shared.draft(id: id, accounts: accounts) else { return false }
-        present(client: client, accounts: accounts, draft: draft)
+        if reopen(client: client, accounts: accounts, draft: draft).opened {
+            Analytics.send(.composeStarted(.draft, .app, Analytics.trigger))
+        }
         return true
     }
 
@@ -286,7 +325,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     private func buildContent(in window: NSWindow) {
         window.contentView = content
-        content.onDropFiles = { [weak self] urls in self?.addAttachments(from: urls) }
+        content.onDrop = { [weak self] items in self?.attachDropped(items) }
+        // A drop while the message is being handed over, or the window is going, would be thrown away: none is offered.
+        content.acceptsDrops = { [weak self] in self.map { !$0.isSending && !$0.closesWithoutSaving } ?? false }
         content.onCommand = { [weak self] command in self?.perform(command) }
         content.rows = [fromRow, toRow, ccRow, bccRow, subjectRow]
         fromRow.isHidden = accounts.count < 2
@@ -364,6 +405,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         textView.onLinkRequest = { [weak self] _ in self?.showLinkPopover() }
         // Files pasted or dropped on the text that are not all pictures attach, as files dropped anywhere else do.
         textView.onAttachFiles = { [weak self] urls in self?.addAttachments(from: urls) }
+        textView.onAttachFromMail = { [weak self] items in self?.attachDropped(items) }
         // The autosave before a picture was ready left it out; the next one takes it in.
         textView.onPictureReady = { [weak self] in self?.scheduleAutosave() }
         quoteView.onHeightChange = { [weak self] in self?.bodyDocument.needsLayout = true }
@@ -416,7 +458,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func populateFromPopup() {
         fromPopup.titles = accounts.map(AccountLabels.senderTitle(for:))
         selectAccountInFromPopup()
-        fromPopup.isEnabled = accounts.count > 1
+        fromPopup.isEnabled = accounts.count > 1 && !isHeld && !refusesBodyEdits
     }
 
     private func selectAccountInFromPopup() {
@@ -451,6 +493,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         for row in [fromRow, toRow, ccRow, bccRow, subjectRow] { row.needsDisplay = true }
         for field in [toField, ccField, bccField] { field.windowKeyDidChange() }
         content.strip.windowKeyDidChange()
+        // Help me write's availability is read from this Mac as the window comes forward (spec §3b: no provider is asked).
+        if note.name == NSWindow.didBecomeKeyNotification { bodyWriteSession?.refresh() }
         if note.name == NSWindow.didResignKeyNotification {
             for field in [toField, ccField, bccField] { field.closeAutocomplete() }
         }
@@ -459,6 +503,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     // MARK: Header actions
 
     @objc private func fromChanged(_ sender: Any?) {
+        // A reply streaming in keeps the From it was asked under: the body would refuse the new signature.
+        guard !refusesBodyEdits else {
+            selectAccountInFromPopup()
+            NSSound.beep()
+            return
+        }
         guard accounts.indices.contains(fromPopup.selectedIndex) else { return }
         let chosen = accounts[fromPopup.selectedIndex]
         guard chosen.id != account.id else { return }
@@ -622,14 +672,22 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         return true
     }
 
+    /// While Help me write streams a reply into the body, typing, pasting and a From change's signature wait: the reply and
+    /// the user's own edits never interleave (§5.56).
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        !(textView === self.textView && refusesBodyEdits)
+    }
+
     func textDidChange(_ notification: Notification) {
         // A From change replacing the signature reports itself as a header edit (`fromChanged`).
         if !isReplacingSignature { draftChanged(body: true) }
         updateFormatState()
+        bodyWriteSession?.userDidEdit()
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
         updateFormatState()
+        if (notification.object as? NSTextView) === textView { bodyWriteSession?.selectionDidChange() }
     }
 
     /// Clicking a link in the body places the caret, as anywhere else in text being written; ⌘K on it opens
@@ -645,6 +703,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         updateFormatState()
     }
 
+    /// The body's right-click menu opens with Help Me Write's group on a reply (§5.56): the mouse's way to it, now that the
+    /// bar has no Write button. Showing it sends nothing.
+    func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        guard view === textView, let session = bodyWriteSession else { return menu }
+        for (index, item) in session.contextMenuItems().enumerated() { menu.insertItem(item, at: index) }
+        return menu
+    }
+
     // MARK: Format row
 
     @objc func toggleFormatRow(_ sender: Any?) {
@@ -657,6 +723,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func applyFormat(_ item: ComposeFormatRow.Item) {
+        // A reply streaming into the body takes no formatting or link until it ends, and the keyboard stays where it is.
+        guard !refusesBodyEdits else {
+            NSSound.beep()
+            return
+        }
         if window?.firstResponder !== textView { window?.makeFirstResponder(textView) }
         switch item {
         case .bold: textView.toggleBold(nil)
@@ -697,6 +768,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     private func showLinkPopover() {
         guard linkPopover == nil, !isSending else { return }
+        guard !refusesBodyEdits else {
+            NSSound.beep()
+            return
+        }
         linkPopover = textView.presentLinkPopover(in: content) { [weak self] in
             self?.linkPopover = nil
             self?.updateFormatState()
@@ -925,6 +1000,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func autosave() {
         autosaveTimer = nil
         guard !isSending, !closesWithoutSaving else { return }
+        // A reply streaming in (§5.56) is kept once it is the user's, as one edit; until then the draft waits.
+        if refusesBodyEdits {
+            scheduleAutosave()
+            return
+        }
         guard isWorthKeeping else {
             if hasStoredDraft {
                 ComposeDraftStore.shared.remove(id: draftID)
@@ -984,7 +1064,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// at the body's caret, as pasting them would; Attach Files… puts files on the strip instead. The panel lists
     /// pictures only.
     @objc func insertPicture(_ sender: Any?) {
-        guard let window, !isSending else { return }
+        // A reply streaming into the body refuses the picture as it refuses typing (§5.56): the item waits for it.
+        guard let window, !isSending, !refusesBodyEdits else {
+            if refusesBodyEdits { NSSound.beep() }
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -993,12 +1077,113 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         panel.prompt = "Insert"
         panel.beginSheetModal(for: window) { [weak self] response in
             MainActor.assumeIsolated {
-                guard response == .OK, let self, !self.isSending else { return }
+                guard response == .OK, let self, !self.isSending, !self.refusesBodyEdits else { return }
                 self.window?.makeFirstResponder(self.textView)
                 self.textView.insertPictureFiles(panel.urls)
             }
         }
     }
+
+    /// What a drop on the window brings (§5.20), or the quick reply's (§5.18): files as Attach Files… attaches them, and
+    /// attachments dragged from a message (§5.17) as chips that load until their bytes are in. The user's change to the
+    /// draft either way.
+    func attachDropped(_ items: [AttachmentDropItem]) {
+        guard !isSending else { return }
+        var urls: [URL] = []
+        var references: [MailAttachmentReference] = []
+        for item in items {
+            switch item {
+            case .file(let url): urls.append(url)
+            case .mail(let reference): references.append(reference)
+            }
+        }
+        let attachedFiles = !urls.isEmpty && attach(urls)
+        let resolved = references.compactMap(resolve)
+        for reference in resolved { attachFromMail(reference) }
+        if resolved.count < references.count { statusBoard.post(.droppedAttachmentsGone(count: references.count - resolved.count)) }
+        if attachedFiles || !resolved.isEmpty { draftChanged(body: false) }
+    }
+
+    /// The app's own attachment as the store lists it: any app can write the type to a pasteboard, so the message and
+    /// file a reference names are only taken when a stored message lists that file, and the name, type and size are the
+    /// store's, never the pasteboard's. Nil when no stored message lists it (deleted meanwhile, or never the app's).
+    private func resolve(_ reference: MailAttachmentReference) -> MailAttachmentReference? {
+        let listed = (try? client.store.attachments(of: reference.message)) ?? nil
+        guard let info = listed?.first(where: { $0.id == reference.info.id && !$0.isInline }) else { return nil }
+        return MailAttachmentReference(message: reference.message, info: info)
+    }
+
+    /// Fetches of attachments dragged from a message, by chip: Send waits for them.
+    private var mailFetches: [UUID: Task<Void, Never>] = [:]
+    /// A Send or Send Later waiting for those fetches (§5.20): it goes once the last file is in.
+    private var sendAfterDrops: (() -> Void)?
+
+    /// An attachment dragged from a message (§5.17): its chip joins the strip at once, loading, and is ready once the engine
+    /// hands over the bytes (this Mac's copy, or a download, as the reader's Download fetches it). One that cannot be
+    /// fetched leaves the strip again and the status says so; one the user removed meanwhile is forgotten.
+    private func attachFromMail(_ reference: MailAttachmentReference) {
+        let placeholder = ComposeAttachment.loading(info: reference.info, contentID: nil)
+        attachments.append(placeholder)
+        let client = client
+        mailFetches[placeholder.id] = Task { [weak self] in
+            var bytes: Data?
+            do {
+                bytes = try await client.attachmentData(for: reference.message, attachmentID: reference.info.id,
+                                                        expectedSize: reference.info.sizeBytes, progress: nil)
+            } catch {
+                let failure = error as NSError
+                Self.logger.error("Compose could not fetch a dropped attachment: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
+            }
+            // Removed meanwhile (its entry went with its chip), or the window closed: nothing more to do.
+            guard let self, self.mailFetches.removeValue(forKey: placeholder.id) != nil else { return }
+            guard let bytes else {
+                self.attachments.removeAll { $0.id == placeholder.id }
+                if !self.content.strip.hasChips, self.window?.firstResponder === self.content.strip { self.window?.makeFirstResponder(self.textView) }
+                self.statusBoard.post(.droppedAttachmentFailed(name: reference.filename))
+                self.dropFetchEnded(failed: true)
+                return
+            }
+            self.replaceAttachment(placeholder.id) { attachment in
+                attachment.source = .data(bytes)
+                attachment.sizeBytes = bytes.count
+                attachment.state = .ready
+            }
+            self.draftChanged(body: false)
+            self.dropFetchEnded(failed: false)
+        }
+    }
+
+    /// Send and Send Later wait for attachments dragged from a message that are still arriving (§5.20). The button shows
+    /// it is sending and the fields hold still, so the message that goes is the one checked; the window still closes
+    /// (keeping the draft), Esc stops the wait, and a loading chip can be removed, which lets the send go without it. One
+    /// that could not be fetched stops the send, its status saying which, so nothing leaves without a file the user added.
+    /// `proceed` runs at once when none is arriving; asked again while waiting, the latest action is the one that runs.
+    private func afterDroppedAttachments(_ proceed: @escaping () -> Void) {
+        guard !mailFetches.isEmpty else { return proceed() }
+        sendAfterDrops = proceed
+        setHeld(true)
+    }
+
+    /// One dropped attachment's fetch ended, or its chip was removed: a waiting send stops at a failure and goes once
+    /// nothing is left to arrive.
+    private func dropFetchEnded(failed: Bool) {
+        guard let proceed = sendAfterDrops else { return }
+        if failed {
+            stopWaitingToSend()
+            NSSound.beep()
+        } else if mailFetches.isEmpty {
+            stopWaitingToSend()
+            proceed()
+        }
+    }
+
+    private func stopWaitingToSend() {
+        sendAfterDrops = nil
+        setHeld(false)
+    }
+
+    /// Send waits for dropped attachments (the app's tests read it).
+    var isWaitingToSend: Bool { sendAfterDrops != nil }
 
     /// Attaches the readable files as the user's change to the draft.
     private func addAttachments(from urls: [URL]) {
@@ -1033,8 +1218,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// with the sample in it (and write the sample a second time), and the demo's Drafts never show it. A reply that
     /// already holds the sample (kept by a run before this rule) is left as it is.
     func writeDemoSample() {
-        autosaveTimer?.invalidate()
-        closesWithoutSaving = true
+        keepNoDraft()
         guard !textView.string.contains(DemoComposerSample.text),
               let picture = ComposeImageAttachment.make(data: DemoComposerSample.picture, typeIdentifier: ComposerImageFormat.png.typeIdentifier,
                                                         filename: DemoComposerSample.pictureName) else { return }
@@ -1043,9 +1227,20 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         textView.insertPictures([picture])
     }
 
+    /// A snapshot's composer keeps no draft: its sample is the snapshot's, not the user's.
+    func keepNoDraft() {
+        autosaveTimer?.invalidate()
+        closesWithoutSaving = true
+    }
+
     private func removeAttachment(id: UUID) {
         guard !isSending else { return }
         attachments.removeAll { $0.id == id }
+        // A file still arriving from a message is not waited for any longer: a send waiting on it may go.
+        if let fetch = mailFetches.removeValue(forKey: id) {
+            fetch.cancel()
+            dropFetchEnded(failed: false)
+        }
         draftChanged(body: false)
         if !content.strip.hasChips, window?.firstResponder === content.strip { window?.makeFirstResponder(textView) }
     }
@@ -1068,8 +1263,18 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         send(as: .sendAndArchive)
     }
 
+    /// A row's key pressed while the drop-down is open: the checked row's ⌘↩ does what Send does, Send and Archive's ⇧⌘↩
+    /// always archives, as the keys do with the menu closed.
+    private func send(fromMenu action: SendAction) {
+        if action == SendActionPreference.current {
+            send(nil)
+        } else {
+            sendAndArchive(nil)
+        }
+    }
+
     private func send(as action: SendAction) {
-        guard !isSending, !isPrefilling, validateRecipients() else {
+        guard !isSending, !isPrefilling, !refusesBodyEdits, validateRecipients() else {
             NSSound.beep()
             return
         }
@@ -1087,10 +1292,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         performSend(action)
     }
 
-    /// Send's drop-down (§5.23): the two actions, the default checked; choosing one makes it the default for every Send
-    /// button and ⌘↩. It never sends. Hung from the chevron; tracks until dismissed.
+    /// Send's drop-down (§5.23): the two actions, the default checked, each with the key that does it now; choosing one
+    /// makes it the default for every Send button and ⌘↩, and a click never sends. Hung from Send's face; tracks until
+    /// dismissed.
     @objc func showSendOptions(_ sender: Any?) {
-        SendActionMenu.popUp(sendOptionsMenu(), from: bar.sendOptionsButton)
+        guard !isSending, !refusesBodyEdits else { return }
+        SendActionMenu.popUp(sendOptionsMenu(), from: bar.send)
     }
 
     /// The drop-down's menu as it opens now (the app's tests choose from it).
@@ -1098,15 +1305,20 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         sendActionMenu.menu(current: SendActionPreference.current)
     }
 
+    #if DEBUG
+    /// The drop-down's builder, for a render of the menu with either choice (`SendSnapshotStates`).
+    var debugSendActionMenu: SendActionMenu { sendActionMenu }
+    #endif
+
     // MARK: Send Later
 
-    /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's drop-down as its menu would be.
+    /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's face as its drop-down would be.
     @objc func sendLater(_ sender: Any?) {
-        guard !isSending, bar.sendButton.isEnabled else {
+        guard !isSending, !refusesBodyEdits, bar.sendButton.isEnabled else {
             NSSound.beep()
             return
         }
-        SendActionMenu.popUp(sendLaterMenu(), from: bar.sendOptionsButton)
+        SendActionMenu.popUp(sendLaterMenu(), from: bar.send)
     }
 
     /// The menu ⇧⌘L pops (the app's tests choose from it).
@@ -1128,7 +1340,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     /// As Send checks a message before it goes: a recipient, then a subject (§5.20).
     private func schedule(at date: Date) {
-        guard !isSending, !isPrefilling, validateRecipients() else {
+        guard !isSending, !isPrefilling, !refusesBodyEdits, validateRecipients() else {
             NSSound.beep()
             return
         }
@@ -1150,6 +1362,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// the Drafts row stands in for: opening the row brings it back as written. The window closes and the main window
     /// says when it sends, with Undo. The draft is kept before the send is queued, so a send never waits without one.
     private func performSchedule(at date: Date) {
+        guard mailFetches.isEmpty else { return afterDroppedAttachments { [weak self] in self?.performSchedule(at: date) } }
         autosaveTimer?.invalidate()
         var current = currentDraft()
         current.sendFailure = nil
@@ -1187,6 +1400,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             self.hasStoredDraft = true
             do {
                 let sendID = try self.client.scheduleSend(message, at: date, draftID: draft.id)
+                Analytics.send(.sendLaterScheduled(.composer))
                 let client = self.client
                 let accounts = self.accounts
                 self.closesWithoutSaving = true
@@ -1235,6 +1449,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func performSend(_ action: SendAction) {
+        guard mailFetches.isEmpty else { return afterDroppedAttachments { [weak self] in self?.performSend(action) } }
         autosaveTimer?.invalidate()
         let draft = currentDraft()
         let normalized = ComposeBodyNormalizer.normalize(draft.body)
@@ -1270,6 +1485,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             let message = sent.outgoingMessage(normalizedBody: normalized, loadedAttachments: outcome.parts)
             do {
                 let sendID = try self.client.send(message, undoWindow: Self.undoWindow)
+                Analytics.send(.messageSent(.init(self.mode), archives: action.archives))
                 // Queued: Send and Archive archives the conversation it answers now, as E would, and the panel's Undo
                 // brings it back with the message (§5.23). A new message has none.
                 let archive = action.archives
@@ -1307,12 +1523,29 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private func setSending(_ sending: Bool) {
         isSending = sending
         if sending { sendFailure = nil }
-        bar.sendButton.isLoading = sending
-        bar.sendOptionsButton.isEnabled = !sending
-        for field in [toField, ccField, bccField] { field.isLocked = sending }
-        subjectField.isEditable = !sending
-        textView.isEditable = !sending
+        setHeld(sending)
+    }
+
+    /// The button shows the send under way and the fields hold still: while the message is handed over, and while a send
+    /// waits for dropped attachments (`afterDroppedAttachments`).
+    private func setHeld(_ held: Bool) {
+        let held = held || isHeld
+        bar.sendButton.isLoading = held
+        textView.isEditable = !held
+        updateEditLock()
         updateSendEnabled()
+    }
+
+    /// A send holds the window: while the message is handed over, and while it waits for dropped attachments.
+    private var isHeld: Bool { isSending || sendAfterDrops != nil }
+
+    /// The header fields, From and Send's drop-down take no change while a send is held or a reply streams in.
+    private func updateEditLock() {
+        let locked = isHeld || refusesBodyEdits
+        bar.sendOptionsButton.isEnabled = !locked
+        for field in [toField, ccField, bccField] { field.isLocked = locked }
+        subjectField.isEditable = !locked
+        fromPopup.isEnabled = accounts.count > 1 && !locked
     }
 
     /// Send is disabled without a valid recipient (§5.23); its tooltip says what to fix, and otherwise what Send does now
@@ -1325,8 +1558,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         let action = sendAction
         button.toolTip = readiness.isEnabled ? action.tooltip : readiness.tooltip
         // While sending, the button's own “Sending…” is its name.
-        button.setAccessibilityLabel(isSending ? nil : action.title)
-        button.isEnabled = isSending || (!isPrefilling && readiness.isEnabled)
+        button.setAccessibilityLabel(button.isLoading ? nil : action.title)
+        button.isEnabled = isSending || (!isPrefilling && !refusesBodyEdits && readiness.isEnabled)
     }
 
     // MARK: Discarding
@@ -1334,7 +1567,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// Message › Discard Draft… (§5.20): the one way to throw a draft away, since closing keeps it. The alert
     /// is AppAlert's composer form (§5.33: “Keep Writing” default and Esc, “Discard” destructive).
     @objc func discardDraft(_ sender: Any?) {
-        guard let window, !isSending else { return }
+        // While a reply streams into the body the draft is not the user's to judge yet: Stop first (§5.56).
+        guard let window, !isSending, !refusesBodyEdits else {
+            if refusesBodyEdits { NSSound.beep() }
+            return
+        }
         AppAlert.discardDraft(recipient: currentDraft().firstRecipientName).present(on: window) { [weak self] choice in
             guard choice == 1, let self else { return }
             self.confirmDiscard()
@@ -1345,6 +1582,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// button titled “Cancel”, and a button holds one key equivalent (a hidden button's never fires), so the
     /// sheet's Esc is caught by a local monitor that lives as long as the sheet.
     private func confirmDiscard() {
+        // What Undo brings back is what the user wrote, never half a reply: a write still streaming is put back first.
+        endHelpMeWrite()
         let draft = currentDraft()
         let client = client
         let accounts = accounts
@@ -1363,6 +1602,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// holding the user's work stays open, since Esc must never throw work away. Every field and the window call it,
     /// so it answers wherever the keyboard is.
     @objc func escapeComposer(_ sender: Any?) {
+        // Help me write takes Esc first: it stops a write, or closes its strip (§6.1).
+        if writeSession?.escape() == true { return }
+        // A send waiting for dropped attachments is stopped next; the message stays as written.
+        if sendAfterDrops != nil { return stopWaitingToSend() }
         guard !isSending, !isWorthKeeping, !isTypingAnAddress else { return }
         window?.performClose(nil)
     }
@@ -1386,23 +1629,35 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
         if Self.formatCommands.contains(action) {
-            return !isSending && !KeyboardRouter.isTextInput(window?.firstResponder)
+            return !isSending && !refusesBodyEdits && !KeyboardRouter.isTextInput(window?.firstResponder)
         }
         switch action {
-        case #selector(discardDraft(_:)), #selector(attachFile(_:)), #selector(insertPicture(_:)), #selector(addCcField(_:)),
-             #selector(addBccField(_:)):
+        case #selector(attachFile(_:)), #selector(addCcField(_:)), #selector(addBccField(_:)):
             return !isSending
+        case #selector(discardDraft(_:)), #selector(insertPicture(_:)):
+            // Both act on the body, which a reply streaming in keeps until it ends (§5.56).
+            return !isSending && !refusesBodyEdits
         case #selector(send(_:)), #selector(sendAndArchive(_:)), #selector(sendLater(_:)):
-            return !isSending && bar.sendButton.isEnabled
+            return !isSending && !refusesBodyEdits && bar.sendButton.isEnabled
         case #selector(toggleFormatRow(_:)):
             menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"
             return true
+        case #selector(helpMeWrite(_:)), #selector(helpMeWriteWithInstructions(_:)):
+            // New messages and forwards answer no one: the item says so rather than writing to nobody (§5.56).
+            return validateHelpMeWrite(menuItem)
         default:
             return true
         }
     }
 
     // MARK: NSWindowDelegate
+
+    /// To, Cc, Bcc and Subject edit in a field editor that hands dragged files and attachments to the window (§5.20).
+    private lazy var fieldEditor = ComposeFieldEditor.make()
+
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+        client is NSTextField ? fieldEditor : nil
+    }
 
     /// Closing never asks (§5.20): content worth keeping is saved before the window goes, nothing is kept
     /// otherwise. While a send is starting the window stays; the undo panel replaces it at once.
@@ -1416,6 +1671,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// The synchronous save behind closing and quitting: content worth keeping is written before returning,
     /// a draft that no longer holds anything worth keeping is removed.
     private func keepDraftNow() {
+        // A reply still streaming in is not the user's yet: the body goes back to what they wrote before it is kept.
+        endHelpMeWrite()
         // A picture still being prepared goes into this save: the window will not be there to save it later.
         textView.finishPreparingPictures()
         autosaveTimer?.invalidate()
@@ -1439,7 +1696,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     func windowWillClose(_ notification: Notification) {
+        endHelpMeWrite()
         prefillTask?.cancel()
+        for fetch in mailFetches.values { fetch.cancel() }
+        mailFetches = [:]
+        sendAfterDrops = nil
         autosaveTimer?.invalidate()
         statusObservation?.cancel()
         for field in [toField, ccField, bccField] { field.closeAutocomplete() }
@@ -1499,6 +1760,10 @@ final class ComposeWindow: NSWindow {
     }
 
     @objc func undo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
         switch undoTarget {
         case .typing: undoManager?.undo()
         case .send(let id): UndoSendPanel.panel(sendID: id)?.undo()
@@ -1506,7 +1771,27 @@ final class ComposeWindow: NSWindow {
         }
     }
 
+    /// While Help me write streams a reply into a field here, Undo and Redo wait: the stack's text steps belong to the text
+    /// as it was before the write, and the write ends in one step of its own (§5.56, §6.1).
+    @objc func redo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
+        undoManager?.redo()
+    }
+
+    /// Undo and Redo are disabled while a reply streams in (§6.1); nil when the item is neither or nothing streams.
+    private func validateWhileWriting(_ menuItem: NSMenuItem) -> Bool? {
+        guard menuItem.action == #selector(undo(_:)) || menuItem.action == #selector(redo(_:)), WriteSession.isStreaming(in: self) else {
+            return nil
+        }
+        menuItem.title = menuItem.action == #selector(undo(_:)) ? "Can\u{2019}t Undo" : "Can\u{2019}t Redo"
+        return false
+    }
+
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let answer = validateWhileWriting(menuItem) { return answer }
         guard menuItem.action == #selector(undo(_:)) else { return super.validateMenuItem(menuItem) }
         switch undoTarget {
         case .typing:

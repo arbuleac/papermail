@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 839 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 839, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 906 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 906, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -503,6 +503,22 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.AttachmentChip.downloadRadius, "layout.attachmentChip.downloadRadius")
         number(Quire.Layout.AttachmentChip.head, "layout.attachmentChip.head")
         number(Quire.Layout.AttachmentChip.headGap, "layout.attachmentChip.headGap")
+        number(Quire.Layout.AttachmentChip.draggingOpacity, "layout.attachmentChip.draggingOpacity")
+    }
+
+    func testLayoutDragCard() {
+        number(Quire.Layout.DragCard.height, "layout.dragCard.height")
+        number(Quire.Layout.DragCard.minWidth, "layout.dragCard.minWidth")
+        number(Quire.Layout.DragCard.maxWidth, "layout.dragCard.maxWidth")
+        number(Quire.Layout.DragCard.radius, "layout.dragCard.radius")
+        number(Quire.Layout.DragCard.padLeft, "layout.dragCard.padLeft")
+        number(Quire.Layout.DragCard.padRight, "layout.dragCard.padRight")
+        number(Quire.Layout.DragCard.icon, "layout.dragCard.icon")
+        number(Quire.Layout.DragCard.gap, "layout.dragCard.gap")
+        number(Quire.Layout.DragCard.shadowMarginX, "layout.dragCard.shadowMarginX")
+        number(Quire.Layout.DragCard.shadowMarginTop, "layout.dragCard.shadowMarginTop")
+        number(Quire.Layout.DragCard.shadowMarginBottom, "layout.dragCard.shadowMarginBottom")
+        number(Quire.Layout.DragCard.threshold, "layout.dragCard.threshold")
     }
 
     func testLayoutQuickReply() {
@@ -534,7 +550,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.QuickReply.toolIcon, "layout.quickReply.toolIcon")
         number(Quire.Layout.QuickReply.toolIconGlyph, "layout.quickReply.toolIconGlyph")
         number(Quire.Layout.QuickReply.sendInset, "layout.quickReply.sendInset")
-        number(Quire.Layout.QuickReply.sendKeycapGap, "layout.quickReply.sendKeycapGap")
         number(Quire.Layout.QuickReply.maxLines, "layout.quickReply.maxLines")
         number(Quire.Layout.QuickReply.fieldMax, "layout.quickReply.fieldMax")
         number(Quire.Layout.QuickReply.max, "layout.quickReply.max")
@@ -542,11 +557,14 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.QuickReply.stripGap, "layout.quickReply.stripGap")
         number(Quire.Layout.QuickReply.stripKeycapGap, "layout.quickReply.stripKeycapGap")
         number(Quire.Layout.QuickReply.modeUnderlineY, "layout.quickReply.modeUnderlineY")
+        number(Quire.Layout.QuickReply.dropInset, "layout.quickReply.dropInset")
     }
 
     func testLayoutComposer() {
         number(Quire.Layout.Composer.dropOutline, "layout.composer.dropOutline")
         number(Quire.Layout.Composer.dropInset, "layout.composer.dropInset")
+        numbers(Quire.Layout.Composer.dropDash.map { Double($0) }, "layout.composer.dropDash")
+        number(Quire.Layout.Composer.dropVeil, "layout.composer.dropVeil")
         number(Quire.Layout.Composer.stripGlyph, "layout.composer.stripGlyph")
         number(Quire.Layout.Composer.removeGlyph, "layout.composer.removeGlyph")
         number(Quire.Layout.Composer.width, "layout.composer.width")
@@ -576,7 +594,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Composer.bannerInsetX, "layout.composer.bannerInsetX")
         number(Quire.Layout.Composer.bannerInsetY, "layout.composer.bannerInsetY")
         number(Quire.Layout.Composer.barPadX, "layout.composer.barPadX")
-        number(Quire.Layout.Composer.barKeycapGap, "layout.composer.barKeycapGap")
         number(Quire.Layout.Composer.barGroupGap, "layout.composer.barGroupGap")
         number(Quire.Layout.Composer.barIconGap, "layout.composer.barIconGap")
         number(Quire.Layout.Composer.statusGlyphGap, "layout.composer.statusGlyphGap")
@@ -598,6 +615,41 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Composer.linkPopoverOffsetY, "layout.composer.linkPopoverOffsetY")
         number(Quire.Layout.Composer.popoverEdgeMin, "layout.composer.popoverEdgeMin")
         number(Quire.Layout.Composer.pictureSelectedWash, "layout.composer.pictureSelectedWash")
+    }
+
+    func testLayoutWriteCaret() {
+        number(Quire.Layout.WriteCaret.ghostGap, "layout.writeCaret.ghostGap")
+        number(Quire.Layout.WriteCaret.keycapHeight, "layout.writeCaret.keycapHeight")
+        number(Quire.Layout.WriteCaret.keycapPadX, "layout.writeCaret.keycapPadX")
+        number(Quire.Layout.WriteCaret.keycapGap, "layout.writeCaret.keycapGap")
+        string(Quire.Layout.WriteCaret.ghostPause, "layout.writeCaret.ghostPause")
+        string(Quire.Layout.WriteCaret.selectionSettle, "layout.writeCaret.selectionSettle")
+        number(Quire.Layout.WriteCaret.pillGap, "layout.writeCaret.pillGap")
+        number(Quire.Layout.WriteCaret.pillHeight, "layout.writeCaret.pillHeight")
+        number(Quire.Layout.WriteCaret.pillPadX, "layout.writeCaret.pillPadX")
+        number(Quire.Layout.WriteCaret.pillGlyph, "layout.writeCaret.pillGlyph")
+        number(Quire.Layout.WriteCaret.pillGlyphGap, "layout.writeCaret.pillGlyphGap")
+        number(Quire.Layout.WriteCaret.blockGapTop, "layout.writeCaret.blockGapTop")
+        number(Quire.Layout.WriteCaret.blockGapBottom, "layout.writeCaret.blockGapBottom")
+        number(Quire.Layout.WriteCaret.promptHeight, "layout.writeCaret.promptHeight")
+        number(Quire.Layout.WriteCaret.promptMaxWidth, "layout.writeCaret.promptMaxWidth")
+        number(Quire.Layout.WriteCaret.promptPadX, "layout.writeCaret.promptPadX")
+        number(Quire.Layout.WriteCaret.promptGlyph, "layout.writeCaret.promptGlyph")
+        number(Quire.Layout.WriteCaret.promptGlyphGap, "layout.writeCaret.promptGlyphGap")
+        number(Quire.Layout.WriteCaret.chipsGap, "layout.writeCaret.chipsGap")
+        number(Quire.Layout.WriteCaret.chipHeight, "layout.writeCaret.chipHeight")
+        number(Quire.Layout.WriteCaret.chipPadX, "layout.writeCaret.chipPadX")
+        number(Quire.Layout.WriteCaret.chipGap, "layout.writeCaret.chipGap")
+        number(Quire.Layout.WriteCaret.afterlineHeight, "layout.writeCaret.afterlineHeight")
+        number(Quire.Layout.WriteCaret.afterGlyph, "layout.writeCaret.afterGlyph")
+        number(Quire.Layout.WriteCaret.afterGlyphGap, "layout.writeCaret.afterGlyphGap")
+        number(Quire.Layout.WriteCaret.afterGap, "layout.writeCaret.afterGap")
+        number(Quire.Layout.WriteCaret.pencilGlyph, "layout.writeCaret.pencilGlyph")
+        number(Quire.Layout.WriteCaret.pencilGap, "layout.writeCaret.pencilGap")
+        number(Quire.Layout.WriteCaret.pencilBob, "layout.writeCaret.pencilBob")
+        string(Quire.Layout.WriteCaret.pencilBobPeriod, "layout.writeCaret.pencilBobPeriod")
+        number(Quire.Layout.WriteCaret.hintMinWords, "layout.writeCaret.hintMinWords")
+        string(Quire.Layout.WriteCaret.pencilInk, "layout.writeCaret.pencilInk")
     }
 
     func testLayoutToken() {
@@ -652,6 +704,14 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Button.minHit, "layout.button.minHit")
         number(Quire.Layout.Button.glyphGap, "layout.button.glyphGap")
         number(Quire.Layout.Button.linkPadX, "layout.button.linkPadX")
+        number(Quire.Layout.Button.keycapGap, "layout.button.keycapGap")
+    }
+
+    func testLayoutSplitButton() {
+        numbers(Quire.Layout.SplitButton.menuWidth.map { Double($0) }, "layout.splitButton.menuWidth")
+        number(Quire.Layout.SplitButton.divider, "layout.splitButton.divider")
+        number(Quire.Layout.SplitButton.dividerAlpha, "layout.splitButton.dividerAlpha")
+        number(Quire.Layout.SplitButton.dimAlpha, "layout.splitButton.dimAlpha")
     }
 
     func testLayoutTextField() {
@@ -894,6 +954,7 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Settings.statusBarWidth, "layout.settings.statusBarWidth")
         number(Quire.Layout.Settings.statusBarGap, "layout.settings.statusBarGap")
         number(Quire.Layout.Settings.savedGap, "layout.settings.savedGap")
+        number(Quire.Layout.Settings.aiKeyFieldWidth, "layout.settings.aiKeyFieldWidth")
         number(Quire.Layout.Settings.groupMaxRows, "layout.settings.groupMaxRows")
         number(Quire.Layout.Settings.detailTop, "layout.settings.detailTop")
         number(Quire.Layout.Settings.detailRow, "layout.settings.detailRow")
@@ -921,6 +982,24 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Settings.themeTilePip, "layout.settings.themeTilePip")
         number(Quire.Layout.Settings.themeTileLine, "layout.settings.themeTileLine")
         number(Quire.Layout.Settings.themeTileInset, "layout.settings.themeTileInset")
+    }
+
+    func testLayoutPaperFaces() {
+        number(Quire.Layout.PaperFaces.artBox, "layout.paperFaces.artBox")
+        number(Quire.Layout.PaperFaces.shadowReference, "layout.paperFaces.shadowReference")
+        numbers(Quire.Layout.PaperFaces.shadowY.map { Double($0) }, "layout.paperFaces.shadowY")
+        numbers(Quire.Layout.PaperFaces.shadowBlur.map { Double($0) }, "layout.paperFaces.shadowBlur")
+        string(Quire.Layout.PaperFaces.shadowLight, "layout.paperFaces.shadowLight")
+        string(Quire.Layout.PaperFaces.shadowDark, "layout.paperFaces.shadowDark")
+        number(Quire.Layout.PaperFaces.pickerFace, "layout.paperFaces.pickerFace")
+        number(Quire.Layout.PaperFaces.pickerCell, "layout.paperFaces.pickerCell")
+        number(Quire.Layout.PaperFaces.pickerGap, "layout.paperFaces.pickerGap")
+        number(Quire.Layout.PaperFaces.pickerPad, "layout.paperFaces.pickerPad")
+        number(Quire.Layout.PaperFaces.pickerColumns, "layout.paperFaces.pickerColumns")
+        number(Quire.Layout.PaperFaces.pickerRadius, "layout.paperFaces.pickerRadius")
+        number(Quire.Layout.PaperFaces.pickerOffset, "layout.paperFaces.pickerOffset")
+        number(Quire.Layout.PaperFaces.pickerEdgeMin, "layout.paperFaces.pickerEdgeMin")
+        number(Quire.Layout.PaperFaces.tileGap, "layout.paperFaces.tileGap")
     }
 
     func testLayoutMenu() {

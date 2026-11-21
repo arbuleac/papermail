@@ -81,6 +81,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     let find: ReaderFind
     private let webContainer = NSView()
     private let quickReply = QuickReplyView()
+    /// Help me write on the quick reply (§5.56), made the first time it is reached (`quickReplyWriteSession`).
+    var writeSession: WriteSession?
     private let emptyState = QuireEmptyStateView(sentence: "No conversation selected")
     private lazy var moreMenu = MessageMoreMenu { [weak self] command in self?.performMore(command) }
     /// The chip a context menu was opened for: its commands act on it.
@@ -113,6 +115,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 scheduleMarkRead(for: id)
                 scheduleAcknowledge(for: id)
             } else if !isOnScreen {
+                // Help me write belongs to a bar on screen (§5.56): it ends, a reply streaming in put back.
+                endHelpMeWrite()
                 markReadTimer?.invalidate()
                 markReadTimer = nil
                 acknowledgeTimer?.invalidate()
@@ -142,6 +146,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// When each save last ended, in system uptime. A file already on this Mac is saved within one turn, before a
     /// double-click's second click arrives; a press on the same control that soon is still that double-click.
     private var savesEnded: [AttachmentDownloadBoard.Chip: TimeInterval] = [:]
+    /// Drags chips out (spec §5.17, Dragging out). Internal so the app's tests can read the items a drag would carry.
+    let attachmentDrags: AttachmentDragController
+    /// The chip downloads a dropped promise is showing, oldest first per file: a file dropped twice shows twice.
+    private var promiseDownloads: [MailAttachmentReference: [(ticket: AttachmentDownloadBoard.Ticket, progress: @Sendable (Double) -> Void)]] = [:]
     /// Where Download, Download all and Save to Downloads save (spec §5.17). Tests point it at a folder of their own.
     var downloadsFolder: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     /// Messages the page on screen shows in the sender's colours, for View › Original Colors' checkmark: what the page
@@ -172,6 +180,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private var keyMonitor: Any?
     private var motionFinisher: ShellMotionFinisher?
     private var showSignpost: OSSignpostIntervalState?
+    /// When the open show began, for analytics' sampled timing of a conversation opening.
+    private var showStartedAt: ContinuousClock.Instant?
     /// Called each time a show's render has landed and its web view is on screen.
     private var showLandedWaiters: [(WKWebView?) -> Void] = []
 
@@ -222,6 +232,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         self.draftShelf = drafts ?? QuickReplyDraftShelf()
         self.pool = WebViewPool(client: client, size: poolSize)
         self.preview = AttachmentPreviewController(client: client)
+        self.attachmentDrags = AttachmentDragController(client: client)
         var accounts: [AccountID: Account] = [:]
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
         self.accountsByID = accounts
@@ -232,6 +243,17 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         pool.onCopyFocusedAddress = { [weak self] slot in self?.copyFocusedAddress(in: slot) }
         pool.onViewRecreated = { [weak self] slot in self?.slotWasRecreated(slot) }
         pool.onRenderLanded = { [weak self] slot in self?.renderLanded(in: slot) }
+        pool.onAttachmentDrag = { [weak self] slot, press, event in
+            guard let self, slot === self.pool.current, let webView = slot.webView as? ReaderWebView else { return false }
+            return self.attachmentDrags.startDrag(press, event: event, in: webView)
+        }
+        attachmentDrags.attachments = { [weak self] id in self?.attachments(of: id) ?? [] }
+        attachmentDrags.onDragChange = { [weak self] drag, on in self?.attachmentDragChanged(drag, on: on) }
+        attachmentDrags.onPromiseEvent = { [weak self] event in
+            guard let self else { return false }
+            self.promiseEvent(event)
+            return true
+        }
         let center = NotificationCenter.default
         // Block observers stay registered until removed, so their tokens are kept for deinit.
         notificationTokens.append(center.addObserver(forName: Self.remoteImagesPolicyChanged, object: nil, queue: .main) { [weak self] _ in
@@ -334,9 +356,27 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.onSendLater = { [weak self] text, mode, date in self?.sendQuickReplyLater(text, mode: mode, at: date) }
         quickReply.sendAction = SendActionPreference.current
         quickReply.onEscape = { [weak self] repeated in self?.quickReplyEscape(repeated: repeated) }
+        // Help me write takes Esc first while a reply streams in or its strip shows (§6.1).
+        quickReply.claimsEscape = { [weak self] in self?.writeSession?.escape() ?? false }
+        // Text set from outside the field (a restore, a parked draft, a clear) never lands under a reply streaming in:
+        // the write stops first and the field is put back as it was (§5.56).
+        quickReply.willReplaceText = { [weak self] in self?.endHelpMeWrite() }
+        quickReply.willHideText = { [weak self] in self?.endHelpMeWrite() }
+        quickReply.onUserEdit = { [weak self] in self?.writeSession?.userDidEdit() }
+        quickReply.onSelectionChange = { [weak self] in self?.writeSession?.selectionDidChange() }
+        // Help me write's availability is read from this Mac as the bar takes the keyboard (spec §3b: nothing is asked of a
+        // provider until the user asks for a write).
+        quickReply.onFocusChange = { [weak self] focused in
+            if focused { self?.quickReplyWriteSession?.refresh() }
+        }
         quickReply.onHeightChange = { [weak self] _ in self?.applyBottomInset() }
         quickReply.onOpenInComposer = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: false) }
         quickReply.onAttach = { [weak self] text, mode in self?.openQuickReplyInComposer(text: text, mode: mode, attach: true) }
+        // A drop moves the reply to a composer with what was dropped attached, as Attach and choosing the files would (§5.18).
+        // The composer it opens came from a drag, not from the reader's buttons the reply's other ways in share.
+        quickReply.onDropAttachments = { [weak self] text, mode, items in
+            Analytics.from(.drag) { self?.openQuickReplyInComposer(text: text, mode: mode, attach: false, dropped: items) }
+        }
         quickReply.onDisabledClick = { [weak self] in self?.bringReplyComposerForward() }
         quickReply.onUndo = { [weak self] in self?.undoQuickSend() }
         quickReply.onShowDraft = { [weak self] in
@@ -374,6 +414,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Selection moved. The subject updates at once; rendering is coalesced while calls arrive faster
     /// than 30 ms (key repeat) so a held `j` never queues renders it will not show.
     func show(_ id: ConversationID?) {
+        // A Help me write card belongs to the reply it was opened on: another conversation closes it, a write put back.
+        if id != currentConversationID { endHelpMeWrite() }
         guard let id else {
             cancelPendingShow()
             showNothing(.none)
@@ -478,6 +520,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             ConversationSignposts.end(ConversationSignposts.show, previous)
         }
         showSignpost = ConversationSignposts.begin(ConversationSignposts.show)
+        showStartedAt = .now
         if currentConversationID != id {
             // The find bar belongs to the conversation it searched (spec §5.50); one opened for this conversation while
             // its show waited stays.
@@ -543,6 +586,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// Nothing, or several conversations: no conversation is rendered and the quick reply hides.
     private func showNothing(_ selection: Selection) {
+        endHelpMeWrite()
         if let id = currentConversationID {
             drafts.leave(quickReply.text, under: id)
         }
@@ -586,7 +630,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if let state = showSignpost {
             ConversationSignposts.end(ConversationSignposts.show, state)
             showSignpost = nil
+            if let started = showStartedAt { Analytics.sample(.conversationOpen, seconds: Analytics.seconds(since: started)) }
         }
+        showStartedAt = nil
         refreshChrome()
         if slot.renderedID == currentConversationID, !slot.renderInFlight {
             let waiters = showLandedWaiters
@@ -692,6 +738,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         // Nothing, several or an emptied conversation leaves nothing to search.
         if !showsWeb { find.close(returningFocus: false) }
         let wasVisible = !quickReply.isHidden
+        if !showsReply { endHelpMeWrite() }
         quickReply.isHidden = !showsReply
         if showsReply {
             configureQuickReply(messages: messages)
@@ -716,7 +763,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if remaining > 0 {
             let accounts = accountsByID.values.sorted { $0.addedAt < $1.addedAt }
             UndoSendPanel.show(client: client, accounts: accounts, sendID: send.sendID, draft: send.draft, undoWindow: Self.undoWindow,
-                               remaining: remaining, startedAt: send.startedAt, archive: send.archive)
+                               remaining: remaining, startedAt: send.startedAt, archive: send.archive, source: .quickReply)
             SendOwnership.release(send.sendID)
         } else {
             watchOutcome(of: send.sendID, draft: send.draft)
@@ -789,7 +836,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     /// The message R, A and the quick reply answer: the target (spec §5.14), else the latest.
-    private func replyTarget(in messages: [MessageMetadata]) -> MessageMetadata? {
+    func replyTarget(in messages: [MessageMetadata]) -> MessageMetadata? {
         if let id = selectedMessageID, let target = messages.first(where: { $0.id == id }) { return target }
         return messages.last
     }
@@ -811,7 +858,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.replyAllAvailable = QuickReplyComposer.replyAllAvailable(for: latest, accounts: accountsByID)
         if let account = accountsByID[latest.id.accountID] {
             let monogram = AccountLabels.monogram(for: account, among: Array(accountsByID.values))
-            quickReply.face = (monogram, account.inkSlot)
+            quickReply.face = (AccountFaces.face(for: account, monogram: monogram), account.inkSlot)
         } else {
             quickReply.face = nil
         }
@@ -1277,12 +1324,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .originalColors(let shown):
             slot.originalColorsShown = shown
             return
+        case .attachmentPress(let press):
+            // Only the page on screen is pressed; its view decides whether the pointer then drags.
+            if slot === pool.current { (slot.webView as? ReaderWebView)?.armAttachmentDrag(press) }
+            return
         default:
             break
         }
         guard slot === pool.current else { return }
         switch message {
-        case .ready, .focusMark, .originalColors, .themed:
+        case .ready, .focusMark, .originalColors, .themed, .attachmentPress:
             break
         case .motion:
             // The registry holds animators weakly; this one lives until the next motion replaces it.
@@ -1374,6 +1425,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func answerInvitation(_ response: InvitationResponse, _ id: MessageID) {
         do {
             try client.answerInvitation(response, to: id)
+            if let answer = AnalyticsSignal.InvitationAnswer(response) { Analytics.send(.invitationAnswered(answer)) }
         } catch {
             ConversationSignposts.log.error("answering an invitation failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
@@ -1494,6 +1546,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     private func performMore(_ command: MessageMoreMenu.Command) {
+        // A menu's step, for analytics, though the window takes it as the reader's buttons' (`MainWindowController.handle`).
+        Analytics.from(.menu) { takeMore(command) }
+    }
+
+    private func takeMore(_ command: MessageMoreMenu.Command) {
         guard let id = selectedMessageID, let current = pool.current else { return }
         switch command {
         case .reply: onAction?(.reply(id))
@@ -1652,7 +1709,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     func senderRule(for message: MessageMetadata) -> SenderRule.Action? {
         guard let from = message.from?.address else { return nil }
         let address = SenderRule.normalizedAddress(from)
-        return (try? client.store.senderRules())?.first { $0.accountID == message.id.accountID && $0.address == address }?.action
+        // A rule being deleted on the server is no longer the sender's: the menus offer both rules again.
+        return (try? client.store.senderRules())?
+            .first { $0.accountID == message.id.accountID && $0.address == address && $0.isActive }?.action
     }
 
     // MARK: Header actions
@@ -1944,7 +2003,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 if let window { panel.beginSheetModal(for: window, completionHandler: save) } else { save(panel.runModal()) }
             case .copy:
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([file as NSURL])
+                NSPasteboard.general.writeObjects([AttachmentPasteboard.copyItem(file: file, reference: MailAttachmentReference(message: messageID, info: info))])
             }
         }
     }
@@ -1971,6 +2030,38 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// Quick Look's data source and delegate, for the app's tests.
     var attachmentPreview: AttachmentPreviewController { preview }
+
+    // MARK: Dragging out (spec §5.17)
+
+    /// The dragged chips dim while the drag lasts. Told before the drag hands WebKit its mouse-up, so the shell swallows the
+    /// click that mouse-up makes.
+    private func attachmentDragChanged(_ drag: AttachmentDragController.Drag, on: Bool) {
+        guard let webView = drag.webView, let slot = pool.slot(for: webView) else { return }
+        let key = ConversationShellAssets.jsStringLiteral(RenderPayload.messageKey(for: drag.messageID))
+        let ids = "[" + drag.attachmentIDs.map(ConversationShellAssets.jsStringLiteral).joined(separator: ",") + "]"
+        evaluate("window.ss && window.ss.attachmentDrag && window.ss.attachmentDrag(\(key), \(ids), \(on))", in: slot)
+    }
+
+    /// A dropped file being fetched for the Finder (or any app that took the promise) shows on its chip as a download
+    /// does; one that could not be fetched marks the chip, and either failure says so in the window's toast.
+    private func promiseEvent(_ event: AttachmentPromiseFulfiller.Event) {
+        switch event {
+        case .began(let reference):
+            setAttachmentFailed(false, reference.info.id, of: reference.message)
+            promiseDownloads[reference, default: []].append(beginDownload(reference.info.id, of: reference.message))
+        case let .progress(reference, fraction):
+            promiseDownloads[reference]?.first?.progress(fraction)
+        case let .ended(reference, failure):
+            if var list = promiseDownloads[reference], !list.isEmpty {
+                let download = list.removeFirst()
+                promiseDownloads[reference] = list.isEmpty ? nil : list
+                endDownload(download.ticket)
+            }
+            guard let failure else { return }
+            if failure == .unfetched { setAttachmentFailed(true, reference.info.id, of: reference.message) }
+            onAction?(.attachmentDragFailed(failure, filename: reference.filename))
+        }
+    }
 
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
         !preview.items.isEmpty
@@ -2102,6 +2193,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let parked = drafts.draft(under: id)
         guard !parked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         drafts.forget(id)
+        // What the user typed, never a reply still streaming in: the card closes and the field is theirs again first.
+        endHelpMeWrite()
         let typed = quickReply.text
         quickReply.restoreDraft(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? parked : typed + "\n\n" + parked)
     }
@@ -2117,9 +2210,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     /// The typed text moves to a reply composer and leaves the bar, which then shows its disabled state while
     /// that composer is open, so the reply is never in two places (§5.18).
-    private func openQuickReplyInComposer(text: String, mode: QuickReplyView.Mode, attach: Bool) {
-        guard let target = replyTarget(in: currentMessages)?.id else { return }
-        onAction?(.replyInComposer(target, all: mode == .replyAll, body: text, attach: attach))
+    private func openQuickReplyInComposer(text: String, mode: QuickReplyView.Mode, attach: Bool, dropped: [AttachmentDropItem] = []) {
+        // A reply still streaming in is not the user's text: it moves nowhere until the write ends.
+        guard !isWritingReply, let target = replyTarget(in: currentMessages)?.id else { return }
+        onAction?(.replyInComposer(target, all: mode == .replyAll, body: text, attach: attach, dropped: dropped))
         quickReply.clear()
         quickReply.isComposerOpen = replyComposer(for: currentMessages) != nil
     }
@@ -2128,6 +2222,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// can send one. Send and Archive archives the conversation once the reply is queued, as E would (in Later, or for a
     /// snoozed conversation, its snooze ends), and the strip's Undo brings it back with the reply (§5.23).
     func sendQuickReply(_ text: String, mode: QuickReplyView.Mode, action: SendAction? = nil) {
+        // Half a reply Help me write is still writing never goes (§5.56).
+        guard !isWritingReply else {
+            NSSound.beep()
+            return
+        }
         guard let conversation = currentConversationID, let latest = replyTarget(in: currentMessages),
               let account = accountsByID[latest.id.accountID] else { return }
         // The account's signature follows the typed text, one empty line below it, as a composer would insert it (§5.18).
@@ -2146,6 +2245,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                                  attachments: [], quoted: nil, threading: ReplyThreading(original: latest, isReply: true))
         do {
             let sendID = try client.send(message, undoWindow: Self.undoWindow)
+            Analytics.send(.quickReplySent(replyAll: mode == .replyAll, archives: (action ?? SendActionPreference.current).archives))
             // The bar answers for the reply from now on, before the outbox's observation can say anything about it (§5.53).
             SendOwnership.claim(sendID)
             let startedAt = Date()
@@ -2179,6 +2279,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Mac that its Drafts row stands in for; the bar clears and the main window says when it sends, with Undo, which puts
     /// the text back in the bar. Nothing is archived: the reply has not gone (§5.23).
     func sendQuickReplyLater(_ text: String, mode: QuickReplyView.Mode, at date: Date?) {
+        // Nor is it scheduled: `text` would hold the partial reply, and clearing the field would pull it from the stream.
+        guard !isWritingReply else {
+            NSSound.beep()
+            return
+        }
         guard let date else {
             SendLaterPicker.present(view.window) { [weak self] chosen in
                 guard let chosen else { return }
@@ -2205,6 +2310,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         do {
             let sendID = try client.scheduleSend(message, at: date, draftID: draft.id)
+            Analytics.send(.sendLaterScheduled(.quickReply))
             quickReply.clear()
             drafts.park("", under: conversation)
             let client = client
@@ -2254,6 +2360,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// else waiting under that conversation, with the strip saying so.
     private func restoreUnsentQuickReply(_ text: String, under conversation: ConversationID) {
         if drafts.restoreUnsent(text, under: conversation, shown: currentConversationID) {
+            // Kept below the unsent reply is what the user typed, never a reply streaming in: that write stops first.
+            endHelpMeWrite()
             let typed = quickReply.text
             quickReply.restoreDraft(typed.isEmpty ? text : text + "\n\n" + typed)
             quickReply.focus()
@@ -2395,6 +2503,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             quickReply.showStrip(.alreadySent)
             return
         }
+        Analytics.send(.sendUndone(.quickReply))
         if let archive = send.archive {
             // Back in the Inbox and selected again, as Z after E leaves it; a show the debounce holds lands now, so the text
             // goes back into its own conversation's box below rather than being parked.
@@ -2404,7 +2513,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         if drafts.restoreUnsent(send.text, under: send.conversation, shown: currentConversationID) {
             quickReply.hideStrip()
             quickReply.status = .none
-            // Anything typed since the send belongs to the same thread, so it is kept below the unsent text.
+            // Anything typed since the send belongs to the same thread, so it is kept below the unsent text; a reply
+            // Help me write is writing is not typed yet, so its write stops first.
+            endHelpMeWrite()
             let typed = quickReply.text
             quickReply.restoreDraft(typed.isEmpty ? send.text : send.text + "\n\n" + typed)
             quickReply.focus()
@@ -2651,6 +2762,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case #selector(printConversation(_:)):
             // One printout at a time: Print… waits while one is prepared or its panel is up (§5.48).
             return showsOne && !printer.isBusy
+        case #selector(helpMeWrite(_:)), #selector(helpMeWriteWithInstructions(_:)):
+            return validateHelpMeWrite(menuItem)
         default:
             return true
         }

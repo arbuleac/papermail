@@ -12,6 +12,8 @@ final class SettingsModel: ObservableObject {
         case oauth
         case general
         case appearance
+        /// Help Me Write's provider, key or CLI, model and permission (§5.40, §5.56).
+        case ai
     }
 
     /// A failure at the top of Accounts. Info notices (demo, seven accounts) come from state, not from here.
@@ -30,6 +32,9 @@ final class SettingsModel: ObservableObject {
         didSet {
             // The incoming notice stays until Save succeeds or the tab is left.
             if oldValue == .oauth, tab != .oauth, case .needsClient = oauthNotice { oauthNotice = nil }
+            // The face picker is a card over Accounts: the tab's toolbar is outside its click-catching layer, so leaving
+            // the tab must close it, or it would be open again over Accounts on the way back (Quire §5.55).
+            if tab != oldValue { showsFacePicker = false }
         }
     }
 
@@ -43,10 +48,19 @@ final class SettingsModel: ObservableObject {
     /// The window is open; set by its controller. A closed window keeps its model (and the status observation
     /// feeding it), so without this the clock would tick for rows nobody sees.
     var isWindowOpen = false {
-        didSet { if isWindowOpen != oldValue { updateRetryClock() } }
+        didSet {
+            if isWindowOpen != oldValue { updateRetryClock() }
+            // The model outlives the window: a card left open would show again, without focus, when Settings next opens.
+            if !isWindowOpen { showsFacePicker = false }
+        }
     }
-    /// The selected account's id (`AccountID.rawValue`).
-    @Published var selection: String?
+    /// The selected account's id (`AccountID.rawValue`). Another account's selection closes the face picker: it was this one's.
+    @Published var selection: String? {
+        didSet { if selection != oldValue { showsFacePicker = false } }
+    }
+    /// The selected account's face picker is open over Accounts (Quire §5.55). Selecting another account, leaving the
+    /// Accounts tab and closing the window all close it.
+    @Published var showsFacePicker = false
     /// A sign-in adding an account is waiting for the browser (the pending row).
     @Published var pendingSignIn: ProviderKind?
     /// A reconnect is waiting for the browser.
@@ -75,13 +89,24 @@ final class SettingsModel: ObservableObject {
     var leaveDemo: () -> Void = {}
     var setInkSlot: (Int, Account) -> Void = { _, _ in }
     var setMonogram: (String?, Account) -> Void = { _, _ in }
+    /// The face picked in the account's face picker (Quire §5.55).
+    var setFace: (AccountFace, Account) -> Void = { _, _ in }
     /// The signature's HTML (nil for none) for an account, when editing it ends. By id: the field saves for the account
     /// it was editing, which may no longer be the selected one.
     var setSignature: (String?, AccountID) -> Void = { _, _ in }
-    /// Every sender rule, as the store's observation last delivered them (spec, Sender rules (Q4.2)).
+    /// Every sender rule, as the store's observation last delivered them: the server's rules as the store mirrors them,
+    /// and the changes on their way there (spec §5.52).
     @Published private(set) var senderRules: [SenderRule] = []
-    /// The Senders sheet's −: the rule goes, and the mail it moved stays where it is.
+    /// The Senders sheet's −: the rule is deleted on the server (one never saved there just goes), and the mail it moved
+    /// stays where it is.
     var removeSenderRule: (SenderRule) -> Void = { _ in }
+    /// Allow… in Senders, and the row's Reconnect while sender rules wait: the sign-in asking for the permission to save
+    /// rules on the server.
+    var connectRules: (Account) -> Void = { _ in }
+    /// Senders opening: the engine reads the account's rules from the server now rather than at its own interval.
+    var refreshServerRules: (Account) -> Void = { _ in }
+    /// The Senders foot's link: the provider's own page of rules, in the browser. Tests replace it, so none opens one.
+    var openWebSettings: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
     init(isDemo: Bool, oauthFileURL: URL) {
         self.isDemo = isDemo
@@ -115,16 +140,36 @@ final class SettingsModel: ObservableObject {
         senderRules.filter { $0.accountID == account.id }
     }
 
+    /// What the Senders sheet shows for `account` now.
+    func sendersContent(for account: Account) -> SendersSheetContent {
+        SendersSheetContent(account: account, rules: senderRules, status: statuses[account.id], isReconnecting: reconnecting == account.id,
+                            isDemo: isDemo)
+    }
+
+    /// Rules kept on this Mac from before 1.14 wait for the permission to save rules on the server, which the account has
+    /// not granted (the account's row asks for it, as it asks for the calendar's). A rule set since never waits: it is set
+    /// only with the permission.
+    func senderRulesNeedPermission(_ account: Account) -> Bool {
+        statuses[account.id]?.rules == .notConnected && senderRules(for: account).contains { $0.isPending }
+    }
+
     /// One sign-in at a time (§5.44): while one runs, + and every other Reconnect and Retry are disabled.
     var isSigningIn: Bool { pendingSignIn != nil || reconnecting != nil }
 
     var rows: [QuireAccountRowContent] {
         let monograms = AccountLabels.monograms(for: accounts)
         return accounts.map { account in
-            QuireAccountRowContent(id: account.id.rawValue, name: AccountLabels.name(for: account), tag: tag(for: account),
-                                   address: account.email, monogram: monograms[account.id] ?? "?", inkSlot: account.inkSlot,
-                                   status: status(for: account))
+            let monogram = monograms[account.id] ?? "?"
+            return QuireAccountRowContent(id: account.id.rawValue, name: AccountLabels.name(for: account), tag: tag(for: account),
+                                          address: account.email, monogram: monogram, inkSlot: account.inkSlot,
+                                          status: status(for: account), face: AccountFaces.face(for: account, monogram: monogram))
         }
+    }
+
+    /// The account's monogram among the accounts (the Monogram tile's letters) and the face it wears now.
+    func face(for account: Account) -> (monogram: String, face: QuireAccountFace) {
+        let monogram = AccountLabels.monogram(for: account, among: accounts)
+        return (monogram, AccountFaces.face(for: account, monogram: monogram))
     }
 
     func account(for row: QuireAccountRowContent) -> Account? {
@@ -148,7 +193,7 @@ final class SettingsModel: ObservableObject {
         let service = ErrorText.service(account.kind)
         switch status.phase {
         case .idle:
-            return status.permissionsNeeded.isEmpty ? upToDate(status, service: service) : .calendarPermission
+            return permissionStatus(for: account, status) ?? upToDate(status, service: service)
         case .bootstrapping:
             // The provider's figure is an estimate; the count never runs past it.
             let done = status.bootstrapProgress ?? 0
@@ -156,7 +201,7 @@ final class SettingsModel: ObservableObject {
         case .syncing:
             if userChecks.contains(account.id) { return .checking }
             if status.lastSuccessfulSyncAt == nil { return .waitingToSync }
-            return status.permissionsNeeded.isEmpty ? upToDate(status, service: service) : .calendarPermission
+            return permissionStatus(for: account, status) ?? upToDate(status, service: service)
         case .hydrating:
             return .downloadingMessages
         case .paused:
@@ -171,6 +216,15 @@ final class SettingsModel: ObservableObject {
             guard let cause = retryCause(status, service: service) else { return .offline }
             return .retrying(inSeconds: SyncLineSummary.retrySeconds(until: status.retryAt, now: now), cause: cause)
         }
+    }
+
+    /// Mail is current, but something set on this Mac waits for a permission the account has not granted: an answered
+    /// invitation for the calendar's (its outbox waits on it, so it comes first), or rules kept on this Mac from before
+    /// 1.14 for the rules'. Nil while nothing waits.
+    private func permissionStatus(for account: Account, _ status: AccountSyncStatus) -> QuireAccountStatus? {
+        if !status.permissionsNeeded.isEmpty { return .calendarPermission }
+        guard senderRulesNeedPermission(account) else { return nil }
+        return .senderRulesPermission(rules: "\(SenderRuleCopy.service(account.kind)) \(SenderRuleCopy.rules(account.kind))")
     }
 
     /// Why the account waits to try again, when its row reads Retrying: a throttle, or a network failure while
@@ -275,8 +329,13 @@ final class SettingsModel: ObservableObject {
         case .needsReauth?: reconnect(account)
         case .error?: retry(account)
         case .idle?, .syncing?:
-            // Calendar permission needed: the reconnect asks for it on top of mail.
-            if statuses[account.id]?.permissionsNeeded.isEmpty == false { reconnect(account) }
+            // Calendar permission needed: the reconnect asks for it on top of mail (and for the rules', should they wait too).
+            if statuses[account.id]?.permissionsNeeded.isEmpty == false {
+                reconnect(account)
+            } else if senderRulesNeedPermission(account) {
+                // Sender rules need permission: the same reconnect, which reads the rules once they may be saved.
+                connectRules(account)
+            }
         default: break
         }
     }

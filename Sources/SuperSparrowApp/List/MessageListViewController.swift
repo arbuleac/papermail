@@ -127,7 +127,7 @@ final class MessageListViewController: NSViewController {
         self.settings = settings
         rowContentCache = RowContentCache(store: store)
         density = settings.listDensity
-        showsAccountInitials = settings.showAccountInitials
+        showsAccountFaces = settings.showAccountFaces
         textSize = QuireEnvironment.textSize
         super.init(nibName: nil, bundle: nil)
     }
@@ -174,7 +174,7 @@ final class MessageListViewController: NSViewController {
     private var density: AppSettings.ListDensity
     /// The Text size the rows are measured and set at (spec §4.15), from `QuireEnvironment`.
     private var textSize: QuireFont.TextSize
-    private var showsAccountInitials: Bool
+    private var showsAccountFaces: Bool
     private var environmentKey = ""
     private var marks: [AccountID: ConversationCellView.AccountMark] = [:]
     private var accountNames: [AccountID: String] = [:]
@@ -512,7 +512,7 @@ final class MessageListViewController: NSViewController {
     /// the app's tests can double-click without events.
     func rowDoubleClicked(_ row: Int) {
         guard let index = layout.conversationIndex(atRow: row) else { return }
-        onOpenInWindow?(conversations[index].id)
+        Analytics.from(.click) { onOpenInWindow?(conversations[index].id) }
     }
 
     // MARK: Selection
@@ -661,6 +661,8 @@ final class MessageListViewController: NSViewController {
             // Begun before the store is asked, since a store may hand over the first page inside the call. A search
             // still waiting for its rows is superseded either way, by the next search or by leaving search.
             if isSearch { searchSignpost.begin() } else { searchSignpost.supersede() }
+            // A search the user typed on from, or left, before it settled is not one they stopped at.
+            Analytics.cancelPendingSearch()
         }
         let observed = observedQuery
         // New finds keep the row searching until the rows they add are in; re-observing for the kept conversation
@@ -677,7 +679,10 @@ final class MessageListViewController: NSViewController {
                 guard let self, self.subscriptionGeneration == generation else { return }
                 self.handleHeadUpdate(rows)
                 // A query set by a callback while the rows were applied has an interval of its own.
-                if self.subscriptionGeneration == generation { self.searchSignpost.finish() }
+                if self.subscriptionGeneration == generation, let seconds = self.searchSignpost.finish() {
+                    Analytics.sample(.search, seconds: seconds)
+                    Analytics.searchSettled(operators: AnalyticsSignal.operators(in: observed.search), results: rows.count)
+                }
             }
         }, onError: { [weak self] _ in
             // The store has logged the error; the list keeps the rows it shows, and its search stops waiting.
@@ -695,7 +700,11 @@ final class MessageListViewController: NSViewController {
     /// Internal so the refresh budget can be timed on its own.
     func handleHeadUpdate(_ rows: [ConversationSummary]) {
         let state = signposter.beginInterval("list.refresh")
-        defer { signposter.endInterval("list.refresh", state) }
+        let started = ContinuousClock.now
+        defer {
+            signposter.endInterval("list.refresh", state)
+            Analytics.sample(.listRefresh, seconds: Analytics.seconds(since: started))
+        }
         hasReceivedFirstPage = true
         let addsServerRows = awaitingServerRows
         awaitingServerRows = false
@@ -963,8 +972,8 @@ final class MessageListViewController: NSViewController {
     private func mark(for summary: ConversationSummary) -> ConversationCellView.AccountMark {
         guard isUnified else { return .none }
         var mark = marks[summary.id.accountID] ?? ConversationCellView.AccountMark(inkSlot: 0, initial: "?", isUnified: true,
-                                                                                  showsInitial: false)
-        mark.showsInitial = showsAccountInitials
+                                                                                  showsFace: false)
+        mark.showsFace = showsAccountFaces
         return mark
     }
 
@@ -973,13 +982,17 @@ final class MessageListViewController: NSViewController {
         var names: [AccountID: String] = [:]
         var own: Set<String> = []
         let initials = AccountLabels.initials(for: Array(accountsByID.values))
+        let faces = AccountFaces.faces(for: Array(accountsByID.values))
         for (id, account) in accountsByID {
+            var paperFace: Quire.PaperFace?
+            if case .paper(let face)? = faces[id] { paperFace = face }
             marks[id] = ConversationCellView.AccountMark(
                 inkSlot: account.inkSlot,
                 initial: initials[id] ?? "?",
                 isUnified: true,
-                showsInitial: false,
-                accountAddress: account.email
+                showsFace: false,
+                accountAddress: account.email,
+                paperFace: paperFace
             )
             names[id] = AccountLabels.name(for: account)
             own.insert(account.email.lowercased())
@@ -1298,12 +1311,12 @@ final class MessageListViewController: NSViewController {
         apply(conversations)
     }
 
-    /// Density and account initials switch the row layout live; the Font setting is part of the environment key
+    /// Density and account faces switch the row layout live; the Font setting is part of the environment key
     /// (`environmentDidChange()`).
     @objc private func displayPreferencesChanged(_ notification: Notification) {
         let densityChanged = settings.listDensity != density
         density = settings.listDensity
-        showsAccountInitials = settings.showAccountInitials
+        showsAccountFaces = settings.showAccountFaces
         guard isViewLoaded else { return }
         if densityChanged {
             remeasureRows()
@@ -1532,3 +1545,21 @@ extension MessageListViewController: NSTableViewDelegate {
         onSelectionSetChange?(selected)
     }
 }
+
+#if DEBUG
+extension MessageListViewController {
+    /// `--snapshot-state=compact,faces` (debug builds): the row display a render asks for, in this window only. The
+    /// settings are never written, so a render leaves the user's density and Show account faces as they were.
+    func showForSnapshot(density: AppSettings.ListDensity?, faces: Bool?) {
+        let densityChanged = density.map { $0 != self.density } ?? false
+        if let density { self.density = density }
+        if let faces { showsAccountFaces = faces }
+        guard isViewLoaded else { return }
+        if densityChanged {
+            remeasureRows()
+        } else {
+            reconfigureVisibleRows()
+        }
+    }
+}
+#endif

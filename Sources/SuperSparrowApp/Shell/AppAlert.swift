@@ -151,6 +151,29 @@ struct AppAlert {
                                       body: "The made-up mailboxes are removed from this Mac when your account is added.",
                                       buttons: [Button(title: "Continue"), Button(title: "Cancel")])
 
+    /// A sender rule on an account that has not let SuperSparrow save rules on the server (§5.52): the rule becomes a Gmail
+    /// filter or an Outlook rule, which needs one more permission. Continue is the default, since the user just chose the
+    /// rule: it opens the browser to allow it, and the rule is set once it is allowed. Cancel sets nothing.
+    static func saveSenderRules(_ kind: ProviderKind, action: SenderRule.Action) -> AppAlert {
+        let service = SenderRuleCopy.service(kind)
+        let rule = kind == .gmail ? "a Gmail filter" : "an Outlook rule"
+        let effect = action == .archive ? "is archived" : "goes to the Trash"
+        return AppAlert(title: "Save sender rules in \(service)?",
+                        body: "SuperSparrow saves this as \(rule), so mail from this sender \(effect) on every device, even when "
+                            + "this Mac is off. \(service) asks you to allow it once.",
+                        buttons: [Button(title: "Continue"), Button(title: "Cancel")])
+    }
+
+    /// After Continue's sign-in came back without the permission (a consent screen that let the user leave it unticked):
+    /// nothing was set, and Try Again asks again.
+    static func senderRulesNotAllowed(_ kind: ProviderKind) -> AppAlert {
+        let service = SenderRuleCopy.service(kind)
+        let rules = kind == .gmail ? "Gmail filters" : "Outlook rules"
+        return AppAlert(title: "\(service) didn't allow sender rules",
+                        body: "The rule wasn't saved. Try again and allow SuperSparrow to read and save \(rules) in your browser.",
+                        buttons: [Button(title: "Try Again"), Button(title: "Cancel")])
+    }
+
     /// Composer: Message › Discard Draft… (§5.20). `recipient` is the first To name, if any.
     static func discardDraft(recipient: String?) -> AppAlert {
         let subject = recipient.map { "The message to \($0) hasn't been sent." } ?? "This message hasn't been sent."
@@ -203,6 +226,30 @@ struct AppAlert {
                  buttons: [Button(title: "Cancel"), Button(title: "Open")])
     }
 
+    /// Settings › AI, as a provider is chosen (§5.40, §5.56): the privacy notice, at that moment and only then, never while
+    /// writing. What goes, when, and to whom, in few words. Cancel is the default and Esc, and puts the popup back; Turn On
+    /// keeps the choice and gives that provider permission (Off withdraws it). The CLIs add whose rules then apply. The
+    /// demo's writer makes replies up on the Mac and sends nothing, so its sheet says only that.
+    static func helpMeWriteTurnOn(_ kind: AIProviderKind, demo: Bool = false) -> AppAlert {
+        if demo {
+            return AppAlert(title: "Try Help Me Write?",
+                            body: "In the demo, replies are made up on this Mac. Nothing is sent.",
+                            buttons: [Button(title: "Cancel"), Button(title: "Turn On")])
+        }
+        let company = kind.destination.displayName
+        // The user's own notes go as typed (an address there is one they want in the reply); the conversation's go redacted.
+        var body = "When you press Write, the conversation you\u{2019}re replying to (newest messages first, older ones "
+            + "shortened), your notes and your first name go to \(company) to draft a reply. Email addresses from the conversation, "
+            + "attachments and other mail are never sent. Nothing is sent until you press Write."
+        switch kind {
+        case .claudeCode: body += " Through Claude Code, under your Claude plan\u{2019}s privacy settings."
+        case .codex: body += " Through Codex, under your OpenAI account\u{2019}s privacy settings."
+        default: break
+        }
+        return AppAlert(title: "Use \(kind.displayName) to help write replies?", body: body,
+                        buttons: [Button(title: "Cancel"), Button(title: "Turn On")])
+    }
+
     /// Every alert of the inventory this surface owns, with sample values, for the alert snapshot.
     static var specimens: [AppAlert] {
         let contoso = Account(id: AccountID("contoso"), kind: .microsoft, email: "alex@contoso.test", displayName: "Alex Morgan",
@@ -224,7 +271,14 @@ struct AppAlert {
             databaseUnavailable(reason: "The disk is full."),
             leaveDemo,
             replaceDemo,
+            saveSenderRules(.gmail, action: .archive),
+            saveSenderRules(.microsoft, action: .trash),
+            senderRulesNotAllowed(.gmail),
             openProgram(filename: "Invoice.command"),
+            helpMeWriteTurnOn(.claudeAPI),
+            helpMeWriteTurnOn(.claudeCode),
+            helpMeWriteTurnOn(.codex),
+            helpMeWriteTurnOn(.claudeAPI, demo: true),
         ]
     }
 

@@ -153,7 +153,9 @@ final class SendAndArchiveTests: XCTestCase {
         let menu = composer.sendOptionsMenu()
         XCTAssertEqual(menu.items.prefix(2).map(\.title), ["Send and Archive", "Send"])
         XCTAssertEqual(menu.items.prefix(2).map(\.state), [.on, .off], "the default is checked")
-        XCTAssertTrue(menu.items.allSatisfy { $0.keyEquivalent.isEmpty }, "choices, not commands: no key equivalents")
+        // Each choice shows the key that does it now: ⌘↩ the checked one; Send none while Send and Archive is checked.
+        XCTAssertEqual(menu.items.prefix(2).map(\.keyEquivalent), ["\r", ""])
+        XCTAssertEqual(menu.items[0].keyEquivalentModifierMask, .command)
         try choose(1, in: menu)
 
         XCTAssertEqual(settings.sendAction, .send)
@@ -174,6 +176,8 @@ final class SendAndArchiveTests: XCTestCase {
         let barMenu = bar.sendOptionsMenu()
         XCTAssertEqual(barMenu.items.prefix(2).map(\.title), ["Send and Archive", "Send"])
         XCTAssertEqual(barMenu.items.prefix(2).map(\.state), [.off, .on])
+        XCTAssertEqual(barMenu.items.prefix(2).map(\.keyEquivalentModifierMask), [[.command, .shift], .command],
+                       "⇧⌘↩ beside Send and Archive, ⌘↩ beside the checked Send")
         try choose(0, in: barMenu)
         XCTAssertEqual(settings.sendAction, .sendAndArchive)
         XCTAssertEqual(AppSettings(defaults: defaults).sendAction, .sendAndArchive)

@@ -28,6 +28,8 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     var onViewRecreated: ((PooledConversationView) -> Void)?
     /// Called each time a render or an update lands in a slot's page, after its own completion.
     var onRenderLanded: ((PooledConversationView) -> Void)?
+    /// A press on a slot's attachments moved past the drag threshold: true when the owner started a drag (spec §5.17).
+    var onAttachmentDrag: ((PooledConversationView, ConversationScriptMessage.AttachmentPress, NSEvent) -> Bool)?
 
     private let navigation = ConversationNavigationPolicy()
     private var tick: UInt64 = 0
@@ -398,6 +400,10 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         webView.copyFocusedAddress = { [weak self, weak webView] in
             guard let self, let webView, let slot = self.slot(for: webView) else { return }
             self.onCopyFocusedAddress?(slot)
+        }
+        webView.onAttachmentDrag = { [weak self, weak webView] press, event in
+            guard let self, let webView, let slot = self.slot(for: webView) else { return false }
+            return self.onAttachmentDrag?(slot, press, event) ?? false
         }
         webView.navigationDelegate = navigation
         webView.uiDelegate = navigation

@@ -3,8 +3,9 @@ import XCTest
 @testable import SSCore
 
 /// Mute (roadmap Q3.7) and sender rules (Q4.2) through the engine: setting them is one store write with its operations
-/// queued, and mail a poll brings into a muted conversation, or from a sender with a rule, is archived or trashed in the
-/// poll's own write and its operation replayed once, without waiting for the next poll.
+/// queued; mail a poll brings into a muted conversation is archived in the poll's own write and its operation replayed
+/// once, without waiting for the next poll. Sender rules live on the server since v23 and take no mail at arrival (their
+/// lane is `MailEngineRulesTests`).
 final class MailEngineArrivalRulesTests: XCTestCase {
     private let account = Fixtures.accountID
     private var t1: ConversationID { ConversationID(accountID: account, providerID: "t1") }
@@ -103,17 +104,22 @@ final class MailEngineArrivalRulesTests: XCTestCase {
 
     // MARK: Sender rules
 
-    func testABlockedSendersArrivalGoesToTheTrashOnEveryDevice() async throws {
+    /// The server's filter acts on a blocked sender's mail before this Mac sees it, so a poll stores it where the provider
+    /// put it and queues nothing for the rule: no request goes out on its account.
+    func testABlockedSendersArrivalIsLeftWhereTheServerPutIt() async throws {
         let harness = try await bootstrappedHarness()
         let spammer = EmailAddress(name: "Deals", address: "deals@shop.example")
         try harness.engine.setSenderRule(.trash, for: spammer.address, accountID: account, performing: [])
         XCTAssertEqual(try harness.store.senderRules().map(\.action), [.trash])
-        try await poll(harness, [arrival(4, conversation: "t4", from: spammer), arrival(5, conversation: "t5")], cursor: "c1")
-        XCTAssertEqual(try harness.store.message(id(4))?.roles, [.trash])
-        XCTAssertEqual(Set(try harness.store.conversations(ConversationQuery(view: .inbox)).map(\.id.providerID)), ["t1", "t5"])
-        try await waitUntil("trash applied") { harness.provider.applyCalls.count == 1 }
-        XCTAssertEqual(harness.provider.applyCalls.first?.change, .trash)
-        XCTAssertEqual(harness.provider.applyCalls.first?.ids, ["4"])
+        var trashed = arrival(4, conversation: "t4", from: spammer)
+        trashed.roles = [.trash]
+        try await poll(harness, [trashed, arrival(5, conversation: "t5"), arrival(6, conversation: "t6", from: spammer)], cursor: "c1")
+        XCTAssertEqual(try harness.store.message(id(4))?.roles, [.trash], "as the server put it")
+        XCTAssertEqual(try harness.store.message(id(6))?.roles, [.inbox], "one the server did not take stays where it is")
+        XCTAssertEqual(Set(try harness.store.conversations(ConversationQuery(view: .inbox)).map(\.id.providerID)), ["t1", "t5", "t6"])
+        XCTAssertTrue(try pending(harness).isEmpty)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(harness.provider.applyCalls.isEmpty, "nothing replayed for the rule")
         await harness.shutdown()
     }
 
@@ -134,7 +140,7 @@ final class MailEngineArrivalRulesTests: XCTestCase {
         try await waitUntil("move back applied") { harness.provider.applyCalls.count == 2 }
         XCTAssertEqual(harness.provider.applyCalls.last?.change, .moveToInbox)
 
-        // With the rule gone, the sender's next message stays in the Inbox.
+        // The sender's next message is stored as the provider reports it.
         try await poll(harness, [arrival(6, conversation: "t6", from: sender)], cursor: "c1")
         XCTAssertEqual(try harness.store.message(id(6))?.roles, [.inbox])
         await harness.shutdown()

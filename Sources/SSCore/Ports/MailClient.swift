@@ -48,8 +48,11 @@ public protocol MailClient: AnyObject {
 
     /// Sets the account's rule for mail from `address` (nil removes it) together with `steps`, in one store transaction:
     /// the steps are applied and queued as `perform` queues them (the rule's change on that sender's mail in the
-    /// conversation it was set from; an undo passes the inverse and the rule the address had). From then on mail from the
-    /// address is archived or moved to the Trash in the write that stores it. Local state updates before this returns.
+    /// conversation it was set from, `SenderRule.Action.change(for:)`, since a server rule acts only on mail that arrives
+    /// after it exists; an undo passes the inverse and the rule the address had). The rule itself lives on the server (a
+    /// Gmail filter, an Outlook inbox rule): the store shows it at once as a change on its way there
+    /// (`SenderRule.sync`), and the engine creates, replaces or deletes it on the server, asking the account for
+    /// `AccountPermission.rules` on its next reconnect while it lacks it. Local state updates before this returns.
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                        performing steps: [MailActionRecord.Step]) throws
 
@@ -142,6 +145,22 @@ public protocol MailClient: AnyObject {
     /// Signs `account` in again asking for the calendar scope too (Connect, from the calendar's foot); once granted,
     /// its calendar is read. Throws as `reconnect` does.
     func connectCalendar(_ account: Account) async throws -> Account
+
+    // MARK: Server rules (docs/ARCHITECTURE.md, "Rules")
+
+    /// Reads the server rules of `accountID` (every account when nil) at their next chance instead of waiting for the
+    /// rules' own interval: at once when an account's rules lane is idle, after the turn it is taking otherwise, and once
+    /// the account may send again while it waits for sign-in or its first live cycle (a failure's backoff is waited out
+    /// too). For Settings › Senders opening. What it finds lands in the store (`MailStoring.observeSenderRules`) and
+    /// `AccountSyncStatus.rules`. Returns immediately.
+    func refreshServerRules(accountID: AccountID?)
+    /// Signs `account` in again asking for the rules scope too (Allow… in Settings › Senders, Continue in the first rule's
+    /// alert); once granted, the rules waiting are sent and the server's rules read. Throws as `reconnect` does.
+    func connectRules(_ account: Account) async throws -> Account
+    /// Whether `accountID` has granted the permission to save sender rules on the server (`AccountPermission.rules`), from
+    /// the scopes its stored token was granted: no request. The app asks before setting a rule, so a rule is only ever set
+    /// where the server can hold it. False for an account the client does not know, or whose provider keeps no rules.
+    func hasRulesPermission(_ accountID: AccountID) async -> Bool
 }
 
 extension MailClient {
@@ -168,6 +187,14 @@ extension MailClient {
     public func connectCalendar(_ account: Account) async throws -> Account {
         try await reconnect(account)
     }
+
+    public func refreshServerRules(accountID: AccountID?) {}
+
+    public func connectRules(_ account: Account) async throws -> Account {
+        try await reconnect(account)
+    }
+
+    public func hasRulesPermission(_ accountID: AccountID) async -> Bool { false }
 }
 
 extension MailClient {

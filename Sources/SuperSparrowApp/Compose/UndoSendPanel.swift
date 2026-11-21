@@ -29,6 +29,8 @@ final class UndoSendPanel: NSPanel {
     private let shownAt: Date
     /// Runs instead of reopening the composer when Undo cancels the send in time.
     private var onUndone: (() -> Void)?
+    /// Whose send this is, for analytics: a composer's, or a quick reply's whose countdown moved here.
+    private var source = AnalyticsSignal.SendSource.composer
     /// Runs once the message has left: work that Undo must be able to take back waits for it.
     private var onSent: (() -> Void)?
     /// What Send and Archive archived when this send was queued: Undo puts it back with the send.
@@ -45,10 +47,11 @@ final class UndoSendPanel: NSPanel {
     // MARK: Showing
 
     /// `remaining` is the part of `undoWindow` still to run (a quick reply's countdown moving here mid-way,
-    /// §5.18); `startedAt` when it began, so ⌘Z still ranks it by its own send.
+    /// §5.18); `startedAt` when it began, so ⌘Z still ranks it by its own send. `source` says whose send it is.
     @discardableResult
     static func show(client: MailClient, accounts: [Account], sendID: String, draft: ComposeDraft, undoWindow: TimeInterval,
                      remaining: TimeInterval? = nil, startedAt: Date = Date(), archive: SendArchive? = nil,
+                     source: AnalyticsSignal.SendSource = .composer,
                      onUndone: (() -> Void)? = nil, onSent: (() -> Void)? = nil) -> UndoSendPanel {
         let left = max(0, min(undoWindow, remaining ?? undoWindow))
         let panel = UndoSendPanel(client: client, accounts: accounts, sendID: sendID, draft: draft, undoWindow: left, startedAt: startedAt,
@@ -56,6 +59,7 @@ final class UndoSendPanel: NSPanel {
         panel.archive = archive
         panel.onUndone = onUndone
         panel.onSent = onSent
+        panel.source = source
         // In the turn that queued the send, before the outbox's observation can say anything about it.
         SendOwnership.claim(sendID)
         panel.ownsSend = true
@@ -262,6 +266,8 @@ final class UndoSendPanel: NSPanel {
             return
         }
         dismissNow()
+        // A quick reply's undone here reopens in a composer too, but is still the quick reply's send.
+        Analytics.send(.sendUndone(source))
         // The conversation comes back to the Inbox before the composer takes the screen.
         archive?.revert()
         archive = nil

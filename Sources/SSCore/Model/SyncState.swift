@@ -68,10 +68,14 @@ public struct AccountSyncStatus: Hashable, Sendable {
     /// Where the account's calendar stands (the day column's foot, Connect). Independent of `phase`: a calendar that
     /// cannot be read never holds mail back.
     public var calendar: CalendarSyncState
+    /// Where the account's server rules stand (Settings › Senders). Independent of `phase` and `calendar`: rules that
+    /// cannot be read or saved never hold mail back.
+    public var rules: RulesSyncState
     public init(accountID: AccountID, phase: AccountSyncPhase, lastSuccessfulSyncAt: Date? = nil, bootstrapProgress: Int? = nil,
                 message: String? = nil, bootstrapTotal: Int? = nil, retryAt: Date? = nil, backfillProgress: Int? = nil,
                 backfillTotal: Int? = nil, backfillPausedUntil: Date? = nil, backfillDownloadingBodies: Bool = false,
-                permissionsNeeded: Set<AccountPermission> = [], calendar: CalendarSyncState = .unknown) {
+                permissionsNeeded: Set<AccountPermission> = [], calendar: CalendarSyncState = .unknown,
+                rules: RulesSyncState = .unknown) {
         self.accountID = accountID
         self.phase = phase
         self.lastSuccessfulSyncAt = lastSuccessfulSyncAt
@@ -85,5 +89,6 @@ public struct AccountSyncStatus: Hashable, Sendable {
         self.backfillDownloadingBodies = backfillDownloadingBodies
         self.permissionsNeeded = permissionsNeeded
         self.calendar = calendar
+        self.rules = rules
     }
 }

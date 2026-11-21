@@ -118,4 +118,38 @@ final class OAuthEndpointsTests: XCTestCase {
         XCTAssertEqual(OAuthEndpoints.permissions(grantedBy: google, kind: .gmail), [.calendar])
         XCTAssertEqual(OAuthEndpoints.permissions(grantedBy: OAuthEndpoints.googleScope, kind: .gmail), [])
     }
+
+    // MARK: Server rules
+
+    /// Sender rules live on the server: Gmail's filters behind the basic settings scope, Outlook's inbox rules behind
+    /// the mailbox settings, each asked for after mail's and the calendar's, in a fixed order.
+    func testTheRulesPermissionAsksForTheSettingsScopes() {
+        XCTAssertEqual(OAuthEndpoints.scope(for: .rules, kind: .gmail), "https://www.googleapis.com/auth/gmail.settings.basic")
+        XCTAssertEqual(OAuthEndpoints.scope(for: .rules, kind: .microsoft), "https://graph.microsoft.com/MailboxSettings.ReadWrite")
+        XCTAssertEqual(AccountPermission.allCases, [.calendar, .rules], "the order scopes are asked for in")
+        XCTAssertEqual(OAuthEndpoints.scope(for: .gmail, permissions: [.rules]),
+                       "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.settings.basic")
+        XCTAssertEqual(OAuthEndpoints.scope(for: .gmail, permissions: [.rules, .calendar]),
+                       "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.events "
+                       + "https://www.googleapis.com/auth/gmail.settings.basic")
+        XCTAssertEqual(OAuthEndpoints.scope(for: .microsoft, permissions: [.rules]),
+                       OAuthEndpoints.microsoftScope + " https://graph.microsoft.com/MailboxSettings.ReadWrite")
+        let url = OAuthEndpoints.authorizationRequestURL(
+            configuration: OAuthClientConfiguration(kind: .gmail, clientID: "abc.apps.googleusercontent.com"),
+            redirectURI: OAuthEndpoints.redirectURI(for: .gmail, port: 1), state: "s", codeChallenge: "c", permissions: [.rules])
+        XCTAssertTrue(queryItems(of: url)["scope"]?.hasSuffix("gmail.settings.basic") ?? false)
+        XCTAssertEqual(queryItems(of: url)["include_granted_scopes"], "true", "incremental: the grant keeps what came before")
+    }
+
+    func testWhatATokensScopesGrantForRules() {
+        let google = [OAuthEndpoints.googleScope, OAuthEndpoints.googleCalendarScope, OAuthEndpoints.googleRulesScope].joined(separator: " ")
+        XCTAssertTrue(OAuthEndpoints.grants(google, .rules, kind: .gmail))
+        XCTAssertFalse(OAuthEndpoints.grants(OAuthEndpoints.googleScope, .rules, kind: .gmail), "gmail.modify does not cover settings")
+        XCTAssertFalse(OAuthEndpoints.grants("https://www.googleapis.com/auth/gmail.settings.sharing", .rules, kind: .gmail))
+        XCTAssertEqual(OAuthEndpoints.permissions(grantedBy: google, kind: .gmail), [.calendar, .rules])
+        XCTAssertTrue(OAuthEndpoints.grants("Mail.ReadWrite mailboxsettings.readwrite", .rules, kind: .microsoft))
+        XCTAssertTrue(OAuthEndpoints.grants("https://graph.microsoft.com/MailboxSettings.ReadWrite", .rules, kind: .microsoft))
+        XCTAssertFalse(OAuthEndpoints.grants("MailboxSettings.Read", .rules, kind: .microsoft), "reading is not saving")
+        XCTAssertEqual(OAuthEndpoints.permissions(grantedBy: "Mail.ReadWrite MailboxSettings.ReadWrite", kind: .microsoft), [.rules])
+    }
 }

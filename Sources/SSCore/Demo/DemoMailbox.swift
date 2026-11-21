@@ -24,6 +24,14 @@ final class DemoMailbox: @unchecked Sendable {
     /// The account's main calendar, by provider id: generated with the mailbox (`DemoCalendar`), then changed by the
     /// time the user sets aside and removes, and by their answers to the invitations.
     private var calendarEvents: [String: CalendarEvent] = [:]
+    /// The account's server rules (its Gmail filters or Outlook inbox rules) this app can show, in the server's order, and
+    /// changed by the rules the user sets and removes. The server keeps `otherRuleCount` rules besides, which it lists only
+    /// as a count, so Settings › Senders has other rules to mention.
+    private var serverSenderRules: [ServerSenderRule]
+    private var rulesMade = 0
+    static let otherRuleCount = 2
+    /// The id of the rule blocking `DemoSeeder.blockedSender`, which every demo server starts with.
+    static let blockedRuleID = "demo-rule-blocked"
 
     init(
         profile: DemoProfile,
@@ -31,8 +39,12 @@ final class DemoMailbox: @unchecked Sendable {
         reference: Date,
         liveInterval: TimeInterval,
         now: @escaping @Sendable () -> Date,
-        restore: (@Sendable (MessageID) -> MessageMetadata?)? = nil
+        restore: (@Sendable (MessageID) -> MessageMetadata?)? = nil,
+        rules: [ServerSenderRule]? = nil
     ) {
+        // An earlier run's rules, as the store mirrors them, or the server's first state: the blocked sender.
+        self.serverSenderRules = rules ?? [ServerSenderRule(serverID: Self.blockedRuleID, address: DemoSeeder.blockedSender,
+                                                           action: .trash)]
         self.profile = profile
         self.accountID = accountID
         self.now = now
@@ -285,6 +297,32 @@ final class DemoMailbox: @unchecked Sendable {
             calendarEvents[providerID]?.response = response
             calendarEvents[providerID]?.updatedAt = now()
         }
+    }
+
+    // MARK: Server rules
+
+    func serverRules() -> ServerRuleListing {
+        lock.lock(); defer { lock.unlock() }
+        return ServerRuleListing(senderRules: serverSenderRules, otherCount: Self.otherRuleCount, requestCount: 1)
+    }
+
+    /// Creates the rule, or returns the id of an identical one, as the real providers' creates do after a lost reply.
+    func createSenderRule(address: String, action: SenderRule.Action) -> String {
+        lock.lock(); defer { lock.unlock() }
+        let address = SenderRule.normalizedAddress(address)
+        if let existing = serverSenderRules.first(where: { $0.address == address && $0.action == action }) {
+            return existing.serverID
+        }
+        rulesMade += 1
+        let id = "demo-rule-\(generation)-\(rulesMade)"
+        serverSenderRules.append(ServerSenderRule(serverID: id, address: address, action: action))
+        return id
+    }
+
+    /// Removes the rule; one the server no longer has is already gone.
+    func deleteRule(serverID: String) {
+        lock.lock(); defer { lock.unlock() }
+        serverSenderRules.removeAll { $0.serverID == serverID }
     }
 
     // MARK: Live arrivals

@@ -119,6 +119,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try write { try AccountTable.setSignature(signature, for: accountID, in: $0) }
     }
 
+    public func setFace(_ face: AccountFace, for accountID: AccountID) throws {
+        try write { try AccountTable.setFace(face, for: accountID, in: $0) }
+    }
+
     // MARK: Sync state
 
     public func syncCursor(for accountID: AccountID) throws -> String? {
@@ -425,6 +429,19 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
             for operation in operations { try OperationTable.enqueue(operation, in: db) }
             try SenderRuleTable.set(action, for: address, accountID: accountID, now: now, in: db)
         }
+    }
+
+    public func pendingSenderRules(accountID: AccountID) throws -> [SenderRule] {
+        try read { try SenderRuleTable.pending(accountID: accountID, in: $0) }
+    }
+
+    public func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws {
+        try write { try SenderRuleTable.replace(accountID: accountID, with: rules, readAt: readAt, in: $0) }
+    }
+
+    @discardableResult
+    public func settleSenderRule(for address: String, accountID: AccountID, _ outcome: SenderRuleOutcome) throws -> Bool {
+        try write { try SenderRuleTable.settle(outcome, address: address, accountID: accountID, in: $0) }
     }
 
     public func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {

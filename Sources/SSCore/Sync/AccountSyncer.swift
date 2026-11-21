@@ -1,7 +1,7 @@
 import Foundation
 
-/// Drives one account in two lanes that run side by side and stop together, and a third, the calendar lane, for a
-/// provider that has a calendar.
+/// Drives one account in two lanes that run side by side and stop together, plus the calendar lane for a provider that
+/// has a calendar and the rules lane for one that keeps server rules.
 ///
 /// The `LiveLane` owns the change cursor: it takes one from the newest page when the account has none, replays
 /// the outbox and polls for changes every few seconds, so new mail and the user's own actions never queue
@@ -10,7 +10,9 @@ import Foundation
 /// a backfill or leaves bodies for it, either lane parks both when the token is refused, and the live lane
 /// fences off backfill writes while it replaces the backfill. The `CalendarLane` sends the time set aside and removed
 /// on this Mac and reads the account's calendar; the live lane tells it each time a full cycle has caught up, and it
-/// shares the link only to send nothing while the account is parked (docs/ARCHITECTURE.md, "Calendar").
+/// shares the link only to send nothing while the account is parked (docs/ARCHITECTURE.md, "Calendar"). The `RulesLane`
+/// reads the server's rules and sends the sender rules set and removed on this Mac, woken the same way
+/// (docs/ARCHITECTURE.md, "Rules").
 ///
 /// `wake(.poll)` and `wake(.operations)` reach the live lane; the backfill lane is the live lane's to wake.
 /// `refreshCalendar()`, `refreshCalendar(covering:)` and `sendCalendarWrites()` reach the calendar lane, and the live
@@ -21,6 +23,8 @@ final class AccountSyncer: Sendable {
     private let backfill: BackfillLane
     /// Nil when the provider has no calendar (`CalendarProvider`).
     private let calendar: CalendarLane?
+    /// Nil when the provider keeps no server rules (`RuleProvider`).
+    private let rules: RulesLane?
     private let link = LaneLink()
     private let loop = LoopHandle()
 
@@ -47,6 +51,12 @@ final class AccountSyncer: Sendable {
                                     tuning: tuning, budget: budget, link: link, isAppActive: isAppActive)
         }
         self.calendar = calendar
+        var rules: RulesLane?
+        if let ruleProvider = provider as? RuleProvider {
+            rules = RulesLane(accountID: accountID, store: store, provider: ruleProvider, statusCenter: statusCenter,
+                              tuning: tuning, budget: budget, link: link, isAppActive: isAppActive)
+        }
+        self.rules = rules
         live = LiveLane(
             accountID: accountID,
             store: store,
@@ -62,7 +72,10 @@ final class AccountSyncer: Sendable {
             firstCycleEnded: firstLiveCycleEnded,
             checkStarted: liveCheckStarted,
             checkCaughtUp: liveCheckCaughtUp,
-            cycleCaughtUp: { [calendar] in calendar?.wake(.check) },
+            cycleCaughtUp: { [calendar, rules] in
+                calendar?.wake(.check)
+                rules?.wake(.check)
+            },
             invitationAnswered: { [calendar] in calendar?.wake(.poll) }
         )
         backfill = BackfillLane(
@@ -82,12 +95,13 @@ final class AccountSyncer: Sendable {
 
     /// Starts the lanes unless they are running. A fresh start tries the token again.
     func start() {
-        loop.start { [live, backfill, calendar, link] in
+        loop.start { [live, backfill, calendar, rules, link] in
             link.reset()
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await live.run() }
                 group.addTask { await backfill.run() }
                 if let calendar { group.addTask { await calendar.run() } }
+                if let rules { group.addTask { await rules.run() } }
             }
         }
     }
@@ -120,5 +134,20 @@ final class AccountSyncer: Sendable {
     /// Time set aside or removed on this Mac waits for the provider: the calendar lane sends it at its next chance.
     func sendCalendarWrites() {
         calendar?.wake(.operations)
+    }
+
+    /// Whether the provider keeps server rules, so the account has a rules lane.
+    var hasRulesLane: Bool {
+        rules != nil
+    }
+
+    /// Has the rules lane read the server's rules at its next chance (`MailClient.refreshServerRules`).
+    func refreshRules() {
+        rules?.wake(.poll)
+    }
+
+    /// A sender rule set, changed or removed on this Mac waits for the server: the rules lane sends it at its next chance.
+    func sendRuleWrites() {
+        rules?.wake(.operations)
     }
 }

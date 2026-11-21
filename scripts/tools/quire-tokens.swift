@@ -764,6 +764,88 @@ func emitPalettes(_ t: Tokens) -> String {
     return out
 }
 
+/// The paper faces (spec §5.55): the papers as a palette that follows Light and Dark only, and the twelve faces' cut-outs as
+/// SVG path data, each with its paper and lift. A face that names a paper the palette lacks, or a lift with no shadow, fails
+/// the run, so the Swift that compiles is the art as drawn.
+func emitPaperFaces(_ t: Tokens) -> String {
+    guard let papers = t.root.require("paperPalette", "").array, !papers.isEmpty else { fail("paperPalette must list the papers") }
+    guard let faces = t.root.require("paperFaces", "").array, !faces.isEmpty else { fail("paperFaces must list the faces") }
+    let paperNames = papers.map { $0.require("name", "paperPalette").string ?? fail("paperPalette.name must be a string") }
+    if Set(paperNames).count != paperNames.count { fail("paperPalette names must be unique") }
+    let lifts = t.root.require("layout", "").require("paperFaces", "layout").require("shadowY", "layout.paperFaces").array?.count ?? 0
+    var out = header + "\nimport AppKit\nimport SwiftUI\n\n"
+    out += "extension Quire {\n"
+    out += "    /// The papers the paper faces are cut from (spec §5.55), in the art's order. Illustration, not interface: no theme\n"
+    out += "    /// recolours them, Graphite leaves them alone and Increase Contrast keeps them; they follow Light and Dark only.\n"
+    out += "    public enum Paper: Int, CaseIterable, Sendable {\n"
+    for (i, n) in paperNames.enumerated() { out += "        case \(memberName(n)) = \(i)\n" }
+    out += "\n        /// The paper's name in the art (`paper_faces.json`).\n"
+    out += "        public var name: String { Quire.paperNames[rawValue] }\n"
+    out += "        public var color: NSColor { Quire.paperColors[rawValue] }\n"
+    out += "        public var values: QuireColorValues {\n            switch self {\n"
+    for (p, n) in zip(papers, paperNames) {
+        var values: [String: String] = [:]
+        for m in modes { values[m] = p.require(m, "paperPalette.\(n)").string ?? fail("paperPalette.\(n).\(m) must be a string") }
+        out += "            case .\(memberName(n)): return \(colorValuesLiteral(values))\n"
+    }
+    out += "            }\n        }\n    }\n\n"
+    out += "    public static let paperNames: [String] = [\(paperNames.map(swiftString).joined(separator: ", "))]\n\n"
+    out += "    static let paperColors: [NSColor] = Paper.allCases.map { NSColor.quire(\"paper.\" + $0.name, $0.values) }\n\n"
+    var ids: [String] = []
+    var cases: [(member: String, name: String, ground: String, layers: [(String, String, Int)])] = []
+    for f in faces {
+        let id = f.require("id", "paperFaces").string ?? fail("paperFaces.id must be a string")
+        if ids.contains(id) { fail("paperFaces: duplicate id \(id)") }
+        ids.append(id)
+        let path = "paperFaces.\(id)"
+        let ground = f.require("ground", path).string ?? fail("\(path).ground must be a string")
+        if !paperNames.contains(ground) { fail("\(path).ground \(ground) is not a paper") }
+        let layers = (f.require("layers", path).array ?? fail("\(path).layers must be an array")).enumerated().map { i, l -> (String, String, Int) in
+            let lp = "\(path).layers[\(i)]"
+            let d = l.require("d", lp).string ?? fail("\(lp).d must be a string")
+            let paper = l.require("paper", lp).string ?? fail("\(lp).paper must be a string")
+            if !paperNames.contains(paper) { fail("\(lp).paper \(paper) is not a paper") }
+            guard let lift = l.require("lift", lp).double, lift == lift.rounded(), lift >= 0, Int(lift) < lifts else {
+                fail("\(lp).lift must be an integer below \(lifts)")
+            }
+            return (d, paper, Int(lift))
+        }
+        cases.append((memberName(id), f.require("name", path).string ?? fail("\(path).name must be a string"), ground, layers))
+    }
+    out += "    /// The paper faces (spec §5.55), in the picker's order; an account that has chosen none wears the one its ink slot\n"
+    out += "    /// picks (`automatic(forSlot:)`). Each is cut-outs laid on a ground paper, drawn by `QuireAvatarRenderer`.\n"
+    out += "    public enum PaperFace: String, CaseIterable, Sendable {\n"
+    for (c, id) in zip(cases, ids) { out += "        case \(c.member) = \(swiftString(id))\n" }
+    out += "\n        /// What VoiceOver calls the face, in the picker only: elsewhere an account's face is read as the account.\n"
+    out += "        public var name: String {\n            switch self {\n"
+    for c in cases { out += "            case .\(c.member): return \(swiftString(c.name))\n" }
+    out += "            }\n        }\n\n"
+    out += "        /// The paper that fills the disc behind the cut-outs.\n"
+    out += "        public var ground: Paper {\n            switch self {\n"
+    for c in cases { out += "            case .\(c.member): return .\(memberName(c.ground))\n" }
+    out += "            }\n        }\n\n"
+    out += "        /// The cut-outs, bottom first: SVG path data in the art's square (`layout.paperFaces.artBox`, y down), each\n"
+    out += "        /// with its paper and its lift, which picks its shadow.\n"
+    out += "        public var layers: [QuirePaperLayer] {\n            switch self {\n"
+    for c in cases {
+        out += "            case .\(c.member):\n                return [\n"
+        for (d, paper, lift) in c.layers {
+            out += "                    QuirePaperLayer(path: \(swiftString(d)),\n                                    paper: .\(memberName(paper)), lift: \(lift)),\n"
+        }
+        out += "                ]\n"
+    }
+    out += "            }\n        }\n    }\n"
+    out += "}\n\n"
+    out += "extension NSColor {\n"
+    out += "    /// A paper of the paper faces (spec §5.55), the same in every theme.\n"
+    out += "    public static func qAvatarPaper(_ paper: Quire.Paper) -> NSColor { Quire.paperColors[paper.rawValue] }\n"
+    out += "}\n\n"
+    out += "extension Color {\n"
+    out += "    public static func qAvatarPaper(_ paper: Quire.Paper) -> Color { Color(nsColor: .qAvatarPaper(paper)) }\n"
+    out += "}\n"
+    return out
+}
+
 let knownFamilies = ["sf", "serif", "rounded", "mono"]
 let knownTypeKeys: Set<String> = ["family", "size", "weight", "lineHeight", "tracking", "twin", "twinOf", "variantOf", "unreadWeight",
                                   "numeric", "style", "case", "sizeRatio", "minSize", "use"]
@@ -1598,6 +1680,7 @@ let outputs: [(String, String)] = [
     ("\(designGenerated)/QuireTokensLayout.swift", emitLayout(tokens)),
     ("\(designGenerated)/QuireTokensContent.swift", emitContent(tokens)),
     ("\(designGenerated)/QuireTokensThemes.swift", emitThemes(tokens)),
+    ("\(designGenerated)/QuireTokensPaperFaces.swift", emitPaperFaces(tokens)),
     ("Sources/SSCore/ConversationSupport/QuireCSS.swift", emitCSS(tokens)),
     ("\(testsGenerated)/DesignContrastTests.swift", emitContrastTests(tokens)),
     ("\(testsGenerated)/AccountPaletteTests.swift", emitAccountPaletteTests(tokens)),

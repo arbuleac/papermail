@@ -29,6 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let replacement: AppEnvironment?
         /// The day column's Connect (§5.54): told whether the account granted its calendar, or gave up.
         var connected: (@MainActor (Bool) -> Void)?
+        /// Asking for the permission to save sender rules on the server (§5.52): Try Again asks for it again, and `connected`
+        /// hears whether the sign-in went through.
+        var asksRules = false
     }
 
     private let options: LaunchOptions
@@ -59,6 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let services = MailServicesProvider()
     /// The app's life as crash-report breadcrumbs (`CrashReporting`).
     private let crashBreadcrumbs = CrashBreadcrumbs()
+    /// The launch was sent to analytics (the first main window only; a demo swapped in later is no launch).
+    private var launchReported = false
+    #if DEBUG
+    /// `--analytics-check`'s round of steps, kept while it runs.
+    private var analyticsCheck: AnalyticsCheck?
+    #endif
 
     init(options: LaunchOptions) {
         self.options = options
@@ -110,8 +119,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         runQuittingSnapshots()
         #if DEBUG
         if options.gallery { showDesignGallery(nil) }
+        if options.analyticsCheck {
+            let check = AnalyticsCheck(settings: settings, mainWindow: { [weak self] in self?.mainWindow },
+                                       openSettings: { [weak self] in self?.openSettings() })
+            analyticsCheck = check
+            check.run()
+        }
+        if let report = options.liveWriteCheckPath, options.demo { runLiveWriteCheck(report: report) }
         #endif
     }
+
+    #if DEBUG
+    /// `--live-write-check` (debug, demo only): one Help Me Write reply on the first inbox conversation's quick reply,
+    /// reported to `report`, then the app quits.
+    private func runLiveWriteCheck(report: String) {
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self, let window = self.mainWindow, let environment = self.environment, environment.isDemo else { return }
+            window.selectFirstConversation()
+            LiveWriteCheck.run(in: window, center: environment.helpMeWrite, settings: self.settings, report: report) {
+                // As the quitting snapshots do: from a run-loop block, never a main-queue callout.
+                RunLoop.main.perform { MainActor.assumeIsolated { NSApp.terminate(nil) } }
+            }
+        }
+    }
+    #endif
 
     // MARK: Snapshots (debug aid)
 
@@ -132,6 +163,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self, let window = self.mainWindow else { return }
             window.selectFirstConversation()
             window.whenReaderSettles(timeout: 10) { webView in
+                #if DEBUG
+                if main != nil, WrapSnapshot.text != nil, window.conversation.focusQuickReply(all: false) {
+                    WrapSnapshot.type(into: window.conversation.quickReplyBar.writingTextView, in: window.window)
+                }
+                #endif
                 // Frames size themselves and inline images load after the render lands.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     MainActor.assumeIsolated {
@@ -185,6 +221,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         reader.conversation.whenShownRenderLands(timeout: 10) { webView in
+            #if DEBUG
+            if WrapSnapshot.text != nil, reader.conversation.focusQuickReply(all: false) {
+                WrapSnapshot.type(into: reader.conversation.quickReplyBar.writingTextView, in: reader.window)
+            }
+            #endif
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 MainActor.assumeIsolated {
                     self.captureReader(webView) { image in
@@ -213,23 +254,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func writeComposeSnapshot(to path: String) {
+        #if DEBUG
+        // `wrap-…` states: a long text typed into the body instead of the demo's sample (WrapSnapshot).
+        if WrapSnapshot.writeComposeSnapshot(from: mainWindow, to: path) { return }
+        #endif
         guard mainWindow?.openReplyComposer() == true else {
             Self.log.error("snapshot: no conversation to reply to")
             return
         }
-        // A line and a picture in the body, so the snapshot shows how a pasted picture sits in the text (§5.20).
-        ComposeWindowRegistry.shared.openControllers.first?.writeDemoSample()
+        // A line and a picture in the body, so the snapshot shows how a pasted picture sits in the text (§5.20); or, with a
+        // `write-…` state, Help me write on the body (§5.56).
+        let composer = ComposeWindowRegistry.shared.openControllers.first
+        #if DEBUG
+        if composer?.stageDebugWriteState() != true { composer?.writeDemoSample() }
+        composer?.stageDebugSendStates()
+        #else
+        composer?.writeDemoSample()
+        #endif
         // Let the composer lay out and load the quoted original.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             MainActor.assumeIsolated {
                 guard let window = ComposeWindowRegistry.shared.openControllers.first?.window,
                       let view = window.contentView?.superview ?? window.contentView,
-                      let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                      let bitmap = SnapshotRenderer.bitmap(for: view, in: view.bounds) else {
                     Self.log.error("snapshot: no composer window")
                     return
                 }
                 view.cacheDisplay(in: view.bounds, to: bitmap)
                 SnapshotRenderer.writePNG(bitmap, to: path)
+                #if DEBUG
+                // Send's drop-down is a system menu no window snapshot holds: captured alone, afterwards (§5.23).
+                let states = SendSnapshotStates.requested
+                if states.contains("send-menu") || states.contains("send-menu-send"),
+                   let composer = ComposeWindowRegistry.shared.openControllers.first {
+                    let menu = composer.debugSendOptionsMenu(current: states.contains("send-menu-send") ? .send : .sendAndArchive)
+                    SendSnapshotStates.showMenuForCapture(menu, path: (path as NSString).deletingPathExtension + "-menu.png")
+                }
+                #endif
             }
         }
     }
@@ -248,6 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         jobs.append((options.welcomeStatesSnapshotPath, { [unowned self] in self.writeWelcomeSnapshot(to: $0, states: true) }))
         jobs.append((options.settingsSnapshotPath, { [unowned self] in self.writeSettingsSnapshot(to: $0, states: false) }))
         jobs.append((options.settingsStatesSnapshotPath, { [unowned self] in self.writeSettingsSnapshot(to: $0, states: true) }))
+        jobs.append((options.sendersSnapshotPath, writeSendersSnapshot))
         jobs.append((options.cheatSheetSnapshotPath, writeCheatSheetSnapshot))
         jobs.append((options.hudSnapshotPath, writeHUDSnapshot))
         jobs.append((options.alertsSnapshotPath, writeAlertsSnapshot))
@@ -351,6 +413,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     }
                 }
             }
+        }
+    }
+
+    /// Settings › Accounts › Senders… in demo mode (§5.52), once the demo's rules lane has read its made-up server.
+    private func writeSendersSnapshot(to path: String) {
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self else { return }
+            self.openSettings()
+            guard let controller = self.settingsWindow else {
+                Self.log.error("snapshot: no settings window")
+                self.quittingSnapshotFinished()
+                return
+            }
+            controller.window?.orderOut(nil)
+            let model = controller.model
+            let gmail = model.accounts.first { $0.kind == .gmail }
+            let deadline = Date().addingTimeInterval(10)
+            // The rules are read after the demo account's first live cycle, a moment after its inbox fills.
+            @MainActor func render() {
+                let read: Bool
+                if let gmail, case .upToDate? = model.statuses[gmail.id]?.rules { read = true } else { read = false }
+                guard read || Date() > deadline else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { MainActor.assumeIsolated { render() } }
+                    return
+                }
+                AppSnapshots.renderSenders(controller) { bitmap in
+                    if let bitmap { SnapshotRenderer.writePNG(bitmap, to: path) }
+                    self.quittingSnapshotFinished()
+                }
+            }
+            render()
         }
     }
 
@@ -473,6 +566,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSApp.terminate(nil)
             return
         }
+        #if DEBUG
+        LiveWriteCheck.chooseProvider(options, for: environment)
+        #endif
         environment.start()
         install(environment, replacing: nil)
     }
@@ -494,6 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ComposeDraftStore.shared.useDemoDirectory(environment.isDemo)
         // Crash reports say which mailbox was on screen, so one from the made-up demo reads as such.
         CrashReporting.setMode(demo: environment.isDemo)
+        Analytics.setMode(demo: environment.isDemo)
         // File › Leave Demo… exists only in demo mode (§5.35). Set here, not in validation, which skips hidden items.
         let fileItems = NSApp.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
         fileItems.first { $0.action == #selector(leaveDemo(_:)) }?.isHidden = !environment.isDemo
@@ -509,7 +606,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return done(false) }
             self.connectCalendar(account, origin: .main, done: done)
         }
+        window.onConnectRules = { [weak self] account, done in
+            guard let self else { return done(false) }
+            self.connectRules(account, origin: .main, done: done)
+        }
         window.onOpenSettings = { [weak self] in self?.openSettings() }
+        environment.helpMeWrite.openSettings = { [weak self] in self?.openSettings(tab: .ai) }
         window.onOpenAccountsSettings = { [weak self] in self?.openSettings(tab: .accounts) }
         window.onTryDemo = { [weak self] in self?.switchToDemo() }
         window.onCancelSignIn = { [weak self] in self?.cancelSignIn() }
@@ -522,6 +624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             openMailLinks(in: window)
             openServiceRequests(in: window)
             answerNotifications(in: window)
+            if old == nil { reportLaunch(in: environment) }
         }
         observeForNotifier(environment)
         if let oldFrame { window.window?.setFrame(oldFrame, display: false) }
@@ -543,6 +646,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             oldWindow.alphaValue = 1
         })
         requestNotificationsIfAccounts(window, in: environment)
+    }
+
+    /// The launch, once, as its first main window is on screen: how long since the process started, how many accounts of
+    /// each kind, and how the app looks (`Analytics`).
+    private func reportLaunch(in environment: AppEnvironment) {
+        guard !launchReported else { return }
+        launchReported = true
+        let accounts = (try? environment.store.accounts()) ?? []
+        Analytics.send(.launched(.init(seconds: Analytics.secondsSinceProcessStart() ?? 0,
+                                       gmailAccounts: accounts.filter { $0.kind == .gmail }.count,
+                                       microsoftAccounts: accounts.filter { $0.kind == .microsoft }.count,
+                                       theme: options.theme ?? settings.theme, appearance: settings.appearance,
+                                       density: settings.listDensity, textSize: options.textSize ?? settings.textSize,
+                                       typeface: options.typeface ?? settings.typeface)))
     }
 
     /// Mail links open in `window`, the main window `install` just put on screen, which has read its accounts: one that
@@ -676,7 +793,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func window(for origin: Origin) -> NSWindow? {
         switch origin {
-        case .settings: return settingsWindow?.visibleWindow ?? mainWindow?.window
+        // On Settings' own sheet while one is up (Allow… in Senders): an alert begun on the window itself would queue
+        // behind that sheet until it closed.
+        case .settings: return settingsWindow?.visibleWindow.map { $0.attachedSheet ?? $0 } ?? mainWindow?.window
         case .main, .welcome: return mainWindow?.window
         }
     }
@@ -720,6 +839,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let environment, signIn == nil, !isPreparingDemo,
               environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else { return done(false) }
         beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, calendar: true)
+        signIn?.connected = done
+    }
+
+    /// Allow… in Settings › Senders, Continue in a rule's alert, and the Settings row's and the sync line's Reconnect while
+    /// rules from before 1.14 wait (§5.52): the reconnect's browser sign-in, asking for the permission to save rules on the
+    /// server on top of what the account holds (`MailClient.connectRules`), with its alerts. `done` hears whether the
+    /// sign-in went through (the rule's alert sets the rule only then), or gave up.
+    func connectRules(_ account: Account, origin: Origin, done: (@MainActor (Bool) -> Void)? = nil) {
+        guard let environment, signIn == nil, !isPreparingDemo,
+              environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else {
+            done?(false)
+            return
+        }
+        beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, rules: true)
         signIn?.connected = done
     }
 
@@ -772,7 +905,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func beginSignIn(kind: ProviderKind, reconnecting: Account?, origin: Origin, in environment: AppEnvironment,
-                             replacement: AppEnvironment?, type: MicrosoftAccountType? = nil, calendar: Bool = false) {
+                             replacement: AppEnvironment?, type: MicrosoftAccountType? = nil, calendar: Bool = false,
+                             rules: Bool = false) {
         let tenant = type.map { $0.tenant(configured: try? environment.clientConfigurations.configuration(for: kind).tenant) }
         signInGeneration += 1
         let generation = signInGeneration
@@ -782,6 +916,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let account: Account
                 if let reconnecting, calendar {
                     account = try await environment.engine.connectCalendar(reconnecting)
+                } else if let reconnecting, rules {
+                    account = try await environment.engine.connectRules(reconnecting)
                 } else if let reconnecting {
                     account = try await environment.engine.reconnect(reconnecting)
                 } else {
@@ -792,7 +928,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 await self?.signInFailed(error, generation: generation)
             }
         }
-        signIn = SignIn(generation: generation, kind: kind, reconnecting: reconnecting, origin: origin, task: task, replacement: replacement)
+        signIn = SignIn(generation: generation, kind: kind, reconnecting: reconnecting, origin: origin, task: task, replacement: replacement,
+                        asksRules: rules)
         reflectSignIn()
     }
 
@@ -819,6 +956,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         reflectSignIn()
         if let replacement = current.replacement {
             replaceDemo(with: replacement)
+            Analytics.send(.accountAdded(.init(account.kind)))
             return
         }
         if let reconnected = current.reconnecting {
@@ -834,6 +972,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         } else {
             settings.accountWasAdded(totalAccounts: menuAccounts.count)
+            Analytics.send(.accountAdded(.init(account.kind)))
         }
         mainWindow?.notifier.requestAuthorizationIfNeeded()
         mainWindow?.refreshAccounts()
@@ -857,10 +996,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Self.log.error("sign-in failed: \(String(describing: error), privacy: .public)")
         let reason = ErrorText.signIn(error, kind: current.kind)
         // Try Again asks again as the sign-in did: the calendar's Connect keeps asking for the calendar, and hears the
-        // outcome; anything else ends its round.
+        // outcome; the rules' keeps asking for the rules; anything else ends its round.
         let again = { [weak self] (account: Account) in
             guard let self else { return }
-            if let connected = current.connected {
+            if current.asksRules {
+                self.connectRules(account, origin: current.origin, done: current.connected)
+            } else if let connected = current.connected {
                 self.connectCalendar(account, origin: current.origin, done: connected)
             } else {
                 self.reconnect(account, origin: current.origin)
@@ -976,6 +1117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             do {
                 try await environment.engine.removeAccount(account.id)
                 Self.removeDrafts(of: account.id)
+                Analytics.send(.accountRemoved(.init(account.kind)))
             } catch {
                 Self.log.error("remove failed: \(String(describing: error), privacy: .public)")
                 guard let self else { return }
@@ -1030,20 +1172,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             model.leaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .settings) }
             model.setInkSlot = { [weak self] slot, account in self?.edit(account) { try $0.setInkSlot(slot, for: account.id) } }
             model.setMonogram = { [weak self] monogram, account in self?.edit(account) { try $0.setMonogram(monogram, for: account.id) } }
+            model.setFace = { [weak self] face, account in self?.edit(account) { try $0.setFace(face, for: account.id) } }
             model.setSignature = { [weak self, weak model] signature, id in
                 // A field saving as its account is removed has nothing left to save to.
                 guard let account = model?.accounts.first(where: { $0.id == id }) else { return }
                 self?.edit(account) { try $0.setSignature(signature, for: id) }
             }
             model.removeSenderRule = { [weak self] rule in self?.removeSenderRule(rule) }
+            model.connectRules = { [weak self] account in self?.connectRules(account, origin: .settings) }
             settingsWindow = controller
             reflectSignIn()
         }
+        if settingsWindow?.window?.isVisible != true { Analytics.send(.settingsOpened) }
         settingsWindow?.show(tab: tab)
         if let oauthNotice { settingsWindow?.model.oauthNotice = oauthNotice }
     }
 
-    /// Colour, monogram and signature are written to the store directly; both windows re-read their accounts, and
+    /// Colour, monogram, face and signature are written to the store directly; both windows re-read their accounts, and
     /// composers opened from then on take the new signature.
     private func edit(_ account: Account, _ change: (MailStoring) throws -> Void) {
         guard let environment else { return }
@@ -1057,7 +1202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         settingsWindow?.refreshAccounts()
     }
 
-    /// The Senders sheet's −: through the engine, as the menus set rules, so its observation reaches both windows.
+    /// The Senders sheet's −: through the engine, as the menus set rules, so its observation reaches both windows. The
+    /// rule waits there to be deleted on the server (one never saved there just goes).
     private func removeSenderRule(_ rule: SenderRule) {
         guard let environment else { return }
         do {

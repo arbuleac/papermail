@@ -31,6 +31,11 @@ final class MuteAndSenderRulesTests: XCTestCase {
         try store(harness).conversations(ConversationQuery(view: .all, limit: 500)).first { $0.id == id }
     }
 
+    /// The provider of the account `message` belongs to, which the rule's toast names.
+    private func kind(of message: MessageMetadata, _ harness: MainWindowHarness) -> ProviderKind {
+        harness.controller.accountsByID[message.id.accountID]?.kind ?? .gmail
+    }
+
     private func cell(of id: ConversationID, _ harness: MainWindowHarness) throws -> ConversationCellView {
         harness.spin { harness.list.conversations.contains { $0.id == id } }
         let index = try XCTUnwrap(harness.list.conversations.firstIndex { $0.id == id })
@@ -166,7 +171,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
     // MARK: Notifications
 
     /// Mail a mute or a sender rule took out of the Inbox never notifies, with the window's own wiring; mail beside it
-    /// does.
+    /// does. The rules are the server's: their mail arrives as the server put it (archived, or in the Trash).
     func testNoNotificationFiresForAMutedOrRuledArrival() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
@@ -177,8 +182,10 @@ final class MuteAndSenderRulesTests: XCTestCase {
         let shared = try XCTUnwrap(rows.first { $0.id.accountID == a.id && $0.id != muted }).id
         open(muted, in: harness)
         XCTAssertTrue(harness.controller.perform(.toggleMute))
-        try store.setSenderRule(.trash, for: "deals@shop.example", accountID: a.id, enqueueing: [], at: Date())
-        try store.setSenderRule(.archive, for: "news@letter.example", accountID: a.id, enqueueing: [], at: Date())
+        try store.replaceServerSenderRules(accountID: a.id, with: [
+            ServerSenderRule(serverID: "f1", address: "deals@shop.example", action: .trash),
+            ServerSenderRule(serverID: "f2", address: "news@letter.example", action: .archive),
+        ], readAt: Date())
 
         let notifier = NewMailNotifier(settings: harness.settings, launchDate: Date().addingTimeInterval(-3_600))
         notifier.isFrontmost = { false }
@@ -186,22 +193,26 @@ final class MuteAndSenderRulesTests: XCTestCase {
         let inbox = { try store.conversations(ConversationQuery(view: .inbox, limit: 300)) }
         XCTAssertTrue(notifier.plan(try inbox(), accounts: [a.id: a], now: Date()).isEmpty, "the first delivery only records")
 
-        func arrival(_ id: String, in conversation: ConversationID, from: EmailAddress) -> MessageMetadata {
+        func arrival(_ id: String, in conversation: ConversationID, from: EmailAddress,
+                     roles: Set<MailboxRole> = [.inbox]) -> MessageMetadata {
             MessageMetadata(id: MessageID(accountID: conversation.accountID, providerID: id), conversationID: conversation,
                             subject: "New", snippet: "New mail", from: from, to: [EmailAddress(address: a.email)], date: Date(),
-                            roles: [.inbox], isRead: false, isStarred: false, hasAttachments: false)
+                            roles: roles, isRead: false, isStarred: false, hasAttachments: false)
         }
-        // One poll in a fresh conversation: Ben's message, then a minute later one his list's rule archives, the row's newest.
+        // One poll in a fresh conversation: Ben's message, then a minute later one his list's rule archived on the server,
+        // the row's newest.
         let mixed = ConversationID(accountID: a.id, providerID: "mixed")
-        var ruledAfter = arrival("ruled-after", in: mixed, from: EmailAddress(name: "Weekly", address: "news@letter.example"))
+        var ruledAfter = arrival("ruled-after", in: mixed, from: EmailAddress(name: "Weekly", address: "news@letter.example"), roles: [])
         ruledAfter.date = Date().addingTimeInterval(60)
         try store.upsertMessages([
             arrival("ben-first", in: mixed, from: EmailAddress(name: "Ben", address: "ben@example.com")),
             ruledAfter,
             arrival("muted-new", in: muted, from: EmailAddress(name: "Ada", address: "ada@example.com")),
-            arrival("blocked-new", in: ConversationID(accountID: a.id, providerID: "blocked"), from: EmailAddress(address: "deals@shop.example")),
-            // Archived by its sender's rule, yet the newest message of a conversation the Inbox still holds for older mail.
-            arrival("archived-new", in: shared, from: EmailAddress(name: "Weekly", address: "news@letter.example")),
+            arrival("blocked-new", in: ConversationID(accountID: a.id, providerID: "blocked"), from: EmailAddress(address: "deals@shop.example"),
+                    roles: [.trash]),
+            // Archived by its sender's rule on the server, yet the newest message of a conversation the Inbox still holds for
+            // older mail.
+            arrival("archived-new", in: shared, from: EmailAddress(name: "Weekly", address: "news@letter.example"), roles: []),
             arrival("plain-new", in: ConversationID(accountID: a.id, providerID: "plain"), from: EmailAddress(name: "Ben", address: "ben@example.com")),
         ])
         let posts = notifier.plan(try inbox(), accounts: [a.id: a], now: Date())
@@ -228,10 +239,13 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertTrue(harness.controller.validateMenuItem(block))
 
         harness.controller.blockSender(nil)
+        // Set once the account's grant answers (no request); the harness's made-up servers grant it.
+        harness.spin { (try? self.store(harness).senderRules().isEmpty) == false }
         XCTAssertEqual(try store(harness).senderRules().map(\.address), [address.lowercased()])
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash])
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.trash), true, "their mail here goes to the Trash")
-        XCTAssertEqual(harness.toastMessage, "Blocked \(address.lowercased())", "the toast names whose mail it takes")
+        XCTAssertEqual(harness.toastMessage, SenderRuleCopy.toast(.trash, address: address.lowercased(), kind: kind(of: target, harness)),
+                       "the toast names the server that runs it and whose mail it takes")
         XCTAssertEqual(harness.toasts.visibleKind, .undoable)
         XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Block Sender")
 
@@ -247,8 +261,25 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertEqual(harness.toastMessage, "Undid Block Sender")
     }
 
-    /// From the message's More menu: Always Archive takes that sender's mail in the Inbox, and their next message
-    /// never reaches the list.
+    /// A rule removed on this Mac is being deleted on the server, and is no longer the sender's: the menus offer both
+    /// rules again rather than mark the one on its way out.
+    func testARuleBeingDeletedOnTheServerIsNoLongerTheSenders() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        open(harness.list.conversations[0].id, in: harness)
+        let target = try XCTUnwrap(harness.reader.senderRuleTarget)
+        let address = try XCTUnwrap(target.from?.address)
+        try store(harness).replaceServerSenderRules(accountID: target.id.accountID,
+                                                    with: [ServerSenderRule(serverID: "f1", address: address, action: .trash)],
+                                                    readAt: Date())
+        XCTAssertEqual(harness.reader.senderRule(for: target), .trash, "the server's rule is the sender's")
+        try store(harness).setSenderRule(nil, for: address, accountID: target.id.accountID, enqueueing: [], at: Date())
+        XCTAssertEqual(try store(harness).senderRules().map(\.sync), [.deleting])
+        XCTAssertNil(harness.reader.senderRule(for: target))
+    }
+
+    /// From the message's More menu: Always Archive takes that sender's mail in the Inbox at once, and the rule waits to be
+    /// saved on the server, whose filter keeps their next message out of the Inbox before this Mac sees it.
     func testAlwaysArchiveFromAMessageAndTheirNextMailSkipsTheInbox() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
@@ -257,14 +288,16 @@ final class MuteAndSenderRulesTests: XCTestCase {
         let target = try XCTUnwrap(harness.reader.senderRuleTarget)
         let sender = try XCTUnwrap(target.from)
         harness.controller.handle(.senderRule(.archive, target.id))
+        harness.spin { (try? self.store(harness).senderRules().isEmpty) == false }
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.archive])
+        XCTAssertEqual(try store(harness).senderRules().map(\.sync), [.creating], "on its way to the server")
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.inbox), false)
-        XCTAssertEqual(harness.toastMessage, "Always archiving \(sender.address.lowercased())")
+        XCTAssertEqual(harness.toastMessage, SenderRuleCopy.toast(.archive, address: sender.address.lowercased(), kind: kind(of: target, harness)))
         XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Always Archive Mail from This Sender")
 
         let next = MessageMetadata(id: MessageID(accountID: target.id.accountID, providerID: "next"),
                                    conversationID: ConversationID(accountID: target.id.accountID, providerID: "next-thread"),
-                                   subject: "Next", snippet: "Again", from: sender, date: Date(), roles: [.inbox], isRead: false,
+                                   subject: "Next", snippet: "Again", from: sender, date: Date(), roles: [], isRead: false,
                                    isStarred: false, hasAttachments: false)
         try store(harness).upsertMessages([next])
         ListTestSupport.spin(for: 0.1)
@@ -322,11 +355,12 @@ final class MuteAndSenderRulesTests: XCTestCase {
         let block = try XCTUnwrap(menu.items.first { $0.title == MailActionCopy.senderRuleCommand(.trash) })
         XCTAssertTrue(block.isEnabled)
         XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(block.action), to: block.target, from: block))
+        harness.spin { (try? self.store(harness).senderRules().map(\.action)) == [.trash] }
 
         XCTAssertEqual(try store(harness).senderRules().map(\.address), [address])
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash], "Block replaced Always Archive")
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.trash), true)
-        XCTAssertEqual(harness.toastMessage, "Blocked \(address)")
+        XCTAssertEqual(harness.toastMessage, SenderRuleCopy.toast(.trash, address: address, kind: kind(of: target, harness)))
         harness.controller.performUndo(harness.controller.zTarget)
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.archive], "the undo puts back the rule it had")
     }
@@ -379,14 +413,18 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { model.senderRules.count == 3 }, timeout: 3))
         XCTAssertEqual(model.senderRules(for: a).map(\.address), ["deals@shop.example", "news@letter.example"], "this account's, by address")
 
+        // The account's rules have been read in this run, so the engine can send what was set since: it shows, saving.
+        model.statuses = [a.id: AccountSyncStatus(accountID: a.id, phase: .idle, lastSuccessfulSyncAt: Date(),
+                                                  rules: .upToDate(otherCount: 0, readAt: Date()))]
         let sheet = SendersSheet(model: model, account: a, onDone: {})
         XCTAssertEqual(sheet.rows, [
-            QuireRemovableList.Row(id: "deals@shop.example", title: "deals@shop.example", detail: "Blocked"),
-            QuireRemovableList.Row(id: "news@letter.example", title: "news@letter.example", detail: "Always archived"),
-        ], "another account's rule is not listed")
+            QuireRemovableList.Row(id: "deals@shop.example", title: "deals@shop.example", detail: "Blocked", state: "Saving to Gmail…"),
+            QuireRemovableList.Row(id: "news@letter.example", title: "news@letter.example", detail: "Archived", state: "Saving to Gmail…"),
+        ], "another account's rule is not listed; both are on their way to the server")
         let hosting = NSHostingView(rootView: sheet)
         XCTAssertEqual(hosting.fittingSize.width, Quire.Layout.Settings.sendersWidth)
 
+        // Never saved on the server, the rule just goes.
         sheet.remove(sheet.rows[0])
         XCTAssertEqual(removed.map(\.address), ["deals@shop.example"])
         XCTAssertTrue(ListTestSupport.spin(until: { model.senderRules(for: self.a).map(\.address) == ["news@letter.example"] }, timeout: 3))

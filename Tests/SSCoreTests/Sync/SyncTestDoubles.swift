@@ -187,6 +187,7 @@ final class PhaseRecorder: @unchecked Sendable {
     private var latestStatuses: [AccountSyncStatus] = []
     private var phases: Set<AccountSyncPhase> = []
     private var calendars: Set<CalendarSyncState> = []
+    private var rulesStates: Set<RulesSyncState> = []
     private var count = 0
     private var onMain = true
 
@@ -206,6 +207,12 @@ final class PhaseRecorder: @unchecked Sendable {
         return calendars
     }
 
+    /// Every rules state any delivery carried, for any account.
+    var rulesSeen: Set<RulesSyncState> {
+        lock.lock(); defer { lock.unlock() }
+        return rulesStates
+    }
+
     var deliveries: Int {
         lock.lock(); defer { lock.unlock() }
         return count
@@ -223,6 +230,7 @@ final class PhaseRecorder: @unchecked Sendable {
         for status in statuses {
             phases.insert(status.phase)
             calendars.insert(status.calendar)
+            rulesStates.insert(status.rules)
         }
         if !Thread.isMainThread { onMain = false }
     }

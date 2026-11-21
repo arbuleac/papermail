@@ -55,6 +55,10 @@ final class ComposeTextView: NSTextView {
     /// attaches them, as it does files dropped anywhere else in its window (§5.20).
     var onAttachFiles: (([URL]) -> Void)?
 
+    /// Attachments copied from a message (the chip menu's Copy, §5.17), pasted on the text: the composer attaches them as it
+    /// attaches them dropped, never from the reader's session copy, which goes when the reader does.
+    var onAttachFromMail: (([AttachmentDropItem]) -> Void)?
+
     /// A picture prepared off the main thread is in (`ComposeImageAttachment`): the composer saves its draft again, since
     /// the save before left the picture out.
     var onPictureReady: (() -> Void)?
@@ -89,6 +93,19 @@ final class ComposeTextView: NSTextView {
             needsDisplay = true
         }
     }
+
+    /// Help me write's block hanging below the body's last line (§5.56, the prompt line or the afterline under it): the
+    /// editor grows by it, so the quoted original moves down and the block stays inside the editor, where its clicks land.
+    var reservedBottom: CGFloat = 0 {
+        didSet {
+            guard oldValue != reservedBottom else { return }
+            invalidateIntrinsicContentSize()
+            enclosingScrollView?.layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// The areas of what Help me write lays on the text (its marks, §5.56), which keep their own pointer.
+    var markAreas: () -> [NSRect] = { [] }
 
     /// Kept alive here: in TextKit 1 the text view holds its container, the container points weakly at
     /// the layout manager, and the layout manager points weakly at the storage.
@@ -191,20 +208,17 @@ final class ComposeTextView: NSTextView {
     /// only what the composer inserted, so a From change replaces the signature and keeps what was written after it.
     /// Nor does it carry a picture's mark, which a caret just after a picture would otherwise hand on.
     override var typingAttributes: [NSAttributedString.Key: Any] {
-        get {
-            var attributes = super.typingAttributes
-            attributes[ComposeSignature.attributeKey] = nil
-            attributes[ComposerInlineImage.attributeKey] = nil
-            attributes[.attachment] = nil
-            return attributes
-        }
-        set {
-            var attributes = newValue
-            attributes[ComposeSignature.attributeKey] = nil
-            attributes[ComposerInlineImage.attributeKey] = nil
-            attributes[.attachment] = nil
-            super.typingAttributes = attributes
-        }
+        get { Self.typingSafe(super.typingAttributes) }
+        set { super.typingAttributes = Self.typingSafe(newValue) }
+    }
+
+    /// `attributes` less the signature's and a picture's marks, which typed text never carries.
+    static func typingSafe(_ attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var attributes = attributes
+        attributes[ComposeSignature.attributeKey] = nil
+        attributes[ComposerInlineImage.attributeKey] = nil
+        attributes[.attachment] = nil
+        return attributes
     }
 
     static var defaultTypingAttributes: [NSAttributedString.Key: Any] { defaultTypingAttributes(at: composerTextSize) }
@@ -277,7 +291,7 @@ final class ComposeTextView: NSTextView {
     /// banner, a popover, the cheat sheet) keeps its own, and links keep the I-beam, since a click there places the
     /// caret.
     override func resetCursorRects() {
-        addTextPointerRects(cutting: overlyingSiblingAreas())
+        addTextPointerRects(cutting: overlyingSiblingAreas() + markAreas())
     }
 
     /// The frames of the views laid on the editor after it in its superview (the failed-send banner in its top inset),
@@ -296,7 +310,7 @@ final class ComposeTextView: NSTextView {
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         // An empty document still has its first line, so the caret has somewhere to sit.
-        let height = max(used.height, lineHeight)
+        let height = max(used.height, lineHeight) + reservedBottom
         return NSSize(width: NSView.noIntrinsicMetric, height: ceil(height) + topInset)
     }
 
@@ -317,6 +331,14 @@ final class ComposeTextView: NSTextView {
         invalidateIntrinsicContentSize()
         // The text system scrolls to the caret right after this; the frame must already be tall enough.
         enclosingScrollView?.layoutSubtreeIfNeeded()
+    }
+
+    /// Help me write changed the text without an edit being reported (a reply streaming in, §5.56): the editor takes its
+    /// new height, as after typing, and keeps the caret in view.
+    func textDidChangeByWriting() {
+        invalidateIntrinsicContentSize()
+        enclosingScrollView?.layoutSubtreeIfNeeded()
+        scrollRangeToVisible(selectedRange())
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -391,6 +413,10 @@ final class ComposeTextView: NSTextView {
     var pasteboard: NSPasteboard = .general
 
     override func paste(_ sender: Any?) {
+        if allowsImages, let onAttachFromMail, AttachmentPasteboard.carriesReference(pasteboard) {
+            onAttachFromMail(AttachmentPasteboard.dropItems(on: pasteboard))
+            return
+        }
         if allowsImages, readPicturesOrFiles(from: pasteboard, actionName: "Paste") { return }
         let start = selectedRange().location
         pasteAsPlainText(sender)
@@ -514,8 +540,12 @@ final class ComposeTextView: NSTextView {
 
     private func replaceSelection(with inserted: NSAttributedString, actionName: String?) {
         let range = rangeForUserTextChange
-        guard let storage = textStorage, range.location != NSNotFound, inserted.length > 0,
-              shouldChangeText(in: range, replacementString: inserted.string) else { return }
+        guard let storage = textStorage, range.location != NSNotFound, inserted.length > 0 else { return }
+        // Refused while a reply streams into the body (§5.56): a picture dropped or pasted then is not taken in silence.
+        guard shouldChangeText(in: range, replacementString: inserted.string) else {
+            NSSound.beep()
+            return
+        }
         // Its own undo step: typing just before or after must not fold into it.
         breakUndoCoalescing()
         storage.replaceCharacters(in: range, with: inserted)

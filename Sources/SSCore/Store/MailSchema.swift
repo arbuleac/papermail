@@ -211,6 +211,23 @@ enum MailSchema {
                     message_count, inbox_section, account_id, provider_id);
                 """)
         }
+        migrator.registerMigration("v22-account-face") { db in
+            // Nullable, and NULL means automatic: every account already here takes the paper face its ink slot picks
+            // (Quire §5.55), so nothing is backfilled and the choice is only ever the user's.
+            try db.execute(sql: "ALTER TABLE accounts ADD COLUMN face TEXT")
+        }
+        migrator.registerMigration("v23-server-rules") { db in
+            // Sender rules live on the server now (docs/DATA-MODEL.md, "Sender rules"): the table becomes the mirror of the
+            // server's rules plus the changes on their way there. `server_ids` is a JSON array of the server's ids (a Gmail
+            // filter id, an Outlook rule id; several when the server holds more than one rule for the address), NULL while
+            // the rule is not on the server. Every rule set before was this Mac's alone, so each is `creating`: the
+            // engine uploads it once, adopting an identical rule the server has already.
+            try db.execute(sql: """
+                ALTER TABLE sender_rules ADD COLUMN server_ids TEXT;
+                ALTER TABLE sender_rules ADD COLUMN sync TEXT NOT NULL DEFAULT 'saved';
+                UPDATE sender_rules SET sync = 'creating';
+                """)
+        }
         return migrator
     }
 

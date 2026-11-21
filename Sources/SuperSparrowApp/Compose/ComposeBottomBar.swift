@@ -2,16 +2,18 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// The composer's bottom bar (spec §5.20): 52 pt of `paper` under a top hairline, padding 16, everything
-/// centred: the primary Send (`paperplane`, regular), 2 pt after it its drop-down (a 28 pt `chevron.down` menu button,
-/// §5.23), the “⌘↩” keycap 8 pt after that; 12 pt on, Attach (`paperclip`) and Format (`textformat`, `accentWash` while
-/// the format row shows) as 28 pt icon buttons 2 pt apart; trailing at 16, the status.
+/// The composer's bottom bar (spec §5.20): 52 pt of `paper` under a top hairline, padding 16, everything on one centre
+/// line: Send, a regular split button (§5.23: `paperplane` and “Send” on the face, no keycap, the drop-down's chevron
+/// behind the divider); 12 pt on, Attach (`paperclip`) and Format (`textformat`, `accentWash` while the format row
+/// shows) as 28 pt icon buttons 2 pt apart; trailing at 16, the status. Help me write has no control here: it works in
+/// the body (⌘J, §5.56).
 @MainActor
 final class ComposeBottomBar: NSView {
-    let sendButton = QuireButton(title: "Send", variant: .primary, size: .regular, symbolName: Quire.Icon.send)
-    /// Send's drop-down: the menu that chooses what Send and ⌘↩ do (§5.23). It never sends.
-    let sendOptionsButton = QuireIconButton(symbolName: Quire.Icon.titleMenu, size: .large, accessibilityLabel: "Send Options")
-    let sendKeycap = QuireKeycap("⌘↩")
+    let send = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: .regular, menuAccessibilityLabel: "Send Options")
+    /// Send's action segment: what a click, ⌘↩ and Message › Send do (§5.23).
+    var sendButton: QuireSplitSegment { send.actionSegment }
+    /// Send's drop-down, its menu segment: the menu that chooses what Send and ⌘↩ do (§5.23). A click never sends.
+    var sendOptionsButton: QuireSplitSegment { send.menuSegment }
     let attachButton = QuireIconButton(symbolName: Quire.Icon.attach, size: .large, accessibilityLabel: "Attach Files")
     let formatButton = QuireIconButton(symbolName: Quire.Icon.format, size: .large, accessibilityLabel: "Show Format Row")
     let statusView = ComposeStatusView()
@@ -19,18 +21,13 @@ final class ComposeBottomBar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         sendButton.loadingTitle = "Sending…"
-        // At rest Send is as wide as its own label, 80 pt as the specimen draws it; it grows once when it sends.
-        sendButton.reservesLoadingWidth = false
-        // A pull-down's chevron, at the popup chevron's size (§4.11), on the bar's 28 pt icon button.
-        sendOptionsButton.symbolSize = .custom(Quire.Layout.Popup.chevron)
-        sendOptionsButton.isMenuButton = true
+        // VoiceOver hears Send's key as its help, as it hears a menu item's (the name says what Send does, §5.23).
+        sendButton.setAccessibilityHelp(SendKey.commandReturn.spoken)
         sendOptionsButton.toolTip = "Send Options"
-        // The keycap names Send's key, so it follows Send's group, drop-down included; it is not a control.
-        sendKeycap.setAccessibilityElement(false)
         attachButton.toolTip = "Attach Files…  ⇧⌘A"
         formatButton.onStyle = .quiet
         formatButton.toolTip = "Show Format Row  ⇧⌘T"
-        [sendButton, sendOptionsButton, sendKeycap, attachButton, formatButton, statusView].forEach(addSubview)
+        [send, attachButton, formatButton, statusView].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -44,19 +41,19 @@ final class ComposeBottomBar: NSView {
         super.layout()
         let c = Quire.Layout.Composer.self
         let midY = bounds.height / 2
-        func place(_ control: QuireControl, x: CGFloat) -> CGFloat {
-            let size = control.intrinsicContentSize
-            let visual = NSRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
-            control.frame = control.frame(forVisualRect: visual)
-            return visual.maxX
+        // Every control is centred on the bar's middle: the 28 pt split button and the 28 pt icon buttons share it.
+        func centred(_ size: NSSize, x: CGFloat) -> NSRect {
+            NSRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
         }
-        var x = place(sendButton, x: c.barPadX)
-        x = place(sendOptionsButton, x: x + c.barIconGap)
-        let cap = sendKeycap.intrinsicContentSize
-        sendKeycap.frame = NSRect(x: x + c.barKeycapGap, y: (midY - cap.height / 2).rounded(), width: cap.width, height: cap.height)
-        x = sendKeycap.frame.maxX
-        x = place(attachButton, x: x + c.barGroupGap)
-        x = place(formatButton, x: x + c.barIconGap)
+        let sendFace = centred(send.intrinsicContentSize, x: c.barPadX)
+        send.frame = send.frame(forVisualRect: sendFace)
+        var x = sendFace.maxX + c.barGroupGap
+        for button in [attachButton, formatButton] {
+            let face = centred(button.intrinsicContentSize, x: x)
+            button.frame = button.frame(forVisualRect: face)
+            x = face.maxX + c.barIconGap
+        }
+        x -= c.barIconGap
         let statusWidth = min(statusView.intrinsicContentSize.width, max(0, bounds.width - c.barPadX - x - c.barGroupGap))
         let height = statusView.intrinsicContentSize.height
         statusView.frame = NSRect(x: bounds.width - c.barPadX - statusWidth, y: (midY - height / 2).rounded(), width: statusWidth,

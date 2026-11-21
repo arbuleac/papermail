@@ -25,6 +25,9 @@ final class AppEnvironment {
     /// What `shutdown` runs `PRAGMA optimize` through before it closes the store; the store itself, except in the
     /// test that checks quitting does it while the store is still open.
     var storeMaintenance: MailStoreMaintenance
+    /// Help Me Write's service (§5.56): the writer the card writes through and the API keys Settings › AI keeps. Real mode
+    /// reaches the providers Settings › AI offers; the demo and the scratch graphs write canned replies on this Mac.
+    let helpMeWrite: HelpMeWrite
     private let sqliteStore: SQLiteMailStore
     private var keepMailObservation: AnyCancellable?
 
@@ -33,8 +36,9 @@ final class AppEnvironment {
     var isDemo: Bool { mode == .demo }
 
     private init(mode: Mode, store: SQLiteMailStore, engine: MailEngine, clientConfigurations: ClientConfigurationStore,
-                 databasePath: String, attachmentDirectory: URL) {
+                 databasePath: String, attachmentDirectory: URL, helpMeWrite: HelpMeWrite) {
         self.mode = mode
+        self.helpMeWrite = helpMeWrite
         self.sqliteStore = store
         self.store = store
         self.storeMaintenance = store
@@ -89,6 +93,7 @@ final class AppEnvironment {
         }
         // Before the engine starts, so its launch sweep keeps to the saved window.
         environment.follow(settings)
+        environment.helpMeWrite.settings = settings
         return environment
     }
 
@@ -133,13 +138,15 @@ final class AppEnvironment {
             attachmentCacheDirectory: attachmentCacheDirectory
         )
         return AppEnvironment(mode: .real, store: store, engine: engine, clientConfigurations: configurations,
-                              databasePath: SQLiteMailStore.defaultPath, attachmentDirectory: attachmentCacheDirectory)
+                              databasePath: SQLiteMailStore.defaultPath, attachmentDirectory: attachmentCacheDirectory,
+                              helpMeWrite: .real())
     }
 
     private static func makeDemo(settings: AppSettings) throws -> AppEnvironment {
         let store = try SQLiteMailStore(path: demoDatabasePath)
         // The generated mailbox is rebuilt every launch; the store remembers what the user did to it.
-        let service = DemoMailService(restore: { id in try? store.message(id) })
+        let service = DemoMailService(restore: { id in try? store.message(id) },
+                                      restoreRules: { DemoMailService.serverRules(mirroredIn: store, accountID: $0) })
         let engine = MailEngine(
             store: store,
             tokenStore: InMemoryTokenStore(),
@@ -153,15 +160,19 @@ final class AppEnvironment {
         )
         // Demo mode never reads it, but Settings → OAuth still shows the real file.
         let configurations = ClientConfigurationStore(fileURL: ClientConfigurationStore.defaultFileURL())
+        // The demo's writer is made up on this Mac; `--live-ai-clis` (debug) sends to the real Claude Code and Codex instead,
+        // to check them against the demo's made-up mail.
         return AppEnvironment(mode: .demo, store: store, engine: engine, clientConfigurations: configurations,
-                              databasePath: demoDatabasePath, attachmentDirectory: demoAttachmentCacheDirectory)
+                              databasePath: demoDatabasePath, attachmentDirectory: demoAttachmentCacheDirectory,
+                              helpMeWrite: .demo(isDemo: true, liveCLIs: LaunchOptions().liveAICLIs))
     }
 
     /// A real-mode graph over an empty, throwaway store in `directory`, for the welcome-screen snapshot
     /// (`--snapshot-welcome`). Tokens stay in memory and sign-in is the demo's, so nothing here reaches the
     /// Keychain, the network or the user's mail database. The caller deletes the directory when done. The app's
-    /// tests pass `.demo` for a window that behaves as the demo's over the same throwaway store.
-    static func makeScratch(in directory: URL, mode: Mode = .real) throws -> AppEnvironment {
+    /// tests pass `.demo` for a window that behaves as the demo's over the same throwaway store, and their own
+    /// `helpMeWrite` to watch what Help Me Write would reach (the demo writer otherwise).
+    static func makeScratch(in directory: URL, mode: Mode = .real, helpMeWrite: HelpMeWrite? = nil) throws -> AppEnvironment {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let databasePath = directory.appendingPathComponent("scratch.sqlite").path
         let attachments = directory.appendingPathComponent("attachments", isDirectory: true)
@@ -178,7 +189,8 @@ final class AppEnvironment {
         )
         let configurations = ClientConfigurationStore(fileURL: directory.appendingPathComponent("oauth-clients.json"))
         return AppEnvironment(mode: mode, store: store, engine: engine, clientConfigurations: configurations,
-                              databasePath: databasePath, attachmentDirectory: attachments)
+                              databasePath: databasePath, attachmentDirectory: attachments,
+                              helpMeWrite: helpMeWrite ?? .demo(isDemo: mode == .demo))
     }
 
     // MARK: Lifecycle
@@ -228,6 +240,7 @@ final class AppEnvironment {
     /// here (`AppDelegate.prepareToQuit`), so this is where the store gets SQLite's advice for a connection about to
     /// close, `PRAGMA optimize`: after the engine's last write and before the close.
     func shutdown() async {
+        await helpMeWrite.shutdown()
         await engine.stopAndWait()
         // On a background task: it may analyze a table or two, and the main thread never waits on the disk.
         let maintenance = storeMaintenance

@@ -60,6 +60,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Asks `account` for the calendar permission through the app's sign-in (`AppDelegate`), which calls back with
     /// whether it was granted; wired by the app delegate.
     var onConnectCalendar: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// Asks `account` for the permission to save sender rules on the server through the app's sign-in (`AppDelegate`,
+    /// `MailClient.connectRules`), which calls back with whether the sign-in went through; wired by the app delegate.
+    var onConnectRules: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Opens a calendar link (Join, Open in Google Calendar, the setup guide). Tests replace it, so no test opens a browser.
     var openCalendarURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Asks the engine to read every account's calendar: the kept window (nil), or shown days outside it as well.
@@ -174,6 +177,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Every snooze the store holds, from its observation; the Later tile, G L and the title menu go by those in scope.
     private(set) var snoozes: [Snooze] = []
     private var snoozeObservation: StoreObservation?
+    /// The accounts with sender rules on their way to the server, from the store's observation: while one of them lacks
+    /// the rules permission, the sync line asks for it (§5.11, §5.52).
+    private var rulesWaiting: Set<AccountID> = []
+    private var senderRuleObservation: StoreObservation?
     /// Shows the Later menu at a point in a view. A popped menu tracks until it is dismissed, so tests replace it.
     lazy var popUpLaterMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
         menu.popUp(positioning: nil, at: point, in: view)
@@ -203,6 +210,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     #if DEBUG
     /// `--snapshot-state=…` (debug builds): states to put the window in before a snapshot.
     private var debugStatuses: [AccountSyncStatus]?
+    private var debugRulesWaiting: Set<AccountID>?
     private var debugKeyStealer: NSWindow?
     #endif
 
@@ -214,6 +222,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         self.settings = settings
         // Every Send button reads the user's choice from these settings (§5.23), the reader's built below among them.
         SendActionPreference.settings = settings
+        // Help me write reads the provider and the user's consent from these settings, and the reader and composers reach
+        // this environment's writer (§5.56).
+        environment.helpMeWrite.settings = settings
+        HelpMeWrite.current = environment.helpMeWrite
         self.remembersScope = remembersScope
         scopeToRestore = remembersScope ? settings.savedAccountScope(demo: environment.isDemo) : nil
         list = MessageListViewController(store: environment.store)
@@ -285,6 +297,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         inboxMonitor.start(accounts: accounts.map(\.id))
         activity.start()
+        senderRuleObservation = environment.store.observeSenderRules { [weak self] rules in
+            MainActor.assumeIsolated { self?.senderRulesChanged(rules) }
+        }
         snoozeObservation = environment.store.observeSnoozes { [weak self] snoozes in
             MainActor.assumeIsolated { self?.snoozesChanged(snoozes) }
         }
@@ -348,6 +363,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                     symbol: Quire.Icon.later) {
                 // Gone already (a deeper ⌘Z after its time): nothing was taken back, so no reply comes back either.
                 guard scheduled.undo() else { return }
+                Analytics.send(.sendUndone(.sendLater))
                 // Its window has closed since (⌘W keeps no frame for an undo to open it again at): the reply's text is
                 // parked under its conversation, so a reader showing that conversation takes it, or the main window's
                 // says it was not sent; otherwise nothing on screen would show the undo.
@@ -386,6 +402,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         statusObservation = nil
         snoozeObservation?.cancel()
         snoozeObservation = nil
+        senderRuleObservation?.cancel()
+        senderRuleObservation = nil
         calendarState.tearDown()
         sendLaterOutbox.stop()
         stripCollapseObservation?.invalidate()
@@ -482,14 +500,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func wireCallbacks() {
-        strip.onSelect = { [weak self] scope in self?.scopeChanged(scope) }
-        strip.onSelectView = { [weak self] view in self?.setView(view) }
+        strip.onSelect = { [weak self] scope in self?.navigate { self?.scopeChanged(scope) } }
+        strip.onSelectView = { [weak self] view in self?.navigate { self?.setView(view) } }
         strip.onAddAccount = { [weak self] kind in self?.requestAddAccount(kind) }
         strip.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         strip.acceptsDrop = { [weak self] view, ids in self?.acceptsDrop(of: ids, onto: view) ?? false }
         strip.onDrop = { [weak self] view, ids in self?.drop(ids, onto: view) ?? false }
 
-        listPane.onViewChange = { [weak self] view in self?.setView(view) }
+        listPane.onViewChange = { [weak self] view in self?.navigate { self?.setView(view) } }
         listPane.onSearchChange = { [weak self] text in
             self?.searchText = text
             self?.applyQuery()
@@ -731,6 +749,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return statuses
     }
 
+    private var effectiveRulesWaiting: Set<AccountID> {
+        #if DEBUG
+        if let debugRulesWaiting { return debugRulesWaiting }
+        #endif
+        return rulesWaiting
+    }
+
+    /// The rules changed: only which accounts have some on their way matters to the line.
+    private func senderRulesChanged(_ rules: [SenderRule]) {
+        let waiting = Set(rules.filter(\.isPending).map(\.accountID))
+        guard waiting != rulesWaiting else { return }
+        rulesWaiting = waiting
+        refreshSyncLine()
+    }
+
     @objc private func signInProgressChanged(_ note: Notification) {
         applySignIn(note.object as? SignInProgress)
     }
@@ -790,7 +823,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let now = Date()
         let summary = SyncLineSummary.make(SyncLineSummary.Input(
             statuses: effective, accounts: accounts, isDemo: environment.isDemo, isNetworkReachable: activity.isNetworkReachable,
-            signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning, now: now
+            signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning, now: now, rulesWaiting: effectiveRulesWaiting
         ))
         listPane.statusBar.apply(summary)
         // “retrying in 30 s” counts down: the line is chosen again each second while it shows one on screen. Under
@@ -830,6 +863,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             for id in ids { environment.engine.syncNow(accountID: id) }
         case .cancelSignIn:
             onCancelSignIn?()
+        case .connectRules(let id):
+            // The sign-in that asks for the rules permission; the waiting rules go out once it is granted.
+            guard let account = accountsByID[id], pendingSignIn == nil else { return }
+            onConnectRules?(account) { _ in }
         }
     }
 
@@ -942,12 +979,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private var titleMenuModel: TitleMenu.Model {
+        let faces = AccountFaces.faces(for: accounts)
         let monograms = AccountLabels.monograms(for: accounts)
         return TitleMenu.Model(
             view: mailboxView, inboxUnread: inboxUnread, scope: scope, showsAccounts: isMinimal, unifiedUnread: unifiedUnread,
-            accounts: accounts.map { TitleMenu.AccountEntry(account: $0, monogram: monograms[$0.id] ?? "?", unread: unreadByAccount[$0.id] ?? 0) },
+            accounts: accounts.map {
+                TitleMenu.AccountEntry(account: $0, face: faces[$0.id] ?? .monogram("?"), monogram: monograms[$0.id] ?? "?",
+                                       unread: unreadByAccount[$0.id] ?? 0)
+            },
             showsLater: showsLater, showsOutbox: showsOutbox
         )
+    }
+
+    /// A view or scope the user picked (the rail, the title menu, the View and Go menus, ⌘0…⌘9, a G-sequence), for
+    /// analytics: sent when it moved the window, with which view and whether All Inboxes or one account, never which.
+    private func navigate(_ step: () -> Void) {
+        let before = (mailboxView, scope)
+        step()
+        guard mailboxView != before.0 || scope != before.1 else { return }
+        Analytics.send(.viewOpened(mailboxView, unified: scope == .unified, Analytics.trigger))
     }
 
     /// Picking a mailbox means "show me that mailbox", so it also ends a search that would otherwise keep
@@ -1067,6 +1117,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in self?.conversation.find.open(query: "the") }
         }
         applyDebugCalendarStates()
+        applyDebugWriteStates()
+        applyDebugSendStates()
         #endif
         return list.selectedConversationID ?? first
     }
@@ -1113,6 +1165,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard !targets.isEmpty else { return }
         do {
             try environment.engine.perform(change, on: targets)
+            Analytics.from(.notification) { reportMailAction(AnalyticsSignal.MailAction(change), conversations: 1) }
         } catch {
             Self.log.error("notification action failed: \(String(describing: error), privacy: .public)")
         }
@@ -1333,7 +1386,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             performUndo(commandZ ? commandZTarget(textCanUndo: false) : zTarget)
             return true
         case .goTo(let view):
-            setView(view)
+            navigate { setView(view) }
             return true
         case .toggleDayColumn:
             // A held D or W would flip the column or the week on every repeat.
@@ -1445,7 +1498,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         recordUndo(records, change: change)
+        reportMailAction(AnalyticsSignal.MailAction(change), conversations: records.count)
         return true
+    }
+
+    /// A mail action the user took, for analytics: which, how many conversations, and where it came from (`Analytics`).
+    private func reportMailAction(_ action: AnalyticsSignal.MailAction?, conversations: Int) {
+        guard let action, conversations > 0 else { return }
+        Analytics.send(.mailAction(action, Analytics.trigger, conversations: conversations))
     }
 
     /// A change to `ids`, some messages of one conversation rather than all of it (a sheet's star, More › Star Message, Mark
@@ -1470,6 +1530,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return false
         }
         recordUndo([record], change: change)
+        reportMailAction(AnalyticsSignal.MailAction(change), conversations: 1)
         return true
     }
 
@@ -1583,6 +1644,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return false
         }
         if case .browser(let page) = method { openUnsubscribePage(page) }
+        reportMailAction(.unsubscribe, conversations: 1)
         let archived = !records.isEmpty || snoozedAt != nil
         let words = MailActionCopy.unsubscribeToast(for: method, archived: archived)
         defer { UndoSendPanel.refreshUndoKeyOwner() }
@@ -1880,6 +1942,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self?.confirmUndo(of: MailActionCopy.snoozeCommand)
             self?.reselect(back, inLater: fromLater)
         }
+        reportMailAction(.later, conversations: ids.count)
     }
 
     /// E and Archive: in Later, where everything is archived already, it ends the snoozes and leaves the conversations
@@ -1898,6 +1961,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return true
         }
         recordLaterArchive(targets.map { Snooze.Change(conversationID: $0, until: prior[$0]) })
+        reportMailAction(.archive, conversations: targets.count)
         return true
     }
 
@@ -2064,6 +2128,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         } else {
             recordQuietExternalUndo(command: command, accounts: Set(changing.map(\.accountID)), revert: revert)
         }
+        reportMailAction(muting ? .mute : .unmute, conversations: changing.count)
         return true
     }
 
@@ -2084,14 +2149,90 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         conversation.senderRule(for: message)
     }
 
-    /// Sets the rule for `messageID`'s sender from a message's menu, in one store transaction with what the rule would
-    /// have done to that sender's mail in the conversation had it come after the rule (Block: theirs out of the Trash;
-    /// Always Archive: theirs in the Inbox), so the row leaves as it will for the next one. The toast always shows, since
-    /// no row shows a rule; its Undo puts back the rule the sender had (none, or the other one) and the mail it moved.
-    /// The rule is listed and removed in Settings › Accounts › Senders…, and nowhere else.
+    /// Sets the rule for `messageID`'s sender from a message's menu (spec §5.52). The rule lives on the server, as a Gmail
+    /// filter or an Outlook rule, and is never kept on this Mac alone: the account's grant is asked first (no request), and
+    /// with the permission the rule is set at once. Without it the alert asks; Continue runs the sign-in that asks for the
+    /// permission and sets the rule only once it is granted, while Cancel, an abandoned or failed sign-in, or a permission
+    /// declined in the browser set nothing and move no mail.
     @discardableResult
     func setSenderRule(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
-        guard !showingWelcome, accountsByID[messageID.accountID] != nil, let message = (try? environment.store.message(messageID)) ?? nil,
+        guard !showingWelcome, let account = accountsByID[messageID.accountID],
+              let message = (try? environment.store.message(messageID)) ?? nil, conversation.offersSenderRule(message),
+              message.from?.address != nil else {
+            NSSound.beep()
+            return false
+        }
+        guard senderRule(for: message) != action else { return true }
+        let reader = actingReader?.window
+        let grant = hasRulesPermission
+        Task { @MainActor [weak self, weak reader] in
+            let granted = await grant(account.id)
+            guard let self else { return }
+            if granted {
+                self.setSenderRuleNow(action, from: messageID, in: reader)
+            } else {
+                self.askToSaveSenderRules(action, from: messageID, account: account, in: reader)
+            }
+        }
+        return true
+    }
+
+    /// Whether the account has granted the permission to save sender rules on the server (`MailClient.hasRulesPermission`,
+    /// no request). Tests replace it.
+    lazy var hasRulesPermission: (AccountID) async -> Bool = { [engine = environment.engine] in await engine.hasRulesPermission($0) }
+
+    /// “Save sender rules in Gmail?” on the window the rule was chosen in; Continue asks for the permission, then sets it.
+    private func askToSaveSenderRules(_ action: SenderRule.Action, from messageID: MessageID, account: Account,
+                                      in reader: ReaderWindowController?) {
+        presentAlert(AppAlert.saveSenderRules(account.kind, action: action), reader?.window ?? window) { [weak self, weak reader] choice in
+            guard choice == 0 else { return }
+            self?.connectRulesThenSet(action, from: messageID, account: account, in: reader)
+        }
+    }
+
+    /// The sign-in asking for the rules permission (`onConnectRules`), then the rule, only once the grant holds it: a
+    /// consent screen that lets the user leave a scope unticked can return a sign-in without it, which the alert then says
+    /// before anything is set.
+    private func connectRulesThenSet(_ action: SenderRule.Action, from messageID: MessageID, account: Account,
+                                     in reader: ReaderWindowController?) {
+        guard let onConnectRules else { return }
+        onConnectRules(account) { [weak self, weak reader] signedIn in
+            guard signedIn, let self else { return }
+            let grant = self.hasRulesPermission
+            Task { @MainActor [weak self, weak reader] in
+                let granted = await grant(account.id)
+                guard let self else { return }
+                guard granted else {
+                    self.presentAlert(AppAlert.senderRulesNotAllowed(account.kind), reader?.window ?? self.window) { [weak self, weak reader] choice in
+                        if choice == 0 { self?.connectRulesThenSet(action, from: messageID, account: account, in: reader) }
+                    }
+                    return
+                }
+                self.setSenderRuleNow(action, from: messageID, in: reader)
+            }
+        }
+    }
+
+    /// Sets the rule as the step of the reader window it was chosen in while that window is open: the answer comes after
+    /// the step that asked has returned, so the window takes the rule as its own step again, its toast and undo there.
+    @discardableResult
+    private func setSenderRuleNow(_ action: SenderRule.Action, from messageID: MessageID, in reader: ReaderWindowController?) -> Bool {
+        guard let reader, readerWindows.contains(where: { $0 === reader }) else { return setSenderRuleNow(action, from: messageID) }
+        var set = false
+        act(in: reader, closing: false) { set = setSenderRuleNow(action, from: messageID) }
+        return set
+    }
+
+    /// Sets the rule in one store transaction with what the rule would have done to that sender's mail in the
+    /// conversation had it come after the rule (Block: theirs out of the Trash; Always Archive: theirs in the Inbox), so
+    /// the row leaves as it will for the next one, which the server's rule takes before this Mac sees it. The toast always
+    /// shows, since no row shows a rule, and names the server that runs it from now on; its Undo puts back the rule the
+    /// sender had (none, or the other one) and the mail it moved. The rule is listed and removed in Settings › Accounts ›
+    /// Senders…, and nowhere else. Reads the message again: after the alert it may have gone.
+    @discardableResult
+    private func setSenderRuleNow(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
+        guard !showingWelcome, let account = accountsByID[messageID.accountID],
+              let message = (try? environment.store.message(messageID)) ?? nil,
               conversation.offersSenderRule(message), let address = message.from?.address else {
             NSSound.beep()
             return false
@@ -2101,7 +2242,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let sender = SenderRule.normalizedAddress(address)
         let theirs = ((try? environment.store.messages(in: message.conversationID)) ?? []).filter { other in
             other.from.map { SenderRule.normalizedAddress($0.address) == sender } ?? false
-                && ArrivalRule.change(for: other, inMutedConversation: false, senderRule: action) == action.change
+                && action.change(for: other) == action.change
         }
         let record = MailActionRecord.make(action.change, on: theirs, conversation: message.conversationID)
         let engine = environment.engine
@@ -2114,12 +2255,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return false
         }
+        reportMailAction(action == .trash ? .blockSender : .alwaysArchiveSender, conversations: 1)
         let command = MailActionCopy.senderRuleCommand(action)
         let inverse = record?.inverse ?? []
         let conversationID = message.conversationID
         let fromLater = actionView == .later
-        recordExternalUndo(command: command, accounts: [accountID], toast: MailActionCopy.senderRuleSet(action, address: sender),
+        recordExternalUndo(command: command, accounts: [accountID], toast: SenderRuleCopy.toast(action, address: sender, kind: account.kind),
                            symbol: action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender) { [weak self] in
+            // A rule not on the server yet just goes; one the server has is deleted there, or set back to the old action.
             do {
                 try engine.setSenderRule(previous, for: address, accountID: accountID, performing: self?.restorable(inverse) ?? inverse)
             } catch {
@@ -2168,7 +2311,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             confirmDiscardDrafts(ids)
             return true
         }
-        return mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) })
+        return Analytics.from(.drag) { mailAction(change, on: ids.filter { !LocalDraftConversation.isLocal($0) }) }
     }
 
     // MARK: Swipe (§5.7)
@@ -2178,10 +2321,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// the selection moving on are the key's. The list offers only what the key would change (`RowSwipe`).
     private func rowAction(_ change: MetadataChange, on id: ConversationID) {
         guard !showingWelcome else { return }
-        if change == .archive {
-            archive([id])
-        } else {
-            mailAction(change, on: [id])
+        Analytics.from(.swipe) {
+            if change == .archive {
+                archive([id])
+            } else {
+                mailAction(change, on: [id])
+            }
         }
     }
 
@@ -2204,6 +2349,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return true
         }
+        Analytics.send(.undo(Analytics.trigger))
         defer {
             forgetGroupsGone()
             undoCenter.forgetPlacesOfGroupsGone()
@@ -2408,8 +2554,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
-    /// The reader's actions (`ConversationViewController.onAction`); internal so the app's tests can send them.
+    /// The reader's actions (`ConversationViewController.onAction`); internal so the app's tests can send them. They come
+    /// from its header's and the page's buttons, or from a key in a reader window (`Analytics.trigger` tells a key).
     func handle(_ action: ConversationAction) {
+        Analytics.from(.toolbar) { take(action) }
+    }
+
+    private func take(_ action: ConversationAction) {
         switch action {
         case .reply(let id):
             compose(.reply(id, all: false), accountID: id.accountID)
@@ -2434,17 +2585,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             break
         case .attachmentsSaved(let outcome):
             showSaved(outcome)
+        case let .attachmentDragFailed(failure, filename):
+            // In the window the chip was dragged from: a reader window's own toast, or this one's (§5.17, §5.30).
+            let toasts = self.toasts
+            let host = stepToastHost
+            let words = failure.toast(filename: filename) { words in
+                toasts.fits(words, symbol: Quire.Icon.error, actionTitle: nil, keycap: nil, in: host)
+            }
+            toasts.show(words, kind: .error, symbol: Quire.Icon.error, in: host)
         case .continueDraft(let id):
             continueDraft(id)
         case .discardDrafts(let ids):
             confirmDiscardDrafts(ids)
         case .reveal(let id):
             reveal(id)
-        case let .replyInComposer(id, all, body, attach):
+        case let .replyInComposer(id, all, body, attach, dropped):
             beforeCompose?()
             guard let account = accounts.first(where: { $0.id == id.accountID }) ?? accounts.first else { return }
             ComposeWindowController.present(client: environment.engine, account: account, accounts: accounts, mode: .reply(id, all: all),
-                                            body: body, attach: attach)
+                                            body: body, attach: attach, dropped: dropped)
         case .cancelSendLater(let id):
             cancelSendLater(id)
         case .quickReplyFailed(let draft):
@@ -2536,6 +2695,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         let place = ReaderWindowPlace(conversation: id, view: listView)
         place.returnedAt = list.conversations.first { $0.id == id }?.returnedAt
+        Analytics.send(.readerWindowOpened(Analytics.trigger))
         return present(place, at: nil)
     }
 
@@ -2563,7 +2723,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// A G-sequence typed in a reader window: this window comes forward on that view.
     func goTo(_ view: MailboxView) {
         comeForward()
-        setView(view)
+        navigate { setView(view) }
     }
 
     /// This window becomes key in front of a reader window: for a search, a G-sequence, or a step that closed the window.
@@ -3189,7 +3349,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @objc func goToMailboxView(_ sender: Any?) {
         guard let item = sender as? NSMenuItem, MailboxView.allCases.indices.contains(item.tag) else { return }
-        setView(MailboxView.allCases[item.tag])
+        navigate { setView(MailboxView.allCases[item.tag]) }
     }
 
     /// ⌃⌘S: the rail goes instantly in every mode, so no row re-truncates and no frame re-measures over frames
@@ -3316,7 +3476,7 @@ enum PendingSignIn: Equatable {
 #if DEBUG
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-folder,
-    /// focus-action,hover-demo,hover-masthead,many-accounts,ic,graphite,snoozed,later,back,later-menu,later-sheet,
+    /// focus-action,hover-demo,hover-masthead,many-accounts,compact,faces,monogram-face,title-menu,ic,graphite,snoozed,later,back,later-menu,later-sheet,
     /// server-offer,server-searching,server-found,server-nothing,server-failed,server-empty` (debug builds; `several` and
     /// `find`, the find bar over the first conversation, are applied where the first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
@@ -3330,6 +3490,17 @@ extension MainWindowController {
         if states.contains("ic") || states.contains("graphite") {
             QuireEnvironment.shared.setOverrides(QuireEnvironment.Overrides(
                 isGraphite: states.contains("graphite") ? true : nil, increaseContrast: states.contains("ic") ? true : nil))
+        }
+        if states.contains("compact") || states.contains("faces") {
+            list.showForSnapshot(density: states.contains("compact") ? .compact : nil, faces: states.contains("faces") ? true : nil)
+        }
+        if states.contains("monogram-face"), let second {
+            // The second account wearing its monogram (Quire §5.55), in this window only, never the store.
+            var monogram = second
+            monogram.face = .monogram
+            let shown = accounts.map { $0.id == second.id ? monogram : $0 }
+            strip.setAccounts(shown)
+            list.accountsByID = Dictionary(uniqueKeysWithValues: shown.map { ($0.id, $0) })
         }
         if states.contains("many-accounts") {
             // Six made-up accounts after the real ones, in the rail only (never the store), so a render shows the
@@ -3349,11 +3520,28 @@ extension MainWindowController {
             stripItem.isCollapsed = true
             applyMinimalMode()
         }
+        if states.contains("title-menu"), let content = window?.contentView {
+            let menu = TitleMenu.build(titleMenuModel, target: self, viewAction: #selector(NSResponder.noResponder(for:)),
+                                       scopeAction: #selector(NSResponder.noResponder(for:)))
+            let card = TitleMenuSnapshotView(menu: menu, origin: NSPoint(x: Quire.Layout.ListHeader.mastheadMinimalX, y: 0))
+            card.frame.origin.y = content.isFlipped ? Quire.Layout.ListHeader.height : content.bounds.height - Quire.Layout.ListHeader.height - card.frame.height
+            content.addSubview(card, positioned: .above, relativeTo: nil)
+        }
         if states.contains("signin") || states.contains("reconnect"), let second {
             debugStatuses = statuses.map { $0.accountID == second.id ? AccountSyncStatus(accountID: second.id, phase: .needsReauth) : $0 }
         }
         if states.contains("adding") {
             applySignIn(SignInProgress(kind: .gmail, reconnecting: nil, subject: "Gmail"))
+        }
+        if states.contains("rules-permission"), let first = accounts.first {
+            // The first account's sender rules waiting for the rules permission (§5.11, §5.52), in this window only, with
+            // every account's mail current, as the line would read once a fresh demo's download is done.
+            let now = Date()
+            debugStatuses = accounts.map { account in
+                AccountSyncStatus(accountID: account.id, phase: .idle, lastSuccessfulSyncAt: now,
+                                  rules: account.id == first.id ? .notConnected : .upToDate(otherCount: 2, readAt: now))
+            }
+            debugRulesWaiting = [first.id]
         }
         if states.contains("reconnect"), let second {
             applySignIn(SignInProgress(kind: second.kind, reconnecting: second.id, subject: AccountLabels.name(for: second)))

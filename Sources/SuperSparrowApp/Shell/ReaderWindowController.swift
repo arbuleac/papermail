@@ -83,11 +83,19 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
         conversation.onAction = { [weak self, weak opener] action in
             if let self {
                 self.handle(action)
-            } else if case .attachmentsSaved = action {
+            } else {
                 // The window closed, and this controller went with it, while a download started from it went on (its
-                // task holds the reader): the saved toast, Show in Finder or Couldn't save, shows in the main window.
-                opener?.handle(action)
+                // task holds the reader), or a file dragged out of it was still being fetched: the saved toast, Show in
+                // Finder or Couldn't save, or the drag's Couldn't download, shows in the main window.
+                switch action {
+                case .attachmentsSaved, .attachmentDragFailed: opener?.handle(action)
+                default: break
+                }
             }
+        }
+        // A file dragged out whose promise ends after the reader itself is gone: the main window says it failed.
+        conversation.attachmentDrags.onOrphanedFailure = { [weak opener] failure, filename in
+            opener?.handle(.attachmentDragFailed(failure, filename: filename))
         }
         conversation.onQuickSendChange = { UndoSendPanel.refreshUndoKeyOwner() }
         conversation.messageMenu = { [weak self] in self?.contextMenu() }
@@ -325,38 +333,44 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     // MARK: Menu actions (first responder)
 
-    // The Message menu's selectors, answered for this window's conversation (§5.35).
-    @objc func archiveSelection(_ sender: Any?) { _ = perform(.archive) }
-    @objc func laterSelection(_ sender: Any?) { _ = perform(.later) }
+    // The Message menu's selectors, answered for this window's conversation (§5.35), from the menu bar or the context
+    // menu: a menu's steps for analytics, though the main window takes them as the reader's buttons' (a key equivalent
+    // still says key).
+    @objc func archiveSelection(_ sender: Any?) { fromMenu { _ = perform(.archive) } }
+    @objc func laterSelection(_ sender: Any?) { fromMenu { _ = perform(.later) } }
     @objc func snoozeSelectionUntil(_ sender: Any?) {
         guard let item = sender as? NSMenuItem, let date = LaterMenu.date(of: item) else { return }
-        opener?.snooze(from: self, until: date)
+        fromMenu { opener?.snooze(from: self, until: date) }
     }
-    @objc func pickSnoozeDate(_ sender: Any?) { opener?.pickSnoozeDate(for: self) }
-    @objc func trashSelection(_ sender: Any?) { _ = perform(.trash) }
-    @objc func markSelectionSpam(_ sender: Any?) { _ = perform(.markSpam) }
-    @objc func toggleMuteSelection(_ sender: Any?) { _ = perform(.toggleMute) }
-    @objc func alwaysArchiveSender(_ sender: Any?) { setSenderRule(.archive) }
-    @objc func blockSender(_ sender: Any?) { setSenderRule(.trash) }
-    @objc func moveSelectionToInbox(_ sender: Any?) { _ = perform(.moveToInbox) }
-    @objc func toggleStarSelection(_ sender: Any?) { _ = perform(.toggleStar) }
-    @objc func markSelectionUnread(_ sender: Any?) { _ = perform(.toggleRead) }
-    @objc func replyToSelection(_ sender: Any?) { reply(all: false) }
-    @objc func replyAllToSelection(_ sender: Any?) { reply(all: true) }
+    @objc func pickSnoozeDate(_ sender: Any?) { fromMenu { opener?.pickSnoozeDate(for: self) } }
+    @objc func trashSelection(_ sender: Any?) { fromMenu { _ = perform(.trash) } }
+    @objc func markSelectionSpam(_ sender: Any?) { fromMenu { _ = perform(.markSpam) } }
+    @objc func toggleMuteSelection(_ sender: Any?) { fromMenu { _ = perform(.toggleMute) } }
+    @objc func alwaysArchiveSender(_ sender: Any?) { fromMenu { setSenderRule(.archive) } }
+    @objc func blockSender(_ sender: Any?) { fromMenu { setSenderRule(.trash) } }
+    @objc func moveSelectionToInbox(_ sender: Any?) { fromMenu { _ = perform(.moveToInbox) } }
+    @objc func toggleStarSelection(_ sender: Any?) { fromMenu { _ = perform(.toggleStar) } }
+    @objc func markSelectionUnread(_ sender: Any?) { fromMenu { _ = perform(.toggleRead) } }
+    @objc func replyToSelection(_ sender: Any?) { fromMenu { reply(all: false) } }
+    @objc func replyAllToSelection(_ sender: Any?) { fromMenu { reply(all: true) } }
     @objc func forwardSelection(_ sender: Any?) {
         guard let target = replyTarget else { return }
-        opener?.perform(.forward(target), from: self)
+        fromMenu { opener?.perform(.forward(target), from: self) }
     }
     /// Message › Undo (Z): the latest toast's action, never a send (§6.1).
-    @objc func undoMailAction(_ sender: Any?) { undoCenter.perform(undoCenter.zTarget, typing: nil) }
+    @objc func undoMailAction(_ sender: Any?) { fromMenu { undoCenter.perform(undoCenter.zTarget, typing: nil) } }
     /// Message › Block Time (B): 30 minutes set aside for this window's conversation (§5.54).
-    @objc func blockTimeForSelection(_ sender: Any?) { _ = perform(.blockTime) }
+    @objc func blockTimeForSelection(_ sender: Any?) { fromMenu { _ = perform(.blockTime) } }
     @objc func unsubscribeFromConversation(_ sender: Any?) {
         guard let target = conversation.unsubscribeTarget else {
             NSSound.beep()
             return
         }
-        opener?.perform(.unsubscribe(target), from: self)
+        fromMenu { opener?.perform(.unsubscribe(target), from: self) }
+    }
+
+    private func fromMenu(_ step: () -> Void) {
+        Analytics.from(.menu, step)
     }
     /// Find… (⌘F) searches the mailbox: the main window comes forward with its field.
     @objc func focusSearchField(_ sender: Any?) {
@@ -549,6 +563,10 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
 @MainActor
 final class ReaderWindow: NSWindow {
     @objc func undo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
         if let controller = windowController as? ReaderWindowController {
             controller.performEditUndo()
         } else {
@@ -556,7 +574,27 @@ final class ReaderWindow: NSWindow {
         }
     }
 
+    /// While Help me write streams a reply into a field here, Undo and Redo wait: the stack's text steps belong to the text
+    /// as it was before the write, and the write ends in one step of its own (§5.56, §6.1).
+    @objc func redo(_ sender: Any?) {
+        if WriteSession.isStreaming(in: self) {
+            NSSound.beep()
+            return
+        }
+        undoManager?.redo()
+    }
+
+    /// Undo and Redo are disabled while a reply streams in (§6.1); nil when the item is neither or nothing streams.
+    private func validateWhileWriting(_ menuItem: NSMenuItem) -> Bool? {
+        guard menuItem.action == #selector(undo(_:)) || menuItem.action == #selector(redo(_:)), WriteSession.isStreaming(in: self) else {
+            return nil
+        }
+        menuItem.title = menuItem.action == #selector(undo(_:)) ? "Can\u{2019}t Undo" : "Can\u{2019}t Redo"
+        return false
+    }
+
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let answer = validateWhileWriting(menuItem) { return answer }
         if menuItem.action == #selector(undo(_:)), let controller = windowController as? ReaderWindowController {
             return controller.validateEditUndo(menuItem)
         }

@@ -214,7 +214,7 @@ final class SyncLineActionButton: QuireControl {
     /// On a `danger` line the link keeps `accent`: it is the remedy, not part of the alarm.
     var isAlertLine = false
 
-    private static let padX: CGFloat = 3
+    static let padX: CGFloat = 3
 
     private func label(_ color: NSColor) -> NSAttributedString {
         QuireFont.attributedString(title, role: .metaStrong, color: color)

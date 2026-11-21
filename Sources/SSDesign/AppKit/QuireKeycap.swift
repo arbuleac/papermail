@@ -85,7 +85,8 @@ public final class QuireKeycap: NSView {
         }
     }
 
-    /// Draws a keycap filling `rect` in the current graphics context; colours resolve now.
+    /// Draws a keycap filling `rect` in the current graphics context; colours resolve now. A keycap never sits on an
+    /// accent fill (§5.36).
     public static func draw(_ legend: String, style: Style, highlighted: Bool = false, in rect: NSRect) {
         let radius = style.cornerRadius
         let legendColor: NSColor

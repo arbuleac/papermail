@@ -73,6 +73,35 @@ final class RemovableListTests: XCTestCase {
         host.close()
     }
 
+    /// A row already on its way out (“Removing…”) keeps its − in place, disabled: a click on it removes nothing, while the
+    /// next row's still acts.
+    func testARowOnItsWayOutCannotBeRemovedAgain() {
+        let recorder = FrameRecorder()
+        let removed = RemovalLog()
+        var rows = rows(2)
+        rows[0].state = "Removing…"
+        rows[0].isRemovable = false
+        rows[1].state = "Saving to Gmail…"
+        let view = QuireRemovableList(rows: rows, emptyTitle: "", emptyHint: "", onRemove: { removed.ids.append($0.id) })
+            .recordFrame("list", in: recorder)
+            .frame(width: 392)
+        let host = SwiftUIHost(view)
+        let list = recorder["list"]
+        let x = list.maxX - s.senderRemoveInset - s.plusMinus / 2
+        for row in 0..<2 {
+            let point = host.hostingView.convert(NSPoint(x: x, y: list.minY + s.senderRow * (CGFloat(row) + 0.5)), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: host.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                     pressure: 1) else { continue }
+                host.window.sendEvent(event)
+            }
+            host.settle()
+        }
+        XCTAssertEqual(removed.ids, ["r1"])
+        host.close()
+    }
+
     func testTheSheetIsItsTokenWide() {
         let recorder = FrameRecorder()
         let view = QuireRuleSheet(title: "Senders", caption: "Mail from these senders is archived or moved to the Trash as it arrives.",

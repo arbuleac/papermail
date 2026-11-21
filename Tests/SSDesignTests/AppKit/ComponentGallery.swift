@@ -40,16 +40,44 @@ enum ComponentGallery {
         let inactive = button("Send", .primary)
         inactive.windowKeyOverride = false
         builder.add(inactive, width: 70)
-        let keyed = button("Send", .primary)
-        keyed.symbolName = Quire.Icon.send
-        keyed.keycap = "⌘↩"
-        builder.add(keyed, width: 130)
         let reply = button("Reply", .ghost)
         reply.symbolName = Quire.Icon.reply
         reply.keycap = "R"
         reply.keycapGap = Quire.Layout.Reader.targetKeycapGap
         builder.add(reply, width: 110)
         builder.newline()
+
+        builder.section("Split button (Send) · rest · hover · pressed · focused, per segment · no recipient · sending · locked · not key · no glyph")
+        for size in [QuireButton.Size.regular, .small] {
+            builder.label(size.rawValue)
+            builder.add(splitButton(size), width: 128)
+            for (segment, state) in [(0, QuireDisplayState.hover), (1, .hover), (0, .pressed), (1, .pressed), (0, .focused), (1, .focused)] {
+                let b = splitButton(size)
+                (segment == 0 ? b.actionSegment : b.menuSegment).displayState = state
+                builder.add(b, width: 128)
+            }
+            builder.newline()
+            builder.label("")
+            let waiting = splitButton(size)
+            waiting.actionSegment.isEnabled = false
+            builder.add(waiting, width: 128)
+            let sending = splitButton(size)
+            sending.actionSegment.isLoading = true
+            sending.menuSegment.isEnabled = false
+            builder.add(sending, width: 128)
+            let locked = splitButton(size)
+            locked.actionSegment.isEnabled = false
+            locked.menuSegment.isEnabled = false
+            builder.add(locked, width: 128)
+            let inactive = splitButton(size)
+            inactive.windowKeyOverride = false
+            builder.add(inactive, width: 128)
+            let bare = splitButton(size)
+            bare.actionSegment.symbolName = nil
+            bare.actionSegment.loadingTitle = nil
+            builder.add(bare, width: 128)
+            builder.newline()
+        }
 
         builder.section("Icon buttons · rest · hover · pressed · focused · on · quiet on · disabled · loading · 22 / 24 / 28")
         builder.label("icon")
@@ -376,6 +404,13 @@ enum ComponentGallery {
         return b
     }
 
+    private static func splitButton(_ size: QuireButton.Size) -> QuireSplitButton {
+        let b = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: size, menuAccessibilityLabel: "Send Options")
+        b.actionSegment.loadingTitle = "Sending…"
+        b.windowKeyOverride = true
+        return b
+    }
+
     /// Lays samples out in rows; Quire controls are placed by their visual rect.
     @MainActor struct Builder {
         let root: NSView
@@ -421,6 +456,7 @@ enum ComponentGallery {
         /// Shows loading spinners now instead of after their 150 ms delay.
         private func reveal(_ view: NSView) {
             let spinner = (view as? QuireButton)?.spinner ?? (view as? QuireIconButton)?.spinner ?? (view as? QuireBannerView)?.spinner
+                ?? (view as? QuireSplitButton)?.actionSegment.spinner
             guard let spinner, !spinner.isRevealed else { return }
             spinner.stopAnimation()
             spinner.delay = 0

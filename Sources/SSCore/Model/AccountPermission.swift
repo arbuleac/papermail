@@ -7,4 +7,7 @@ public enum AccountPermission: String, Codable, Sendable, CaseIterable {
     /// Updating the user's calendar, to answer invitations: Google's `calendar.events`, Microsoft's
     /// `Calendars.ReadWrite`.
     case calendar
+    /// Reading and changing the account's server rules, where sender rules live (Gmail filters, Outlook inbox rules):
+    /// Google's `gmail.settings.basic`, Microsoft's `MailboxSettings.ReadWrite`.
+    case rules
 }

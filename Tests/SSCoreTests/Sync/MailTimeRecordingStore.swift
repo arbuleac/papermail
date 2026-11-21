@@ -49,6 +49,7 @@ final class MailTimeRecordingStore: MailStoring, @unchecked Sendable {
     func setInkSlot(_ slot: Int, for accountID: AccountID) throws { try base.setInkSlot(slot, for: accountID) }
     func setMonogram(_ monogram: String?, for accountID: AccountID) throws { try base.setMonogram(monogram, for: accountID) }
     func setSignature(_ signature: String?, for accountID: AccountID) throws { try base.setSignature(signature, for: accountID) }
+    func setFace(_ face: AccountFace, for accountID: AccountID) throws { try base.setFace(face, for: accountID) }
     func syncCursor(for accountID: AccountID) throws -> String? { try base.syncCursor(for: accountID) }
     func bootstrapState(for accountID: AccountID) throws -> BootstrapState? { try base.bootstrapState(for: accountID) }
     func wipeMailData(for accountID: AccountID) throws { try base.wipeMailData(for: accountID) }
@@ -113,6 +114,13 @@ final class MailTimeRecordingStore: MailStoring, @unchecked Sendable {
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                        enqueueing operations: [Operation], at now: Date) throws {
         try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
+    }
+    func pendingSenderRules(accountID: AccountID) throws -> [SenderRule] { try base.pendingSenderRules(accountID: accountID) }
+    func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws {
+        try base.replaceServerSenderRules(accountID: accountID, with: rules, readAt: readAt)
+    }
+    func settleSenderRule(for address: String, accountID: AccountID, _ outcome: SenderRuleOutcome) throws -> Bool {
+        try base.settleSenderRule(for: address, accountID: accountID, outcome)
     }
     func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
         base.observeSenderRules(onChange: onChange)

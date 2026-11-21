@@ -127,7 +127,10 @@ final class GraphHTTPClient: Sendable {
         urlRequest.httpMethod = request.method.rawValue
         if let token {
             urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            urlRequest.setValue(([Self.immutableIDPreference] + request.prefer).joined(separator: ", "), forHTTPHeaderField: "Prefer")
+            let prefer = (request.immutableIDs ? [Self.immutableIDPreference] : []) + request.prefer
+            if !prefer.isEmpty {
+                urlRequest.setValue(prefer.joined(separator: ", "), forHTTPHeaderField: "Prefer")
+            }
         }
         urlRequest.setValue(request.accept, forHTTPHeaderField: "Accept")
         for (name, value) in request.headers {

@@ -62,6 +62,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     /// D (spec §5.54): back to the reader and the day while the week shows; what a click on the strip does while the
     /// column is folded to it; otherwise show or hide the column, kept for the next launch.
     func toggleDay() {
+        let wasOn = desk.isColumnOn
         if desk.isWeekShown {
             leaveWeek(on: nil, columnOn: true)
         } else if desk.placement == .strip {
@@ -69,6 +70,8 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         } else {
             setColumnOn(!desk.isColumnOn)
         }
+        // The column turned on or off, whichever way: a hidden column shows from its strip.
+        if desk.isColumnOn != wasOn { Analytics.send(.dayColumn(shown: desk.isColumnOn, Analytics.trigger)) }
     }
 
     /// W: the week in the reader's place and the column's, or the reader and the column back.
@@ -77,6 +80,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
             leaveWeek(on: nil, columnOn: nil)
         } else {
             showWeek()
+            Analytics.send(.weekOpened(Analytics.trigger))
         }
     }
 
@@ -270,9 +274,10 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         }
     }
 
-    func toggleDayColumn() { toggleDay() }
+    /// The calendar's own buttons (the day column's toggle, the week's), which a key cannot press.
+    func toggleDayColumn() { Analytics.from(.toolbar) { toggleDay() } }
 
-    func toggleWeek() { toggleWeekView() }
+    func toggleWeek() { Analytics.from(.toolbar) { toggleWeekView() } }
 
     /// The calendar shows `start`'s day: where time was just set aside (§5.54).
     private func turnCalendar(to start: Date) {
@@ -343,8 +348,10 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         return CalendarSelection.read(id, from: environment.store)
     }
 
+    /// A mail's own time picked in the calendar (its mark, or Block 30 minutes on its card), or a row dropped on the
+    /// timeline (the drop says so).
     func blockTime(for conversation: ConversationID, at start: Date) {
-        setAside(conversation, at: start)
+        Analytics.from(.toolbar) { setAside(conversation, at: start) }
     }
 
     func blockTimeFirstFree(for conversation: ConversationID, on day: Date) {
@@ -372,6 +379,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
             NSSound.beep()
             return false
         }
+        Analytics.send(.timeBlocked(Analytics.trigger))
         let words = CalendarCopy.blocked(calendarState.text.toastSpan(event.start, event.end, now: calendarState.now))
         recordExternalUndo(command: CalendarCopy.blockCommand, accounts: [id.accountID], toast: words,
                            symbol: Quire.Icon.blockTime) { [weak self] in
@@ -491,6 +499,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     func answerInvitation(_ response: InvitationResponse, for message: MessageID) {
         do {
             try environment.engine.answerInvitation(response, to: message)
+            if let answer = AnalyticsSignal.InvitationAnswer(response) { Analytics.send(.invitationAnswered(answer)) }
         } catch {
             Self.log.error("answering an invitation failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()

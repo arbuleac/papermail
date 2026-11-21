@@ -10,8 +10,9 @@ import AppKit
 /// button in a window that is not key draws as a secondary one (§3.4). Under Graphite, link buttons draw their
 /// underline at rest (§3.1).
 ///
-/// A keycap is never drawn on a fill: it sits beside the face, `keycapGap` away, before or after it (“⌘↩”
-/// beside Send, R · A · F after the reader's footer buttons), and is not part of the face or the ring.
+/// A keycap sits beside the face, `keycapGap` away, before or after it (R · A · F after the reader's footer buttons,
+/// “⌘Z” before the quick reply strip's Undo), and is not part of the face or the ring: a keycap never sits on an
+/// accent fill (§5.36).
 @MainActor
 public final class QuireButton: QuireControl {
     public var title: String {
@@ -31,19 +32,19 @@ public final class QuireButton: QuireControl {
         didSet { if oldValue != symbolName { contentDidChange() } }
     }
 
-    /// A keycap legend drawn beside the face (“⌘↩”, “R”). nil draws none.
+    /// A keycap legend drawn beside the face (“R”, “⌘Z”). nil draws none.
     public var keycap: String? {
         didSet { if oldValue != keycap { contentDidChange() } }
     }
 
-    /// Puts the keycap before the face instead of after it (the quick reply's “⌘↩ Send”, §5.18).
+    /// Puts the keycap before the face instead of after it (the quick reply strip's “⌘Z Undo”, §5.18).
     public var keycapLeads = false {
         didSet { if oldValue != keycapLeads { contentDidChange() } }
     }
 
-    /// The distance between the face and its keycap: 8 pt beside Send (`composer.barKeycapGap`), 6 pt after
-    /// the reader's footer buttons (`reader.targetKeycapGap`).
-    public var keycapGap: CGFloat = Quire.Layout.Composer.barKeycapGap {
+    /// The distance between the face and its keycap: 8 pt by default (`button.keycapGap`), 6 pt after the reader's
+    /// footer buttons (`reader.targetKeycapGap`).
+    public var keycapGap: CGFloat = Quire.Layout.Button.keycapGap {
         didSet { if oldValue != keycapGap { contentDidChange() } }
     }
 

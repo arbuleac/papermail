@@ -25,6 +25,9 @@ enum ConversationAction {
     /// Download, Download all or Save to Downloads finished (spec §5.17): the main window shows the saved toast with
     /// Show in Finder, or the error toast, as the outcome says (§5.30).
     case attachmentsSaved(AttachmentSaveOutcome)
+    /// A chip dragged out and dropped outside the app could not be written there (spec §5.17, Dragging out): the window
+    /// says so in an error toast.
+    case attachmentDragFailed(AttachmentDragFailure, filename: String)
     /// Continue Editing on a read-only draft (spec §5.19).
     case continueDraft(MessageID)
     /// Discard Draft… on one draft or several (the header, the sheet's footer): the main window asks “Discard
@@ -34,9 +37,10 @@ enum ConversationAction {
     case cancelSendLater(ConversationID)
     /// The quick reply's "Show" after an undo that came once the selection had moved on.
     case reveal(ConversationID)
-    /// Open in Composer (⇧⌘R), the error state's “Open in composer” and Attach (⇧⌘A) on the quick reply
-    /// (spec §5.18): a reply composer to `message` holding what was typed; with `attach`, it then asks for files.
-    case replyInComposer(MessageID, all: Bool, body: String, attach: Bool)
+    /// Open in Composer (⇧⌘R), the error state's “Open in composer”, Attach (⇧⌘A) and a drop on the quick reply
+    /// (spec §5.18): a reply composer to `message` holding what was typed; with `attach`, it then asks for files, and it
+    /// attaches what was `dropped`.
+    case replyInComposer(MessageID, all: Bool, body: String, attach: Bool, dropped: [AttachmentDropItem] = [])
     /// A quick reply failed after its undo window (§5.18): the main window says so in an error toast whose
     /// “Open draft” reopens `draft`, which is already kept on this Mac.
     case quickReplyFailed(ComposeDraft)

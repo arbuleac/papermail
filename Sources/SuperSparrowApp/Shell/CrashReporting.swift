@@ -2,10 +2,10 @@ import AppKit
 import Foundation
 import Sentry
 
-/// Crash reporting through Sentry (docs/ARCHITECTURE.md, "Crash reports"; setup in docs/CRASH-REPORTING.md).
+/// Crash reporting through Sentry (docs/ARCHITECTURE.md, "Crash reports"; setup in docs/ANALYTICS-AND-REPORTS.md).
 ///
 /// Started in `main.swift` right after the application object and before anything else of the app's, so a crash at
-/// launch is caught too. It is on unless Settings › General › Crash reports is off, and needs a DSN: the bundle's
+/// launch is caught too. It is on unless Settings › General › Analytics and reports is off, and needs a DSN: the bundle's
 /// `SentryDSN` (written by `scripts/build-app.sh` from `SENTRY_DSN` or `Resources/SentryDSN`), or `--sentry-dsn` in a
 /// debug build. With neither, nothing starts.
 ///
@@ -22,9 +22,13 @@ enum CrashReporting {
         case action
         case sync
         case memory
+        /// Help Me Write's milestones (“write started”, …) and the provider's kind, as names from the code: never a prompt,
+        /// a reply or a CLI's output (§5.56).
+        case ai
     }
 
-    /// Settings › General › Crash reports; on unless turned off.
+    /// Settings › General › Analytics and reports, which governs `Analytics` too; on unless turned off. Named for crash
+    /// reports, which it governed first, so a choice made then still holds.
     static let enabledDefaultsKey = "sendsCrashReports"
     /// The Info.plist key holding the project's DSN.
     static let dsnInfoKey = "SentryDSN"
@@ -50,7 +54,8 @@ enum CrashReporting {
         return candidates.lazy.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
     }
 
-    /// Whether this build has a DSN to send to (Settings › General disables Crash reports without one).
+    /// Whether this build has a DSN to send to (Settings › General disables Analytics and reports with neither this nor a
+    /// TelemetryDeck app ID).
     static var isConfigured: Bool {
         dsn(launch: LaunchOptions(), info: Bundle.main.infoDictionary) != nil
     }
@@ -67,7 +72,7 @@ enum CrashReporting {
         return isRunning
     }
 
-    /// Settings › General › Crash reports. Off closes the SDK at once and deletes the reports it had queued on disk
+    /// Settings › General › Analytics and reports. Off closes the SDK at once and deletes the reports it had queued on disk
     /// (a crash from an earlier run not yet sent), so none goes later; on starts it again.
     static func setEnabled(_ enabled: Bool, launch: LaunchOptions = LaunchOptions(), bundle: Bundle = .main) {
         if enabled {

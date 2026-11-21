@@ -2,8 +2,9 @@ import XCTest
 import SSCore
 
 /// The `MailStoring` contract for the arrival rules (roadmap Q3.7 Mute and Q4.2 Sender rules, docs/DATA-MODEL.md
-/// "Arrival rules"): the mute on the summary row, the `sender_rules` table, and mail new to the store archived or
-/// trashed in the write that stores it, its operation queued in that transaction. Written as an extension so
+/// "Arrival rules"): the mute on the summary row and mail new to a muted conversation archived in the write that stores
+/// it, its operation queued in that transaction; sender rules, kept on the server since v23, taking no mail at arrival
+/// and only keeping a snooze. The mirror's own transitions are `MailStoreSenderRulesContractTests`. Written as an extension so
 /// `SQLiteMailStoreContractTests` inherits every case and both stores are held to the same semantics.
 extension MailStoreContractTests {
     private func conversation(_ providerID: String, account: AccountID? = nil) -> ConversationID {
@@ -248,63 +249,60 @@ extension MailStoreContractTests {
         XCTAssertFalse(box.values.contains { $0.contains("c1") }, "every delivery: \(box.values)")
     }
 
-    // MARK: Sender rules
+    // MARK: Sender rules: on the server, not at arrival
 
     func testSenderRulesAreKeptPerAccountByAddressWithoutCase() throws {
         try store.setSenderRule(.trash, for: "  Deals@Shop.Example ", accountID: accountA, enqueueing: [], at: date(100))
         try store.setSenderRule(.archive, for: "news@letter.example", accountID: accountA, enqueueing: [], at: date(110))
         try store.setSenderRule(.archive, for: "deals@shop.example", accountID: accountB, enqueueing: [], at: date(120))
         XCTAssertEqual(try store.senderRules(), [
-            SenderRule(accountID: accountA, address: "deals@shop.example", action: .trash, createdAt: date(100)),
-            SenderRule(accountID: accountA, address: "news@letter.example", action: .archive, createdAt: date(110)),
-            SenderRule(accountID: accountB, address: "deals@shop.example", action: .archive, createdAt: date(120)),
-        ])
+            SenderRule(accountID: accountA, address: "deals@shop.example", action: .trash, createdAt: date(100), sync: .creating),
+            SenderRule(accountID: accountA, address: "news@letter.example", action: .archive, createdAt: date(110), sync: .creating),
+            SenderRule(accountID: accountB, address: "deals@shop.example", action: .archive, createdAt: date(120), sync: .creating),
+        ], "each on its way to the server")
 
-        // One rule per address: setting the other replaces it, nil removes it.
+        // One rule per address: setting the other replaces it, nil removes it (neither reached the server, so at once).
         try store.setSenderRule(.archive, for: "DEALS@shop.example", accountID: accountA, enqueueing: [], at: date(130))
         try store.setSenderRule(nil, for: "news@letter.example", accountID: accountA, enqueueing: [], at: date(140))
         XCTAssertEqual(try store.senderRules().filter { $0.accountID == accountA },
-                       [SenderRule(accountID: accountA, address: "deals@shop.example", action: .archive, createdAt: date(130))])
+                       [SenderRule(accountID: accountA, address: "deals@shop.example", action: .archive, createdAt: date(130),
+                                   sync: .creating)])
     }
 
-    func testABlockedSendersMailGoesToTheTrashAsItArrives() throws {
+    /// The server archives or trashes a sender's mail before this Mac sees it, so the store does nothing to mail at
+    /// arrival for a rule, whatever its state: mail is stored where the provider put it and nothing is queued. (A rule's
+    /// mail the provider reports in the Inbox is mail the server rule did not take, which this Mac does not second-guess.)
+    func testSenderRulesTakeNoMailAsItArrives() throws {
         try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(100))
+        try store.replaceServerSenderRules(accountID: accountA,
+                                           with: [ServerSenderRule(serverID: "f1", address: newsletter.address, action: .archive)],
+                                           readAt: date(105))
+        XCTAssertEqual(try store.senderRules().map(\.sync), [.creating, .saved])
         try store.upsertMessages([
             message("m1", in: "c1", from: EmailAddress(name: "Deals", address: "DEALS@shop.example"), date: date(200), isRead: false),
-            message("m2", in: "c2", date: date(210)),
+            message("m2", in: "c2", from: newsletter, date: date(210), isRead: false),
+            message("m3", in: "c3", from: newsletter, date: date(220), roles: []),
+            message("m4", in: "c4", from: spammer, date: date(230), roles: [.trash]),
+            message("m5", in: "c5", date: date(240)),
         ])
-        XCTAssertEqual(try store.message(id("m1"))?.roles, [.trash])
-        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox)), ["c2"])
-        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .trash)), ["c1"])
-        XCTAssertEqual(try pending().map(\.change), [.trash])
-        XCTAssertEqual(try pending().first?.targets, [id("m1")])
+        XCTAssertEqual(try store.message(id("m1"))?.roles, [.inbox], "the block's rule is not on the server yet")
+        XCTAssertEqual(try store.message(id("m2"))?.roles, [.inbox], "as the provider reported it")
+        XCTAssertEqual(try store.message(id("m3"))?.roles, [], "archived by the server before it arrived")
+        XCTAssertEqual(try store.message(id("m4"))?.roles, [.trash], "moved to the Trash by the server")
+        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox)), ["c5", "c2", "c1"])
+        XCTAssertTrue(try pending().isEmpty, "nothing queued for a rule")
     }
 
-    func testAlwaysArchiveTakesTheSendersMailOutOfTheInboxAsItArrives() throws {
-        try store.setSenderRule(.archive, for: newsletter.address, accountID: accountA, enqueueing: [], at: date(100))
-        try store.upsertMessages([message("m1", in: "c1", from: newsletter, date: date(200), isRead: false)])
-        XCTAssertEqual(try store.message(id("m1"))?.roles, [])
-        XCTAssertTrue(try conversationIDs(ConversationQuery(view: .inbox)).isEmpty)
-        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .all)), ["c1"], "archived, unread, in All Mail")
-        XCTAssertEqual(try pending().map(\.change), [.archive])
-    }
-
-    /// A sender's archive takes that sender's message, not the conversation: someone else's mail in it stays in the Inbox.
-    func testASendersArchiveTakesOnlyTheirMessage() throws {
-        try store.upsertMessages([message("m1", in: "c1", date: date(10))])
-        try store.setSenderRule(.archive, for: newsletter.address, accountID: accountA, enqueueing: [], at: date(100))
-        try store.upsertMessages([message("m2", in: "c1", from: newsletter, date: date(200))])
-        XCTAssertEqual(try pending().first?.targets, [id("m2")])
-        XCTAssertEqual(try store.message(id("m1"))?.roles, [.inbox])
-    }
-
-    /// The row shows the conversation's newest mail, the archived message included: a sender's archive in a conversation
-    /// the Inbox holds for someone else's mail leaves the row there with that message's time, snippet and unread count,
-    /// as any archived message in it would. Only the notification is held back (the window's `NewMailNotifier`).
-    func testASendersArchiveInAConversationTheInboxHoldsStillShowsOnItsRow() throws {
+    /// The row shows the conversation's newest mail, the message a server rule archived included: an archived sender's
+    /// mail in a conversation the Inbox holds for someone else's leaves the row there with that message's time, snippet
+    /// and unread count, as any archived message in it would. Only the notification is held back (the window's
+    /// `NewMailNotifier`).
+    func testMailAServerRuleArchivedInAConversationTheInboxHoldsStillShowsOnItsRow() throws {
         try store.upsertMessages([message("m1", in: "c1", date: date(10), isRead: true)])
-        try store.setSenderRule(.archive, for: newsletter.address, accountID: accountA, enqueueing: [], at: date(100))
-        try store.upsertMessages([message("m2", in: "c1", from: newsletter, date: date(200), isRead: false)])
+        try store.replaceServerSenderRules(accountID: accountA,
+                                           with: [ServerSenderRule(serverID: "f1", address: newsletter.address, action: .archive)],
+                                           readAt: date(100))
+        try store.upsertMessages([message("m2", in: "c1", from: newsletter, date: date(200), roles: [], isRead: false)])
         XCTAssertEqual(try store.message(id("m2"))?.roles, [])
         let row = try summary("c1", view: .inbox)
         XCTAssertEqual(row.latestMessageID, id("m2"))
@@ -313,54 +311,34 @@ extension MailStoreContractTests {
         XCTAssertEqual(row.unreadCount, 1)
     }
 
-    /// Mail from a sender with a rule leaves a snooze alone, as the mute's does: a blocked sender's reply goes to the
-    /// Trash, and an always-archived sender's message a provider's filter put away already stays where it is. Mail from
-    /// anyone else still ends it.
+    /// Mail from a sender with a rule leaves a snooze alone, as the mute's does: the server put a blocked sender's reply in
+    /// the Trash, and an always-archived sender's message out of the Inbox, before it arrived. Mail from anyone else still
+    /// ends it. A rule counts in every state: one on its way to the server, or being removed there, is still one the
+    /// user set.
     func testMailFromASenderWithARuleLeavesTheSnooze() throws {
         try store.upsertMessages([message("m1", in: "c1", date: date(10)), message("n1", in: "c2", date: date(20))])
         try store.setSnoozes([Snooze.Change(conversationID: conversation("c1"), until: date(9_000)),
                               Snooze.Change(conversationID: conversation("c2"), until: date(9_000))],
                              enqueueing: [archive(["m1", "n1"], at: 100)], at: date(100))
-        try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(110))
+        try store.replaceServerSenderRules(accountID: accountA,
+                                           with: [ServerSenderRule(serverID: "f1", address: spammer.address, action: .trash)],
+                                           readAt: date(105))
         try store.setSenderRule(.archive, for: newsletter.address, accountID: accountA, enqueueing: [], at: date(110))
-        try store.upsertMessages([message("m2", in: "c1", from: spammer, date: date(200)),
+        try store.setSenderRule(nil, for: spammer.address, accountID: accountA, enqueueing: [], at: date(115))
+        XCTAssertEqual(try store.senderRules().map(\.sync), [.deleting, .creating])
+        try store.upsertMessages([message("m2", in: "c1", from: spammer, date: date(200), roles: [.trash]),
                                   message("n2", in: "c2", from: newsletter, date: date(210), roles: [])])
-        XCTAssertEqual(try store.message(id("m2"))?.roles, [.trash])
         XCTAssertEqual(try store.snoozes().map(\.conversationID), [conversation("c1"), conversation("c2")])
 
         try store.upsertMessages([message("m3", in: "c1", date: date(300), roles: [])])
         XCTAssertEqual(try store.snoozes().map(\.conversationID), [conversation("c2")])
     }
 
-    func testRulesLeaveTheUsersOwnMailSpamOtherAccountsAndStoredMailAlone() throws {
-        try store.upsertMessages([message("m0", in: "c0", from: spammer, date: date(10))])
-        try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(100))
-        try store.upsertMessages([
-            message("m0", in: "c0", from: spammer, date: date(10)),
-            message("m1", in: "c1", from: spammer, date: date(200), roles: [.sent]),
-            message("m2", in: "c2", from: spammer, date: date(210), roles: [.drafts]),
-            message("m3", in: "c3", from: spammer, date: date(220), roles: [.spam]),
-            message("b1", in: "c4", account: accountB, from: spammer, date: date(230)),
-        ])
-        XCTAssertTrue(try pending().isEmpty)
-        XCTAssertTrue(try pending(accountB).isEmpty)
-        XCTAssertEqual(try store.message(id("m0"))?.roles, [.inbox], "mail stored before the rule stays where it is")
-    }
-
-    /// The backfill and a search of the server write old mail, not arrivals: a rule set today does not move it.
-    func testSenderRulesTakeNoMailTheBackfillWrites() throws {
-        try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(100))
-        XCTAssertEqual(try store.writeBackfillMessages([message("m1", in: "c1", from: spammer, date: date(10))], refreshExisting: false), 1)
-        XCTAssertEqual(try store.message(id("m1"))?.roles, [.inbox])
-        XCTAssertTrue(try pending().isEmpty)
-    }
-
-    func testARemovedRuleTakesNothingMore() throws {
+    func testARemovedRuleThatNeverReachedTheServerGoesAtOnce() throws {
         try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(100))
         try store.setSenderRule(nil, for: spammer.address, accountID: accountA, enqueueing: [], at: date(110))
-        try store.upsertMessages([message("m1", in: "c1", from: spammer, date: date(200))])
-        XCTAssertEqual(try conversationIDs(ConversationQuery(view: .inbox)), ["c1"])
         XCTAssertTrue(try store.senderRules().isEmpty)
+        XCTAssertTrue(try store.pendingSenderRules(accountID: accountA).isEmpty, "nothing for the server to do")
     }
 
     /// Setting a rule takes the sender's mail where it was set from, in the rule's own transaction, and its undo puts
@@ -371,6 +349,7 @@ extension MailStoreContractTests {
         try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [trash], at: date(100))
         XCTAssertEqual(try conversationIDs(ConversationQuery(view: .trash)), ["c1"])
         XCTAssertEqual(try store.senderRules().map(\.action), [.trash])
+        XCTAssertEqual(try store.senderRules().map(\.sync), [.creating])
 
         let restore = SSCore.Operation(accountID: accountA, change: .restoreFromTrash, targets: [id("m1")], createdAt: date(110))
         try store.setSenderRule(nil, for: spammer.address, accountID: accountA, enqueueing: [restore], at: date(110))
@@ -378,31 +357,41 @@ extension MailStoreContractTests {
         XCTAssertTrue(try store.senderRules().isEmpty)
     }
 
-    /// Block is further out than the archive: a blocked sender's mail into a muted conversation goes to the Trash.
-    func testBlockWinsOverMute() throws {
+    /// The mute archives whatever arrives in a muted conversation's Inbox, a blocked sender's mail included: that the
+    /// server's block did not take it is the server's business.
+    func testTheMuteArchivesABlockedSendersMailThatReachedTheInbox() throws {
         try store.upsertMessages([message("m1", in: "c1", date: date(10))])
         try mute("c1", archiving: [])
-        try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(100))
+        try store.replaceServerSenderRules(accountID: accountA,
+                                           with: [ServerSenderRule(serverID: "f1", address: spammer.address, action: .trash)],
+                                           readAt: date(100))
         try store.upsertMessages([message("m2", in: "c1", from: spammer, date: date(200))])
-        XCTAssertEqual(try store.message(id("m2"))?.roles, [.trash])
-        XCTAssertEqual(try pending().map(\.change), [.trash], "nothing archived on top: the older mail was not an arrival")
+        XCTAssertEqual(try store.message(id("m2"))?.roles, [])
+        XCTAssertEqual(try pending().map(\.change), [.archive], "the mute's archive, of the Inbox's mail")
+        XCTAssertEqual(try pending().first?.targets, [id("m1"), id("m2")])
     }
 
-    /// A burst: one archive and one trash per account, whatever arrived, and the rest untouched.
-    func testABurstQueuesOneOperationPerAccountAndChange() throws {
+    /// A burst: with rules set and nothing muted, nothing is queued however much arrives; into muted conversations, one
+    /// archive per account.
+    func testABurstQueuesNothingForRulesAndOneArchivePerAccountForTheMute() throws {
         try store.setSenderRule(.trash, for: spammer.address, accountID: accountA, enqueueing: [], at: date(100))
-        try store.setSenderRule(.archive, for: newsletter.address, accountID: accountA, enqueueing: [], at: date(100))
+        try store.replaceServerSenderRules(accountID: accountA,
+                                           with: [ServerSenderRule(serverID: "f1", address: newsletter.address, action: .archive)],
+                                           readAt: date(100))
         var burst: [MessageMetadata] = []
         for n in 0..<60 {
             let from = n % 3 == 0 ? spammer : n % 3 == 1 ? newsletter : EmailAddress(name: "Ann", address: "ann@example.com")
             burst.append(message("m\(n)", in: "c\(n)", from: from, date: date(200 + Double(n))))
         }
         try store.upsertMessages(burst)
-        let queued = try pending()
-        XCTAssertEqual(queued.map(\.change), [.archive, .trash])
-        XCTAssertEqual(queued.first?.targets.count, 20)
-        XCTAssertEqual(queued.last?.targets.count, 20)
-        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox, limit: 100)).count, 20)
+        XCTAssertTrue(try pending().isEmpty)
+        XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox, limit: 100)).count, 60)
+
+        for n in 0..<3 { try mute("c\(n)", archiving: ["m\(n)"]) }
+        for operation in try pending() { try store.confirmOperation(id: operation.id) }
+        try store.upsertMessages((0..<30).map { n in message("x\(n)", in: "c\(n % 3)", date: date(400 + Double(n))) })
+        XCTAssertEqual(try pending().map(\.change), [.archive])
+        XCTAssertEqual(try pending().first?.targets.count, 30)
     }
 
     func testRemovingTheAccountRemovesItsRules() throws {

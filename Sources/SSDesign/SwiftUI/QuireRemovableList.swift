@@ -4,8 +4,10 @@ import SwiftUI
 ///
 /// - A `sheet` group, radius 8, with a hairline edge, as the account group is, of `settings.senderRow` pt rows: the
 ///   title in `body` `ink` from x = `settings.senderRowX`, cut in the middle (an address keeps its start and its
-///   domain), then the detail in `snippet` `ink2`, then 12 pt (`settings.senderActionGap`) and a − button
-///   `settings.senderRemoveInset` from the trailing edge, so the button sits centred in the row's last 40 pt.
+///   domain), then the detail in `snippet` `ink2` and, while the row is not settled, “ · ” and its state in `snippet`
+///   `ink3` (“Saving to Gmail…”), then 12 pt (`settings.senderActionGap`) and a − button `settings.senderRemoveInset`
+///   from the trailing edge, so the button sits centred in the row's last 40 pt. A row that cannot be removed again (one
+///   already on its way out) draws its − disabled.
 /// - The − is the +/− pair's half on its own: 22 pt, `raised`, a 1 pt `ruleStrong` edge, radius `r.sm`, `minus`
 ///   11 pt `ink2`, hover `raised + hover` with the glyph `ink`, pressed `raised + pressed`, the Quire ring on focus.
 ///   Each − is a Tab stop, named “Remove” and the row's title for VoiceOver.
@@ -18,11 +20,19 @@ public struct QuireRemovableList: View {
         public var id: String
         public var title: String
         public var detail: String
+        /// Where the row stands while it is not settled (“Saving to Gmail…”, “Removing…”), after the detail in `ink3`;
+        /// nil once it is.
+        public var state: String?
+        /// Whether the − acts. A row already on its way out has nothing more to remove, so its − is disabled rather than
+        /// gone, keeping every row's detail in the same column.
+        public var isRemovable: Bool
 
-        public init(id: String, title: String, detail: String) {
+        public init(id: String, title: String, detail: String, state: String? = nil, isRemovable: Bool = true) {
             self.id = id
             self.title = title
             self.detail = detail
+            self.state = state
+            self.isRemovable = isRemovable
         }
     }
 
@@ -112,16 +122,24 @@ struct QuireRemovableRow: View {
                 .foregroundStyle(.qInk)
                 .padding(.leading, s.senderRowX)
             Spacer(minLength: s.senderActionGap)
-            Text(verbatim: row.detail)
-                .quireLine(.snippet)
-                .foregroundStyle(.qInk2)
-                .fixedSize()
-                .padding(.trailing, s.senderActionGap)
+            HStack(spacing: 0) {
+                Text(verbatim: row.detail)
+                    .foregroundStyle(.qInk2)
+                if let state = row.state {
+                    // Quieter than what the rule does: the state passes, the rule stays.
+                    Text(verbatim: " · " + state)
+                        .foregroundStyle(.qInk3)
+                }
+            }
+            .quireLine(.snippet)
+            .fixedSize()
+            .padding(.trailing, s.senderActionGap)
             Button(action: onRemove) {
                 QuireSymbolImage(name: Quire.Icon.removeRule, size: .custom(s.plusMinusGlyph))
             }
             .buttonStyle(QuireRemoveButtonStyle())
             .focusEffectDisabled()
+            .disabled(!row.isRemovable)
             .accessibilityLabel("Remove \(row.title)")
             .padding(.trailing, s.senderRemoveInset)
         }

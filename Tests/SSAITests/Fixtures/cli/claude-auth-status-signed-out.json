@@ -1,0 +1,9 @@
+{
+  "loggedIn": false,
+  "authMethod": "none",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "/Users/someone/.claude/projects",
+  "configDirectory": "/Users/someone/.claude",
+  "loginExpiresAt": null
+}

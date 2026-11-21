@@ -230,9 +230,10 @@ final class SQLiteMailStorePerformanceTests: XCTestCase {
                                    archiving: targets(.archive, unsubscribed), endingSnoozesOf: [])
         }
 
-        // Arrival rules (Mute, sender rules): a page of new mail into a mailbox with mutes and rules set, then a burst every
-        // message of which a rule takes, each archived or trashed in the page's own write. Last, since the operations they
-        // queue make every later upsert replay them.
+        // Arrival rules: a page of new mail into a mailbox with mutes and sender rules set (the mute's arrivals archived in
+        // the page's own write; the rules, the server's since v23, only read from their mirror for the snooze), then a burst
+        // every message of which comes from a sender with a rule. Last, since the operations the mute queues make every
+        // later upsert replay them.
         let mutedForArrival = Array(Set(mailbox.messages.dropFirst(2_000 * round).prefix(2_000).map(\.conversationID)).prefix(50))
         try store.setMuted(true, conversations: mutedForArrival, enqueueing: [])
         for account in mailbox.accounts {
@@ -265,7 +266,7 @@ final class SQLiteMailStorePerformanceTests: XCTestCase {
             return message
         }
         let everyOne = try Perf.milliseconds { try store.upsertMessages(burst) }
-        Perf.report("\(retention): insert \(Self.batchSize) new messages, every one taken by a rule", everyOne)
+        Perf.report("\(retention): insert \(Self.batchSize) new messages, every one from a sender with a rule", everyOne)
         XCTAssertLessThan(everyOne, 100, "a burst of ruled mail keeps the upsert budget")
     }
 }

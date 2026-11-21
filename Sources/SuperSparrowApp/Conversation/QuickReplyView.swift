@@ -6,10 +6,15 @@ import SSDesign
 /// is told the bar's height as a bottom inset instead of being resized. The field sits on the reading column;
 /// at rest it is one 38 pt line with the replying account's face, the R keycap and a send glyph; focused it
 /// grows with the text to five lines and shows the tool row (Reply · Reply all, Attach, Open in Composer, Send and its
-/// drop-down).
+/// drop-down). Help me write lives in the text itself (§5.56, `WriteInlineLayer`): its prompt line and afterline open a
+/// space in the text's flow, and the field grows by it beyond its five lines.
 ///
 /// The view owns no mail logic: it reports the text on ⌘↩ (with what Send does now, `sendAction`) and on ⇧⌘↩ (send and
 /// archive), the drop-down's choice and the commands of its buttons, and shows the strip and the states its owner asks for.
+///
+/// Files, and attachments dragged from a message (§5.17), can be dropped on it while its field takes typing: the field
+/// shows Quire's drop treatment with “Drop to reply with attachment”, and the drop is reported with the text and mode, for
+/// the owner to move the reply to a composer with them attached.
 @MainActor
 final class QuickReplyView: NSView, QuirePointerTarget {
     enum Mode: Int, Equatable {
@@ -42,6 +47,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     var onOpenInComposer: ((String, Mode) -> Void)?
     /// Attach (⇧⌘A): the reply moves to the composer, which then asks for the files.
     var onAttach: ((String, Mode) -> Void)?
+    /// Files or the app's own attachments dropped on the bar: the reply moves to the composer with them attached.
+    var onDropAttachments: ((String, Mode, [AttachmentDropItem]) -> Void)?
     var onUndo: (() -> Void)?
     var onShowDraft: (() -> Void)?
     /// A click on the field while a composer holds this conversation's draft.
@@ -49,8 +56,8 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     /// The replying account's rail face (spec §5.18).
     /// The reader sets these on every selection change (key repeat included), so each one acts only on a change.
-    var face: (monogram: String, inkSlot: Int)? {
-        didSet { if oldValue?.monogram != face?.monogram || oldValue?.inkSlot != face?.inkSlot { needsDisplay = true } }
+    var face: (face: QuireAccountFace, inkSlot: Int)? {
+        didSet { if oldValue?.face != face?.face || oldValue?.inkSlot != face?.inkSlot { needsDisplay = true } }
     }
 
     var replyName = "" { didSet { if oldValue != replyName { updatePlaceholder() } } }
@@ -83,7 +90,11 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     var isComposerOpen = false {
         didSet {
             guard oldValue != isComposerOpen else { return }
-            if isComposerOpen { blur() }
+            if isComposerOpen {
+                // The text goes behind “Reply in the composer”: a reply streaming into it stops first (§5.56).
+                willHideText?()
+                blur()
+            }
             // VoiceOver hears a dimmed field that cannot be typed in; a click still brings the composer forward.
             textView.setAccessibilityEnabled(!isComposerOpen)
             updatePlaceholder()
@@ -96,10 +107,117 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     var text: String {
         get { textView.string }
         set {
+            // A reply streaming in writes the storage itself; any other change to the text ends it first, so the stream
+            // never edits text it did not put there (the owner ends Help me write there, putting the field back).
+            willReplaceText?()
             textView.string = newValue
             textDidChange()
+            // Setting the string reports no edit: Help me write's hint reads the new text here (a send undone or failed
+            // puts the draft back while the keyboard may still be in the field).
+            onUserEdit?()
         }
     }
+
+    /// Called before the text is set from outside the field (`text`, `clear`, `restoreDraft`): its owner stops Help me
+    /// write's write there first.
+    var willReplaceText: (() -> Void)?
+
+    /// Called as a composer takes the reply and the field hides behind its quiet fill: its owner closes Help me write's
+    /// card there, the field put back, so nothing streams into text no one sees.
+    var willHideText: (() -> Void)?
+
+    // MARK: Help me write (§5.56)
+
+    /// The field's text view, which Help me write writes into.
+    var writingTextView: NSTextView { textView }
+
+    /// Help me write's prompt line is open or a reply streams in: the bar stays open around its text, as if focused, while
+    /// the keyboard is in the prompt line (§5.56).
+    var isHeldOpen = false {
+        didSet {
+            guard oldValue != isHeldOpen else { return }
+            updatePlaceholder()
+            updateHeight(animated: false)
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+
+    /// While Help me write streams a reply into the field, the user's own edits are refused and nothing sends or is
+    /// scheduled: Send, its drop-down and Send Later wait with them, and so does a drop, which would move the half-written
+    /// reply to a composer (a drag already over the bar loses its treatment).
+    var refusesEdits = false {
+        didSet {
+            guard oldValue != refusesEdits else { return }
+            if refusesEdits { dropOverlay.show(for: nil) }
+            needsLayout = true
+        }
+    }
+
+    /// Asked first on Esc in the field: Help me write takes it to stop a write, close its prompt line or dismiss its
+    /// afterline (§6.1) before the window's order runs.
+    var claimsEscape: (() -> Bool)?
+
+    /// The user changed the text (typing, a paste, an undo, a reply landing, the text set from outside): Help me write's
+    /// marks follow.
+    var onUserEdit: (() -> Void)?
+
+    /// The selection in the text changed: Help me write's ghost and pill follow.
+    var onSelectionChange: (() -> Void)?
+
+    /// Help me write's group for the text's right-click menu (§5.56), at its top; none while it is off.
+    var writeMenuItems: (() -> [NSMenuItem])?
+
+    /// Help me write's marks in the text (§5.56): the pill floats on the bar, out of the text's clip.
+    var writeLayer: WriteInlineLayer {
+        if let madeWriteLayer { return madeWriteLayer }
+        let layer = WriteInlineLayer(textView: textView, floatHost: self)
+        textView.markAreas = { [weak layer] in layer?.pointerHoles ?? [] }
+        madeWriteLayer = layer
+        return layer
+    }
+
+    /// A block (the prompt line, the afterline) opened, closed or moved in the text: the text view holds it, and the field
+    /// grows by it.
+    func writeSpaceDidChange() {
+        let block = madeWriteLayer?.blockRect != nil
+        textView.minSize = NSSize(width: 0, height: block ? madeWriteLayer?.contentHeight ?? 0 : 0)
+        textView.sizeToFit()
+        updateHeight(animated: false)
+        needsLayout = true
+    }
+
+    /// The layer, once Help me write has made it (the bar never makes it for nothing).
+    private var madeWriteLayer: WriteInlineLayer?
+
+    /// The block's share of the field's height: all of it, whether it lies inside the text or hangs below its last line.
+    /// It does not count against the five lines.
+    private var writeSpace: CGFloat {
+        guard looksFocused, !isComposerOpen, strip.isHidden else { return 0 }
+        return madeWriteLayer?.reservedHeight ?? 0
+    }
+
+    /// The block's part inside the text's used rect: lines below it moved down, which `lineCount` must not count as lines.
+    private var writeSpaceInText: CGFloat {
+        guard let layer = madeWriteLayer else { return 0 }
+        return layer.reservedHeight - layer.overflow
+    }
+
+    /// Where the ghost starts on an empty reply: after the placeholder's words (“Reply to Sam…”), as one line of ghost
+    /// text. nil while the placeholder does not show.
+    var placeholderGhostOffset: CGFloat? {
+        guard text.isEmpty, looksFocused, !isComposerOpen else { return nil }
+        return ceil(placeholder.attributedStringValue.size().width)
+    }
+
+    /// The text changed under the field without an edit (a reply streaming in): its height and placeholder follow.
+    func textDidChangeByWriting() {
+        textDidChange()
+        textView.scrollRangeToVisible(textView.selectedRange())
+    }
+
+    /// The bar looks focused: it is, or Help me write's prompt line or a write holds it open.
+    private var looksFocused: Bool { isFocused || isHeldOpen }
 
     private(set) var isFocused = false
     private(set) var barHeight: CGFloat = QuickReplyView.restBarHeight(at: QuireEnvironment.textSize)
@@ -113,16 +231,25 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     private let tabs = QuireUnderlineTabs(items: QuickReplyView.tabItems(replyAll: true))
     private let attach = QuireIconButton(symbolName: Quire.Icon.attach, size: .small, accessibilityLabel: "Attach")
     private let openInComposer = QuireIconButton(symbolName: Quire.Icon.openInComposer, size: .small, accessibilityLabel: "Open in Composer")
-    private let send = QuireButton(title: "Send", variant: .primary, size: .small)
-    /// Send's drop-down (§5.23), 2 pt after it: the menu that chooses what Send and ⌘↩ do.
-    private let sendOptions = QuireIconButton(symbolName: Quire.Icon.titleMenu, size: .small, accessibilityLabel: "Send Options")
+    /// Send, the composer's split button at the small size (§5.23): the paper plane and “Send”, then its drop-down. The
+    /// plane gives way where the row has no room for it beside the tools (`layout()`).
+    private let sendSplit = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: .small,
+                                             menuAccessibilityLabel: "Send Options")
+    private var send: QuireSplitSegment { sendSplit.actionSegment }
+    /// Send's drop-down, its menu segment: the menu that chooses what Send and ⌘↩ do.
+    private var sendOptions: QuireSplitSegment { sendSplit.menuSegment }
     private lazy var sendActionMenu = SendActionMenu(choose: { [weak self] action in self?.onChooseSendAction?(action) },
+                                                     send: { [weak self] action in self?.send(as: action) },
                                                      sendLater: { [weak self] date in self?.sendLater(at: date) })
     private let statusGlyph = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let statusAction = QuireButton(title: "Undo", variant: .link, size: .small)
     private let statusContrail = QuireContrailView(mode: .determinate(0))
     private let strip = QuickReplyStripView()
+    /// The drop treatment over the field while something that attaches is dragged over the bar (§5.18).
+    private let dropOverlay = AttachmentDropOverlay(label: "Drop to reply with attachment", compactLabel: "Drop to attach",
+                                                    inset: Quire.Layout.QuickReply.dropInset, radius: Quire.Layout.QuickReply.fieldRadius,
+                                                    fill: .qSheet)
     private var heightConstraint: NSLayoutConstraint!
     private var hovering = false
     private var hoverArea: NSTrackingArea?
@@ -237,22 +364,22 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         openInComposer.action = #selector(openInComposerPressed)
         openInComposer.toolTip = "Open in Composer  ⇧⌘R"
         addSubview(openInComposer)
-        send.keycap = "⌘↩"
-        send.keycapLeads = true
-        send.keycapGap = Quire.Layout.QuickReply.sendKeycapGap
         send.target = self
         send.action = #selector(sendPressed)
-        addSubview(send)
-        // A pull-down's chevron at the popup chevron's size (§4.11), on the tool row's 22 pt icon button.
-        sendOptions.symbolSize = .custom(Quire.Layout.Popup.chevron)
-        sendOptions.isMenuButton = true
+        // VoiceOver hears Send's key as its help, as it hears a menu item's (the name says what Send does, §5.23).
+        send.setAccessibilityHelp(SendKey.commandReturn.spoken)
         sendOptions.toolTip = "Send Options"
         sendOptions.target = self
         sendOptions.action = #selector(showSendOptions)
-        addSubview(sendOptions)
+        // The tool row lies in the field: a segment's focus ring cuts the other half in the field's `sheet`.
+        sendSplit.surfaceColor = .qSheet
+        addSubview(sendSplit)
         sendActionDidChange()
 
         statusGlyph.imageScaling = .scaleNone
+        // An image view registers for files and pictures even when it cannot be edited, and would take a drag meant for
+        // the bar from over its glyph.
+        statusGlyph.unregisterDraggedTypes()
         addSubview(statusGlyph)
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.maximumNumberOfLines = 1
@@ -268,6 +395,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         strip.onShow = { [weak self] in self?.onShowDraft?() }
         strip.onDismiss = { [weak self] in self?.stripDismissed() }
         addSubview(strip)
+        // Above everything the field holds, which it hides while it shows.
+        addSubview(dropOverlay)
+        registerForDraggedTypes(AttachmentPasteboard.dropTypes)
+        textView.dropTarget = self
 
         heightConstraint = heightAnchor.constraint(equalToConstant: barHeight)
         heightConstraint.isActive = true
@@ -392,11 +523,35 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     private var showsKeycaps: Bool { ReaderColumn.showsKeycaps(readerWidth: bounds.width) }
 
-    /// Text lines, 1 to 5; past five the text scrolls inside the field.
+    /// The width the text wraps at: the field's, less the text's leading pad and the trailing room (the R keycap and the
+    /// Send circle at rest, a small pad with the tool row), less a scroller that takes room.
+    private var wrapWidth: CGFloat {
+        let m = Quire.Layout.QuickReply.self
+        let trailing = showsToolRow ? m.focusedTrailing : m.restTrailing
+        let frame = NSSize(width: max(0, fieldRect.width - m.textX - trailing), height: lineHeight)
+        return NSScrollView.contentSize(forFrameSize: frame, horizontalScrollerClass: nil,
+                                        verticalScrollerClass: scrollView.hasVerticalScroller ? NSScroller.self : nil,
+                                        borderType: scrollView.borderType, controlSize: .regular, scrollerStyle: scrollView.scrollerStyle).width
+    }
+
+    /// Puts the text at the width it wraps at now, before it is measured: the bar's width (a window resized) and focus
+    /// (the tool row's narrower trailing pad) change it before the next layout does. True when the width changed.
+    @discardableResult
+    private func fitTextWidth() -> Bool {
+        guard bounds.width > 0 else { return false }
+        let width = wrapWidth
+        guard abs(textView.frame.width - width) > 0.5 else { return false }
+        textView.frame.size.width = width
+        return true
+    }
+
+    /// Text lines as laid out at the field's width, wrapped lines included, 1 to 5; past five the text scrolls inside
+    /// the field.
     private var lineCount: Int {
         guard let layoutManager = textView.layoutManager, let container = textView.textContainer else { return 1 }
+        fitTextWidth()
         layoutManager.ensureLayout(for: container)
-        let used = layoutManager.usedRect(for: container).height
+        let used = layoutManager.usedRect(for: container).height - writeSpaceInText
         let lines = Int(ceil(max(used, lineHeight) / lineHeight - 0.01))
         return max(1, min(Int(Quire.Layout.QuickReply.maxLines), lines))
     }
@@ -404,8 +559,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// Field height: 9 + lines × 21 + 8 at rest (one line), 9 + lines × 21 + 4 + 28 + 4 focused (spec §5.18).
     private var fieldHeight: CGFloat {
         let m = Quire.Layout.QuickReply.self
-        guard isFocused, !isComposerOpen else { return restField }
-        return min(m.fieldMax + m.maxLines * lineStep, m.fieldPadTop + CGFloat(lineCount) * lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
+        guard looksFocused, !isComposerOpen else { return restField }
+        return min(m.fieldMax + m.maxLines * lineStep + writeSpace,
+                   m.fieldPadTop + writeSpace + CGFloat(lineCount) * lineHeight + m.toolRowGap + m.toolRow + m.toolRowBottom)
     }
 
     private var fieldRect: NSRect {
@@ -414,7 +570,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         return NSRect(x: column.x, y: m.barPadY, width: column.width, height: max(restField, bounds.height - 2 * m.barPadY))
     }
 
-    private var showsToolRow: Bool { isFocused && !isComposerOpen && strip.isHidden }
+    private var showsToolRow: Bool { looksFocused && !isComposerOpen && strip.isHidden }
 
     /// Where the face, the R keycap and the Send circle sit in `field`. All three are centred on the field at rest, so
     /// they stay in line with each other and with its one line at every Text size (spec §4.15): at Default the face's
@@ -441,7 +597,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     private func updateHeight(animated: Bool) {
         let m = Quire.Layout.QuickReply.self
-        let target = min(m.max + m.maxLines * lineStep, fieldHeight + 2 * m.barPadY)
+        let target = min(m.max + m.maxLines * lineStep + writeSpace, fieldHeight + 2 * m.barPadY)
         guard abs(heightConstraint.constant - target) > 0.5 else {
             needsLayout = true
             return
@@ -468,15 +624,23 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let toolRow = showsToolRow
         let trailing = toolRow ? m.focusedTrailing : m.restTrailing
         let textWidth = max(0, field.width - m.textX - trailing)
-        let lines = isFocused ? lineCount : 1
-        scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth, height: CGFloat(lines) * lineHeight)
+        // A new width (the window resized, the tool row in or out) wraps the text again: the bar takes the lines it now
+        // needs, and the caret stays in view. Only while it looks focused: at rest the bar is one line whatever the
+        // wrap, and blurring lays out mid-glide, where setting the height at once would cut the glide short.
+        let rewrapped = fitTextWidth()
+        if rewrapped, looksFocused { updateHeight(animated: false) }
+        let lines = looksFocused ? lineCount : 1
+        let extra = writeSpace
+        scrollView.frame = NSRect(x: field.minX + m.textX, y: field.minY + m.fieldPadTop, width: textWidth,
+                                  height: CGFloat(lines) * lineHeight + extra)
         textView.frame.size.width = scrollView.contentSize.width
-        scrollView.hasVerticalScroller = isFocused && lineCount >= Int(m.maxLines)
+        scrollView.hasVerticalScroller = looksFocused && lineCount >= Int(m.maxLines)
+        if rewrapped, isFocused { textView.scrollRangeToVisible(textView.selectedRange()) }
         let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
         placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (lineHeight - placeholderHeight) / 2).rounded(),
                                    width: textWidth + 4, height: placeholderHeight)
         // Unfocused with text, the field shows its first line tail-truncated so the reader does not jump.
-        let showsPreview = !isFocused && !text.isEmpty && strip.isHidden
+        let showsPreview = !looksFocused && !text.isEmpty && strip.isHidden
         // While a composer holds the draft the field only brings it forward: the text view, empty, would take the click
         // and the typing it no longer owns.
         scrollView.isHidden = !strip.isHidden || showsPreview || isComposerOpen
@@ -490,15 +654,11 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         restSend.frame = restSend.frame(forVisualRect: marks.send)
         restKeycap.frame = marks.keycap
 
-        let rowY = field.minY + m.fieldPadTop + CGFloat(lines) * lineHeight + m.toolRowGap
+        let rowY = field.minY + m.fieldPadTop + extra + CGFloat(lines) * lineHeight + m.toolRowGap
         let showsStatus = status != .none
-        tabs.isHidden = !toolRow || showsStatus
-        attach.isHidden = !toolRow || showsStatus
-        openInComposer.isHidden = !toolRow || (showsStatus && status == .error)
-        send.isHidden = !toolRow
-        sendOptions.isHidden = !toolRow
-        send.keycap = keycaps ? "⌘↩" : nil
-        send.isEnabled = status != .noRecipients && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        sendSplit.isHidden = !toolRow
+        sendOptions.isEnabled = !refusesEdits
+        send.isEnabled = status != .noRecipients && !refusesEdits && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         send.toolTip = sendToolTip
         let tabSize = tabs.intrinsicContentSize
         tabs.frame = tabs.frame(forVisualRect: NSRect(x: field.minX + m.textX, y: rowY, width: tabSize.width, height: m.toolRow))
@@ -507,14 +667,20 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         attach.frame = attach.frame(forVisualRect: NSRect(x: x, y: iconY, width: m.toolIcon, height: m.toolIcon))
         x += m.toolIcon + m.toolIconGap
         let composerX = showsStatus ? nil : x
-        // Trailing, 8 pt from the edge: the drop-down, and 2 pt before it Send with its “⌘↩” leading.
-        let optionsVisual = NSRect(x: field.maxX - m.sendInset - m.toolIcon, y: iconY, width: m.toolIcon, height: m.toolIcon)
-        sendOptions.frame = sendOptions.frame(forVisualRect: optionsVisual)
-        send.sizeToFit()
-        let sendSize = send.alignmentRect(forFrame: send.frame).size
-        let sendVisual = NSRect(x: optionsVisual.minX - m.toolIconGap - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
+        // Trailing, 8 pt from the edge: Send and its drop-down on one face, centred in the row as the tools are. The plane
+        // shows while Send keeps the group gap from Open in Composer with it and gives way first where it would not, so
+        // Send never reaches under the tools. Measured from the tools, not a status in their place, which truncates
+        // instead: Send keeps its look while a status comes and goes.
+        let toolsEnd = x + m.toolIcon
+        let withPlane = send.actionWidth(symbolName: Quire.Icon.send) + sendOptions.intrinsicContentSize.width
+        send.symbolName = field.maxX - m.sendInset - withPlane >= toolsEnd + m.toolGroupGap ? Quire.Icon.send : nil
+        let sendSize = sendSplit.intrinsicContentSize
+        let sendVisual = NSRect(x: field.maxX - m.sendInset - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
                                 width: sendSize.width, height: sendSize.height)
-        send.frame = send.frame(forVisualRect: sendVisual)
+        sendSplit.frame = sendSplit.frame(forVisualRect: sendVisual)
+        tabs.isHidden = !toolRow || showsStatus
+        attach.isHidden = !toolRow || showsStatus
+        openInComposer.isHidden = !toolRow || (showsStatus && status == .error)
 
         // The leading status replaces the tabs and tools; Open in Composer follows it when it applies.
         statusGlyph.isHidden = !toolRow || !showsStatus || { if case .counting = status { return true } else { return false } }()
@@ -548,9 +714,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         } else if let composerX {
             openInComposer.frame = openInComposer.frame(forVisualRect: NSRect(x: composerX, y: iconY, width: m.toolIcon, height: m.toolIcon))
         }
-
         strip.frame = field.insetBy(dx: 1, dy: 1)
         strip.showsKeycaps = keycaps
+        dropOverlay.frame = field
         pointerRegionsDidChange()
     }
 
@@ -616,7 +782,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         }
         if let face, strip.isHidden {
             let rect = restMarks(in: field).face
-            QuireAvatarRenderer.drawAccountFace(monogram: face.monogram, slot: face.inkSlot, in: rect)
+            QuireAvatarRenderer.drawAccountFace(face.face, slot: face.inkSlot, in: rect)
             QuireAvatarRenderer.drawRing(around: rect, accountSlot: face.inkSlot)
         }
     }
@@ -674,6 +840,58 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         needsDisplay = true
     }
 
+    // MARK: Dropping (§5.18)
+
+    /// The field takes a drop only while it takes typing: not while a composer holds the reply, nor while Help me write
+    /// streams a reply into it (§5.56), nor while the strip counts a send down or says how one ended, nor while hidden.
+    var acceptsDrops: Bool {
+        onDropAttachments != nil && !isComposerOpen && !refusesEdits && strip.isHidden && !isHiddenOrHasHiddenAncestor
+    }
+
+    /// The drop treatment shows (the app's tests read it, and its renders set it).
+    var showsDropTarget: Bool {
+        get { !dropOverlay.isHidden }
+        set { dropOverlay.isHidden = !newValue }
+    }
+
+    /// The drop treatment, for the app's tests and renders: where its words are.
+    var dropTreatment: AttachmentDropOverlay { dropOverlay }
+
+    /// What a drop of `drag` would attach. A folder, or a file that cannot be read, is left out: the drop moves the reply
+    /// out of the bar, which it must not do for nothing.
+    private func attachable(_ drag: NSDraggingInfo) -> [AttachmentDropItem] {
+        AttachmentPasteboard.attachable(AttachmentPasteboard.dropItems(for: drag))
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard acceptsDrops, !attachable(sender).isEmpty else { return [] }
+        dropOverlay.show(for: sender)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard showsDropTarget else { return [] }
+        // The words move clear of the card as the pointer moves.
+        dropOverlay.show(for: sender)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        dropOverlay.show(for: nil)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        dropOverlay.show(for: nil)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        dropOverlay.show(for: nil)
+        let items = attachable(sender)
+        guard acceptsDrops, !items.isEmpty else { return false }
+        onDropAttachments?(text, mode, items)
+        return true
+    }
+
     // MARK: Behavior
 
     @objc private func sendPressed() {
@@ -687,13 +905,14 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     private func send(as action: SendAction) {
         let typed = text
-        guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, status != .noRecipients else { return }
+        guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, status != .noRecipients, !refusesEdits else { return }
         onSend?(typed, mode, action)
     }
 
-    /// Send's drop-down: hung from the chevron; the choice goes to the owner and nothing is sent.
+    /// Send's drop-down: hung from Send's face; the choice goes to the owner and a click sends nothing.
     @objc private func showSendOptions() {
-        SendActionMenu.popUp(sendOptionsMenu(), from: sendOptions)
+        guard !refusesEdits else { return }
+        SendActionMenu.popUp(sendOptionsMenu(), from: sendSplit)
     }
 
     /// The drop-down's menu as it opens now (the app's tests choose from it).
@@ -707,7 +926,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
             NSSound.beep()
             return
         }
-        SendActionMenu.popUp(sendLaterMenu(), from: sendOptions)
+        SendActionMenu.popUp(sendLaterMenu(), from: sendSplit)
     }
 
     /// The menu ⇧⌘L pops (the app's tests choose from it).
@@ -724,9 +943,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         onSendLater?(text, mode, date)
     }
 
-    /// There is a reply to send, and someone to send it to.
+    /// There is a reply to send, someone to send it to, and it is the user's: not one Help me write is still writing.
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
+        !refusesEdits && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && status != .noRecipients
     }
 
     /// The tooltips and VoiceOver names of Send and the rest glyph say what they do now; their label stays “Send”.
@@ -746,11 +965,20 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// The Send button's tooltip and VoiceOver name as set now (tests).
     var sendButtonHelp: (toolTip: String?, label: String?) { (send.toolTip, send.accessibilityLabel()) }
 
+    /// Whether Send and its drop-down take a click now (tests).
+    var sendControlsEnabled: (send: Bool, options: Bool) { (send.isEnabled, sendOptions.isEnabled) }
+
+    /// Send's split button, its face and drop-down (tests and debug renders).
+    var sendSplitButton: QuireSplitButton { sendSplit }
+
+    // While a reply streams in, the text is not the user's yet: it moves to no composer until the write ends.
     @objc private func openInComposerPressed() {
+        guard !refusesEdits else { return }
         onOpenInComposer?(text, mode)
     }
 
     @objc private func attachPressed() {
+        guard !refusesEdits else { return }
         if let onAttach { onAttach(text, mode) } else { onOpenInComposer?(text, mode) }
     }
 
@@ -769,6 +997,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// The owner applies the window's Esc order (§6.1: a toast first, then back to the list); with no owner the
     /// field just lets go of focus. The text stays either way.
     private func escape(repeated: Bool) {
+        if claimsEscape?() == true { return }
         if let onEscape { onEscape(repeated) } else { blur() }
     }
 
@@ -776,11 +1005,29 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// text, so one font and one paragraph style cover it all. Not an edit: the undo stack keeps text at the size it
     /// was typed at, and the storage's delegate sets what an undo brings back at the size then.
     private func applyWritingStyle() {
-        let writing = QuireFont.attributes(.writing, color: .qInk, textSize: textSize)
+        var writing = QuireFont.attributes(.writing, color: .qInk, textSize: textSize)
+        // Quire's role styles truncate a single line (labels); a reply wraps, to five lines and then scrolls (§5.18).
+        if let style = (writing[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.lineBreakMode = .byWordWrapping
+            writing[.paragraphStyle] = style
+        }
         textView.font = writing[.font] as? NSFont
         textView.typingAttributes = writing
         textView.defaultParagraphStyle = writing[.paragraphStyle] as? NSParagraphStyle
-        if let storage = textView.textStorage { WritingTextSize.apply(textSize, to: storage) }
+        if let storage = textView.textStorage {
+            Self.wrapLines(in: storage)
+            WritingTextSize.apply(textSize, to: storage)
+        }
+    }
+
+    /// Text set before the field wrapped (a restored draft) wraps too.
+    private static func wrapLines(in storage: NSTextStorage) {
+        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length), options: []) { value, run, _ in
+            guard let style = value as? NSParagraphStyle, style.lineBreakMode != .byWordWrapping,
+                  let copy = style.mutableCopy() as? NSMutableParagraphStyle else { return }
+            copy.lineBreakMode = .byWordWrapping
+            storage.addAttribute(.paragraphStyle, value: copy, range: run)
+        }
     }
 
     /// The writing font in use now (tests read it).
@@ -797,7 +1044,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let words: String
         if isComposerOpen {
             words = "Reply in the composer"
-        } else if !isFocused, !text.isEmpty {
+        } else if !looksFocused, !text.isEmpty {
             let first = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? text
             placeholder.attributedStringValue = ReaderFonts.fieldString(QuireFont.attributedString(first, role: .writing, color: .qInk,
                                                                                                    textSize: textSize))
@@ -861,12 +1108,28 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 extension QuickReplyView: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         textDidChange()
+        onUserEdit?()
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        onSelectionChange?()
+    }
+
+    /// The text's right-click menu opens with Help Me Write's group (§5.56), the mouse's way to it. Showing it sends nothing.
+    func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        for (index, item) in (writeMenuItems?() ?? []).enumerated() { menu.insertItem(item, at: index) }
+        return menu
+    }
+
+    /// While Help me write streams into the field, typing waits: the reply and the user's keys never interleave.
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        !refusesEdits
     }
 
     private func textDidChange() {
         if status == .error || status == .noRecipients, text.isEmpty { status = .none }
         updatePlaceholder()
-        placeholder.isHidden = !text.isEmpty && isFocused
+        placeholder.isHidden = !text.isEmpty && looksFocused
         updateHeight(animated: false)
         needsLayout = true
     }
@@ -889,7 +1152,11 @@ extension QuickReplyView: NSTextStorageDelegate {
 private final class QuickReplyClipView: NSClipView {
     override func resetCursorRects() {
         guard !isHiddenOrHasHiddenAncestor, !isUnderPointerCover else { return }
-        super.resetCursorRects()
+        guard let text = documentView as? QuickReplyTextView else { return super.resetCursorRects() }
+        let marks = text.markAreas()
+        guard !marks.isEmpty else { return super.resetCursorRects() }
+        // Help me write's marks lie on the text (§5.56): the I-beam leaves them their own pointer.
+        addTextPointerRects(over: convert(text.bounds, from: text), cutting: marks.map { convert($0, from: text) })
     }
 }
 
@@ -903,6 +1170,11 @@ private final class QuickReplyTextView: NSTextView {
     var onAttach: (() -> Void)?
     var onEscape: ((_ repeated: Bool) -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    /// The areas of Help me write's marks on the text (§5.56), which keep their own pointer.
+    var markAreas: () -> [NSRect] = { [] }
+    /// The bar, which takes files dragged over the text: a text view registered for files keeps the drag from it, and
+    /// would type the file's path.
+    weak var dropTarget: NSView?
     /// The key being handled is a repeat (the key held down): `cancelOperation`, which carries no event, tells the owner,
     /// since Esc's repeat must not close a reader window (§6.1).
     private var handlingRepeat = false
@@ -951,6 +1223,44 @@ private final class QuickReplyTextView: NSTextView {
 
     override func cancelOperation(_ sender: Any?) {
         onEscape?(handlingRepeat)
+    }
+
+    /// The I-beam over the text, Help me write's marks cut out of it (§4.17).
+    override func resetCursorRects() {
+        let marks = markAreas()
+        guard !marks.isEmpty else { return super.resetCursorRects() }
+        addTextPointerRects(cutting: marks)
+    }
+
+    // Files dragged over the text attach through the bar, as attachments dragged from a message do (§5.18).
+
+    private func attaches(_ sender: NSDraggingInfo) -> Bool {
+        dropTarget != nil && AttachmentPasteboard.carriesAttachments(sender.draggingPasteboard)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if attaches(sender) { return dropTarget?.draggingEntered(sender) ?? [] }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if attaches(sender) { return dropTarget?.draggingUpdated(sender) ?? [] }
+        return super.draggingUpdated(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        if let sender, attaches(sender) { dropTarget?.draggingExited(sender) }
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        if attaches(sender) { dropTarget?.draggingEnded(sender) }
+        super.draggingEnded(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if attaches(sender) { return dropTarget?.performDragOperation(sender) ?? false }
+        return super.performDragOperation(sender)
     }
 
     override func becomeFirstResponder() -> Bool {

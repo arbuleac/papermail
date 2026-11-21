@@ -39,6 +39,8 @@ final class ServerSearchController {
     private var task: Task<Void, Never>?
     /// Bumped on every reset and run, so an answer meant for an earlier one is ignored.
     private var generation = 0
+    /// When the current run asked the server, for analytics' timing of it.
+    private var startedAt: ContinuousClock.Instant?
 
     var isRunning: Bool { state == .searching }
 
@@ -70,6 +72,7 @@ final class ServerSearchController {
         self.scope = scope
         state = .searching
         failedAccounts = []
+        startedAt = .now
         generation += 1
         let generation = generation
         onChange?()
@@ -92,6 +95,7 @@ final class ServerSearchController {
             found.formUnion(result.conversations)
             failedAccounts = result.failedAccounts
             state = result.failedAccounts.isEmpty ? .finished : .failed
+            report()
         case .failure(let error) where error is CancellationError:
             // Only `reset` cancels, and it has already moved on.
             return
@@ -99,8 +103,20 @@ final class ServerSearchController {
             // The engine could not even start (its store unreadable): every account in scope counts as failed.
             failedAccounts = scope ?? []
             state = .failed
+            report()
         }
         onChange?()
+    }
+
+    /// How the search went, for analytics: what it added to the local results, how many operators it used, and how long
+    /// it took. The words are counted, never sent.
+    private func report() {
+        let added = found.subtracting(before).count
+        let outcome: AnalyticsSignal.ServerSearchOutcome = state == .failed ? .failed : (added > 0 ? .found : .nothing)
+        let operators = AnalyticsSignal.operators(in: words.flatMap { SearchQuery(parsing: $0) })
+        let seconds = startedAt.map { Analytics.seconds(since: $0) } ?? 0
+        startedAt = nil
+        Analytics.send(.serverSearch(outcome, operators: operators, found: added, seconds: seconds))
     }
 
     #if DEBUG
