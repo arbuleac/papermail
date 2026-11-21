@@ -38,8 +38,16 @@ extension GmailProvider: RuleProvider {
     /// Creates the filter in the exact shape `senderRule(from:)` recognizes. Gmail refuses a filter identical to one it
     /// has ("Filter already exists"), which a create sent again after a lost reply meets: that filter is the rule, and
     /// its id is read back rather than a refusal reported.
+    ///
+    /// Gmail reads `from` in its search grammar, so an address that grammar would read as more than one plain address (a
+    /// leading `-` negates it, and a block would then take every other sender's mail; braces group, a bare name matches
+    /// far more) is refused before any request, as is any address the read would not show again as this rule.
     public func createSenderRule(address: String, action: SenderRule.Action) async throws -> String {
-        let body = Self.filterBody(address: address, action: action)
+        guard let wanted = ServerSenderRule.singleAddress(address) else {
+            Self.filterLog.notice("filter create refused here: the sender is no single plain address")
+            throw RuleProviderError.refused
+        }
+        let body = Self.filterBody(address: wanted, action: action)
         do {
             let request = try GmailRequest.post(Self.filtersResource, json: body, kind: .settings)
             let response = try await http.send(request, refusal: Self.filterRefusal)
@@ -47,7 +55,6 @@ extension GmailProvider: RuleProvider {
             guard let id = created.id, !id.isEmpty else { throw ProviderError.decoding("Gmail filter: the created filter has no id") }
             return id
         } catch is GmailFilterAlreadyExists {
-            let wanted = ServerSenderRule.singleAddress(address)
             let existing = try await listFilters().compactMap(Self.senderRule(from:))
                 .first { $0.address == wanted && $0.action == action }
             guard let existing else { throw RuleProviderError.refused }

@@ -11,7 +11,7 @@ public enum SenderRuleOutcome: Hashable, Sendable {
     case deleted(serverIDs: [String])
     /// The server refused the `attempted` write for good (its limit on rules, or a refusal of its own): a create is given
     /// up and the row goes; a delete or a replacement is given up and the row is back as the server has it, `serverHas`
-    /// (the action the last read found under the row's ids), or goes when the read found nothing it can show. Ignored
-    /// when the row has moved on to another state meanwhile, which the lane sends in its turn.
+    /// (the action the server holds for the address then, folded as a read folds it), or goes when the server holds
+    /// nothing it can show. Ignored when the row has moved on to another state meanwhile, which the lane sends in its turn.
     case refused(attempted: SenderRule.Sync, serverHas: SenderRule.Action?)
 }

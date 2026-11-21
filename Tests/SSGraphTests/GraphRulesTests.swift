@@ -80,11 +80,27 @@ final class GraphRulesTests: GraphTestCase {
         ]
     }
 
-    /// Answers the rules with both pages, and the well-known folders, `missing` among them answering 404.
-    private func routeRules(_ first: [String]? = nil, last: [String]? = nil, missing: Set<String> = []) {
+    /// The Archive folder's id in Graph's default (REST) form, which a lookup without the immutable-id preference answers;
+    /// the well-known folders answer the immutable `F-ARCHIVE`.
+    private static let restArchive = "F-ARCHIVE-REST"
+
+    /// Answers the Archive folder's lookup that asks for no immutable id with `id` (404 when nil); nil for anything else.
+    private func defaultFormArchiveReply(_ request: Request, id: String?) -> Reply? {
+        guard request.method == "GET", request.path == "/v1.0/me/mailFolders/archive",
+              !(request.header("Prefer") ?? "").contains("ImmutableId") else { return nil }
+        return id.map { .json(Fixtures.folder($0)) } ?? .json(Fixtures.notFoundError, status: 404)
+    }
+
+    /// Answers the rules with both pages, and the well-known folders, `missing` among them answering 404, and the Archive
+    /// folder's default-form lookup with `restArchive`.
+    private func routeRules(_ first: [String]? = nil, last: [String]? = nil, missing: Set<String> = [],
+                            restArchive: String? = GraphRulesTests.restArchive) {
         let first = first ?? firstPage
         let last = last ?? lastPage
         route { request in
+            if let folder = self.defaultFormArchiveReply(request, id: missing.contains("archive") ? nil : restArchive) {
+                return folder
+            }
             if let folder = self.wellKnownFolderReply(request, missing: missing) { return folder }
             guard request.method == "GET", request.path == self.rulesPath else { return nil }
             if request.query["$skiptoken"] == "page2" { return .json(self.page(last)) }
@@ -143,8 +159,9 @@ final class GraphRulesTests: GraphTestCase {
         XCTAssertEqual(pages.count, 2)
         XCTAssertEqual(pages.last?.url.absoluteString, nextLink, "the second page is the nextLink as given")
         XCTAssertEqual(pages.first?.header("Authorization"), "Bearer token-1")
-        XCTAssertEqual(folderLookups().count, GraphWellKnownFolders.names.count, "the Archive's id from the well-known folders")
-        XCTAssertEqual(listing.requestCount, 2 + GraphWellKnownFolders.names.count, "every request the read sent, lookups included")
+        XCTAssertEqual(folderLookups().count, GraphWellKnownFolders.names.count + 1,
+                       "the Archive's id from the well-known folders, and once more in the default form")
+        XCTAssertEqual(listing.requestCount, 2 + GraphWellKnownFolders.names.count + 1, "every request the read sent, lookups included")
 
         // The folders are known now: the next read sends the pages alone.
         StubURLProtocol.clearRequests()
@@ -189,8 +206,12 @@ final class GraphRulesTests: GraphTestCase {
 
     // MARK: Creating
 
-    private func routeCreate(existing: [String], missing: Set<String> = [], created: String = #"{"id": "AQAAAJ5dNEW="}"#) {
+    private func routeCreate(existing: [String], missing: Set<String> = [], restArchive: String? = GraphRulesTests.restArchive,
+                             created: String = #"{"id": "AQAAAJ5dNEW="}"#) {
         route { request in
+            if let folder = self.defaultFormArchiveReply(request, id: missing.contains("archive") ? nil : restArchive) {
+                return folder
+            }
             if let folder = self.wellKnownFolderReply(request, missing: missing) { return folder }
             guard request.path == self.rulesPath else { return nil }
             switch request.method {
@@ -211,12 +232,96 @@ final class GraphRulesTests: GraphTestCase {
             "sequence": 7,
             "isEnabled": true,
             "conditions": ["fromAddresses": [["emailAddress": ["address": "promo@shop.example"]]]],
-            "actions": ["moveToFolder": "F-ARCHIVE", "stopProcessingRules": true],
-        ] as NSDictionary, "only the sender's address and the action; after the highest sequence")
+            "actions": ["moveToFolder": Self.restArchive, "stopProcessingRules": true],
+        ] as NSDictionary, "only the sender's address and the action; after the highest sequence; the Archive in the default form")
         let rule = try JSONDecoder().decode(GraphMessageRule.self, from: XCTUnwrap(post.body))
         var read = rule
         read.id = id
-        XCTAssertEqual(GraphProvider.senderRule(from: read, archiveFolderID: "F-ARCHIVE")?.action, .archive, "read back as it was made")
+        XCTAssertEqual(GraphProvider.senderRule(from: read, archiveFolderIDs: ["F-ARCHIVE", Self.restArchive])?.action, .archive,
+                       "read back as it was made")
+    }
+
+    // MARK: The Archive folder's two ids
+
+    /// The well-known folders are looked up with `IdType="ImmutableId"`, as every request is, while an inbox rule may name
+    /// its folder in the default REST form: a move to the Archive in either form is an archive rule, so the app's own rules
+    /// never read back as some other rule. The default form is looked up once, without the preference, and kept.
+    func testAnArchiveRuleIsRecognizedByTheArchiveFoldersIDInEitherForm() async throws {
+        routeRules([
+            Self.rule(id: "R-IMMUTABLE", sequence: 1, conditions: Self.from("news@letter.example"),
+                      actions: #"{"moveToFolder": "F-ARCHIVE", "stopProcessingRules": true}"#),
+            Self.rule(id: "R-REST", sequence: 2, conditions: Self.from("promo@shop.example"),
+                      actions: #"{"moveToFolder": "F-ARCHIVE-REST", "stopProcessingRules": true}"#),
+            Self.rule(id: "R-ELSEWHERE", sequence: 3, conditions: Self.from("pm@work.example"),
+                      actions: #"{"moveToFolder": "F-PROJECTS", "stopProcessingRules": true}"#),
+        ], last: [])
+        let provider = makeProvider()
+        let listing = try await provider.serverRules()
+
+        XCTAssertEqual(listing.senderRules, [
+            ServerSenderRule(serverID: "R-IMMUTABLE", address: "news@letter.example", action: .archive),
+            ServerSenderRule(serverID: "R-REST", address: "promo@shop.example", action: .archive),
+        ])
+        XCTAssertEqual(listing.otherCount, 1, "a move anywhere else is some other rule")
+        let archiveLookups = requests(to: "/v1.0/me/mailFolders/archive")
+        XCTAssertEqual(archiveLookups.count, 2, "once among the well-known folders, once in the default form")
+        XCTAssertEqual(archiveLookups.first?.header("Prefer"), "IdType=\"ImmutableId\"")
+        let defaultForm = try XCTUnwrap(archiveLookups.last)
+        XCTAssertNil(defaultForm.header("Prefer"), "the default form asks for no immutable id")
+        XCTAssertEqual(defaultForm.query["$select"], "id")
+        XCTAssertEqual(listing.requestCount, 1 + GraphWellKnownFolders.names.count + 1)
+
+        // Kept for the provider's life: the next read sends the rules alone.
+        StubURLProtocol.clearRequests()
+        let again = try await provider.serverRules()
+        XCTAssertEqual(again.senderRules.map(\.serverID), ["R-IMMUTABLE", "R-REST"])
+        XCTAssertTrue(folderLookups().isEmpty)
+        XCTAssertEqual(again.requestCount, 1)
+
+        // The Archive folder made anew (its immutable id changed): its default form is looked up again.
+        await provider.folderCache.store(GraphWellKnownFolders(ids: ["inbox": "F-INBOX", "archive": "F-ARCHIVE-2"]))
+        StubURLProtocol.clearRequests()
+        let renewed = try await provider.serverRules()
+        XCTAssertEqual(requests(to: "/v1.0/me/mailFolders/archive").count, 1)
+        XCTAssertEqual(renewed.senderRules.map(\.serverID), ["R-REST"], "the old immutable id names the Archive no more")
+    }
+
+    /// Where Graph gives the folder one id in both forms, nothing changes.
+    func testAnArchiveFolderWithOneIDInBothFormsIsRecognizedAndCreatedWithIt() async throws {
+        routeCreate(existing: [firstPage[0]], restArchive: "F-ARCHIVE")
+        let provider = makeProvider()
+        let listing = try await provider.serverRules()
+        XCTAssertEqual(listing.senderRules.map(\.serverID), ["AQAAAJ5dZqA="])
+        _ = try await provider.createSenderRule(address: "promo@shop.example", action: .archive)
+        let post = try XCTUnwrap(requests.first { $0.method == "POST" })
+        XCTAssertEqual((post.json()["actions"] as? [String: Any])?["moveToFolder"] as? String, "F-ARCHIVE")
+    }
+
+    /// Sent again after a lost reply, an archive's create finds the rule the first one made in whichever form Graph names
+    /// the folder.
+    func testAnIdenticalArchiveRuleInEitherFormIsReturnedNotMadeTwice() async throws {
+        for (id, folder) in [("R-IMMUTABLE", "F-ARCHIVE"), ("R-REST", Self.restArchive)] {
+            StubURLProtocol.clearRequests()
+            routeCreate(existing: [Self.rule(id: id, sequence: 1, conditions: Self.from("promo@shop.example"),
+                                             actions: #"{"moveToFolder": "\#(folder)", "stopProcessingRules": true}"#)])
+            let got = try await makeProvider().createSenderRule(address: "promo@shop.example", action: .archive)
+            XCTAssertEqual(got, id, folder)
+            XCTAssertFalse(requests.contains { $0.method == "POST" }, folder)
+        }
+    }
+
+    /// The default-form lookup finding no folder (the Archive removed since the well-known folders were read) leaves the
+    /// immutable id to serve, and is tried again at the next call rather than remembered.
+    func testWithoutTheDefaultFormTheImmutableIDServes() async throws {
+        routeCreate(existing: [firstPage[0]], restArchive: nil)
+        let provider = makeProvider()
+        let listing = try await provider.serverRules()
+        XCTAssertEqual(listing.senderRules.map(\.serverID), ["AQAAAJ5dZqA="])
+        _ = try await provider.createSenderRule(address: "promo@shop.example", action: .archive)
+        let post = try XCTUnwrap(requests.first { $0.method == "POST" })
+        XCTAssertEqual((post.json()["actions"] as? [String: Any])?["moveToFolder"] as? String, "F-ARCHIVE")
+        XCTAssertEqual(requests(to: "/v1.0/me/mailFolders/archive").filter { $0.header("Prefer") == nil }.count, 2,
+                       "looked up at each call while it finds nothing")
     }
 
     func testABlockIsADeleteNeverAPermanentOne() async throws {
@@ -248,6 +353,17 @@ final class GraphRulesTests: GraphTestCase {
         let error = await thrown { _ = try await self.makeProvider().createSenderRule(address: "a@b.example", action: .archive) }
         XCTAssertEqual(error as? RuleProviderError, .refused)
         XCTAssertFalse(requests.contains { $0.method == "POST" })
+    }
+
+    /// A sender address the read would not show again as this rule (no `@`, a group, a wildcard) is never sent: Exchange
+    /// would keep running a rule that vanishes from Senders. The create is refused before any request.
+    func testAnAddressTheReadWouldNotShowAgainIsRefusedWithoutARequest() async {
+        routeCreate(existing: [])
+        for address in ["MAILER-DAEMON", "a@x.example; b@x.example", "*@spam.example", "-promo@spam.example", ""] {
+            let error = await thrown { _ = try await self.makeProvider().createSenderRule(address: address, action: .trash) }
+            XCTAssertEqual(error as? RuleProviderError, .refused, address)
+        }
+        XCTAssertTrue(requests.isEmpty, "nothing sent")
     }
 
     func testACreatedRuleWithoutAnIDIsAReplyThatDidNotRead() async {
@@ -318,6 +434,17 @@ final class GraphRulesTests: GraphTestCase {
             let error = await thrown { _ = try await self.makeProvider().createSenderRule(address: "a@b.example", action: .trash) }
             XCTAssertEqual(error as? RuleProviderError, .refused, body)
         }
+    }
+
+    /// A refusal is logged in public by its code alone: Graph's message may name the sender, and a reply with no code has
+    /// only the message, which must never be taken for one.
+    func testOnlyAGraphErrorCodeIsEverLoggedInPublic() {
+        XCTAssertEqual(GraphProvider.code(of: "ErrorInvalidRequest: The request is invalid."), "ErrorInvalidRequest")
+        XCTAssertEqual(GraphProvider.code(of: "The address promo@shop.example is not valid"), "no code")
+        XCTAssertEqual(GraphProvider.code(of: "Invalid sender promo@shop.example: not found"), "no code")
+        XCTAssertEqual(GraphProvider.code(of: "ErrorRulesOverQuota"), "ErrorRulesOverQuota", "a code with no message")
+        XCTAssertEqual(GraphProvider.code(of: "promo@shop.example"), "no code")
+        XCTAssertEqual(GraphProvider.code(of: ""), "no code")
     }
 
     func testThrottlesTheServiceAndTheNetworkPassAsTheyAre() async {

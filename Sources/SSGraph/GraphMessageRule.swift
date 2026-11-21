@@ -19,7 +19,7 @@ struct GraphMessageRule: Decodable, Sendable {
     }
 }
 
-/// The body of a create, in exactly the shape `GraphProvider.senderRule(from:archiveFolderID:)` recognizes.
+/// The body of a create, in exactly the shape `GraphProvider.senderRule(from:archiveFolderIDs:)` recognizes.
 struct GraphMessageRulePayload: Encodable, Sendable {
     struct Recipient: Encodable, Sendable {
         struct Address: Encodable, Sendable {
