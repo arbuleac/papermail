@@ -3,14 +3,13 @@ import SSCore
 import SSDesign
 
 /// The composer's bottom bar (spec §5.20): 52 pt of `paper` under a top hairline, padding 16, everything on one centre
-/// line: Send, a regular split button (§5.23: `paperplane`, “Send” and its “⌘↩” keycap on the face, the drop-down's
-/// chevron behind the divider); 12 pt on, Attach (`paperclip`) and Format (`textformat`, `accentWash` while the format row
+/// line: Send, a regular split button (§5.23: `paperplane` and “Send” on the face, no keycap, the drop-down's chevron
+/// behind the divider); 12 pt on, Attach (`paperclip`) and Format (`textformat`, `accentWash` while the format row
 /// shows) as 28 pt icon buttons 2 pt apart; trailing at 16, the status. Help me write has no control here: it works in
 /// the body (⌘J, §5.56).
 @MainActor
 final class ComposeBottomBar: NSView {
-    let send = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: .regular, keycap: SendKey.commandReturn.legend,
-                                menuAccessibilityLabel: "Send Options")
+    let send = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: .regular, menuAccessibilityLabel: "Send Options")
     /// Send's action segment: what a click, ⌘↩ and Message › Send do (§5.23).
     var sendButton: QuireSplitSegment { send.actionSegment }
     /// Send's drop-down, its menu segment: the menu that chooses what Send and ⌘↩ do (§5.23). A click never sends.
@@ -22,7 +21,7 @@ final class ComposeBottomBar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         sendButton.loadingTitle = "Sending…"
-        // VoiceOver hears the key the face shows, as it hears a menu item's (the name says what Send does, §5.23).
+        // VoiceOver hears Send's key as its help, as it hears a menu item's (the name says what Send does, §5.23).
         sendButton.setAccessibilityHelp(SendKey.commandReturn.spoken)
         sendOptionsButton.toolTip = "Send Options"
         attachButton.toolTip = "Attach Files…  ⇧⌘A"

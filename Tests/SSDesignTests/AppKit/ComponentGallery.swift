@@ -47,7 +47,7 @@ enum ComponentGallery {
         builder.add(reply, width: 110)
         builder.newline()
 
-        builder.section("Split button (Send) · rest · hover · pressed · focused, per segment · no recipient · sending · locked · not key")
+        builder.section("Split button (Send) · rest · hover · pressed · focused, per segment · no recipient · sending · locked · not key · no glyph")
         for size in [QuireButton.Size.regular, .small] {
             builder.label(size.rawValue)
             builder.add(splitButton(size), width: 128)
@@ -73,7 +73,7 @@ enum ComponentGallery {
             inactive.windowKeyOverride = false
             builder.add(inactive, width: 128)
             let bare = splitButton(size)
-            bare.actionSegment.keycap = nil
+            bare.actionSegment.symbolName = nil
             bare.actionSegment.loadingTitle = nil
             builder.add(bare, width: 128)
             builder.newline()
@@ -405,7 +405,7 @@ enum ComponentGallery {
     }
 
     private static func splitButton(_ size: QuireButton.Size) -> QuireSplitButton {
-        let b = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: size, keycap: "⌘↩", menuAccessibilityLabel: "Send Options")
+        let b = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: size, menuAccessibilityLabel: "Send Options")
         b.actionSegment.loadingTitle = "Sending…"
         b.windowKeyOverride = true
         return b

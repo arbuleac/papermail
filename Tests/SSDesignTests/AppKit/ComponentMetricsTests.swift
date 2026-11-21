@@ -56,13 +56,14 @@ final class ComponentMetricsTests: XCTestCase {
         let glyphWidth = QuireDraw.symbolSize(Quire.Icon.send, size: .custom(14)).width
         XCTAssertEqual(glyph.intrinsicContentSize.width, plain.intrinsicContentSize.width + glyphWidth + Quire.Layout.Button.glyphGap)
 
-        let keyed = QuireButton(title: "Send", variant: .primary)
-        keyed.keycap = "⌘↩"
+        // The reader footer's Reply with its R (§5.14): the keycap sits beside the face, never on it.
+        let reply = QuireButton(title: "Reply", variant: .secondary)
+        let keyed = QuireButton(title: "Reply", variant: .secondary)
+        keyed.keycap = "R"
         keyed.sizeToFit()
-        let cap = QuireKeycap.size(for: "⌘↩", style: .standard).width
-        XCTAssertEqual(keyed.intrinsicContentSize.width, plain.intrinsicContentSize.width + Quire.Layout.Button.keycapGap + cap)
-        // The keycap sits beside the face, never on it.
-        XCTAssertEqual(keyed.faceRect.width, plain.intrinsicContentSize.width, accuracy: 0.01)
+        let cap = QuireKeycap.size(for: "R", style: .standard).width
+        XCTAssertEqual(keyed.intrinsicContentSize.width, reply.intrinsicContentSize.width + Quire.Layout.Button.keycapGap + cap)
+        XCTAssertEqual(keyed.faceRect.width, reply.intrinsicContentSize.width, accuracy: 0.01)
 
         let loading = QuireButton(title: "Send", variant: .primary)
         let before = loading.intrinsicContentSize.width

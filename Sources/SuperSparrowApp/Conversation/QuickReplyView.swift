@@ -231,9 +231,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     private let tabs = QuireUnderlineTabs(items: QuickReplyView.tabItems(replyAll: true))
     private let attach = QuireIconButton(symbolName: Quire.Icon.attach, size: .small, accessibilityLabel: "Attach")
     private let openInComposer = QuireIconButton(symbolName: Quire.Icon.openInComposer, size: .small, accessibilityLabel: "Open in Composer")
-    /// Send, the composer's split button at the small size (§5.23): its face carries “⌘↩” and its drop-down. No glyph, as
-    /// before: the row is tight, and the bar's rest glyph is already the paper plane.
-    private let sendSplit = QuireSplitButton(title: "Send", size: .small, keycap: SendKey.commandReturn.legend,
+    /// Send, the composer's split button at the small size (§5.23): the paper plane and “Send”, then its drop-down. The
+    /// plane gives way where the row has no room for it beside the tools (`layout()`).
+    private let sendSplit = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, size: .small,
                                              menuAccessibilityLabel: "Send Options")
     private var send: QuireSplitSegment { sendSplit.actionSegment }
     /// Send's drop-down, its menu segment: the menu that chooses what Send and ⌘↩ do.
@@ -366,7 +366,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         addSubview(openInComposer)
         send.target = self
         send.action = #selector(sendPressed)
-        // VoiceOver hears the key the face shows, as it hears a menu item's (the name says what Send does, §5.23).
+        // VoiceOver hears Send's key as its help, as it hears a menu item's (the name says what Send does, §5.23).
         send.setAccessibilityHelp(SendKey.commandReturn.spoken)
         sendOptions.toolTip = "Send Options"
         sendOptions.target = self
@@ -658,7 +658,6 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         let showsStatus = status != .none
         sendSplit.isHidden = !toolRow
         sendOptions.isEnabled = !refusesEdits
-        send.keycap = keycaps ? SendKey.commandReturn.legend : nil
         send.isEnabled = status != .noRecipients && !refusesEdits && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         send.toolTip = sendToolTip
         let tabSize = tabs.intrinsicContentSize
@@ -668,7 +667,13 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         attach.frame = attach.frame(forVisualRect: NSRect(x: x, y: iconY, width: m.toolIcon, height: m.toolIcon))
         x += m.toolIcon + m.toolIconGap
         let composerX = showsStatus ? nil : x
-        // Trailing, 8 pt from the edge: Send, its “⌘↩” and its drop-down on one face, centred in the row as the tools are.
+        // Trailing, 8 pt from the edge: Send and its drop-down on one face, centred in the row as the tools are. The plane
+        // shows while Send keeps the group gap from Open in Composer with it and gives way first where it would not, so
+        // Send never reaches under the tools. Measured from the tools, not a status in their place, which truncates
+        // instead: Send keeps its look while a status comes and goes.
+        let toolsEnd = x + m.toolIcon
+        let withPlane = send.actionWidth(symbolName: Quire.Icon.send) + sendOptions.intrinsicContentSize.width
+        send.symbolName = field.maxX - m.sendInset - withPlane >= toolsEnd + m.toolGroupGap ? Quire.Icon.send : nil
         let sendSize = sendSplit.intrinsicContentSize
         let sendVisual = NSRect(x: field.maxX - m.sendInset - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
                                 width: sendSize.width, height: sendSize.height)
@@ -963,7 +968,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// Whether Send and its drop-down take a click now (tests).
     var sendControlsEnabled: (send: Bool, options: Bool) { (send.isEnabled, sendOptions.isEnabled) }
 
-    /// Send's split button, its face, keycap and drop-down (tests and debug renders).
+    /// Send's split button, its face and drop-down (tests and debug renders).
     var sendSplitButton: QuireSplitButton { sendSplit }
 
     // While a reply streams in, the text is not the user's yet: it moves to no composer until the write ends.

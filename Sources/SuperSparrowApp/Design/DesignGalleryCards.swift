@@ -64,7 +64,7 @@ enum DesignGalleryCards {
             ])
 
             block.note("Send's split button (§5.23) · keycaps · icon on states · icon sizes 22 / 24 / 28 (hover)", top: 2)
-            let send = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, keycap: "⌘↩", menuAccessibilityLabel: "Send Options")
+            let send = QuireSplitButton(title: "Send", symbolName: Quire.Icon.send, menuAccessibilityLabel: "Send Options")
             send.windowKeyOverride = true
             let reply = S.button("Reply", .ghost, symbol: Quire.Icon.reply)
             reply.keycap = "R"

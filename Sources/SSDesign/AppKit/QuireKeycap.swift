@@ -85,20 +85,15 @@ public final class QuireKeycap: NSView {
         }
     }
 
-    /// Draws a keycap filling `rect` in the current graphics context; colours resolve now. `ink` is the face's label
-    /// colour for an `onFill` cap (`onAccent` by default); the other styles have their own.
-    public static func draw(_ legend: String, style: Style, highlighted: Bool = false, ink: NSColor? = nil, in rect: NSRect) {
+    /// Draws a keycap filling `rect` in the current graphics context; colours resolve now. A keycap never sits on an
+    /// accent fill (§5.36).
+    public static func draw(_ legend: String, style: Style, highlighted: Bool = false, in rect: NSRect) {
         let radius = style.cornerRadius
         let legendColor: NSColor
         switch style {
         case .onSlip:
             QuireDraw.strokeInside(rect, radius: radius, width: 1, .qOnSlipEdge)
             legendColor = highlighted ? .qOnSlip : .qOnSlip2
-        case .onFill:
-            // No fill: a fill of its own would take the face's hover and press from under the legend.
-            let ink = ink ?? .qOnAccent
-            QuireDraw.strokeInside(rect, radius: radius, width: 1, ink.withAlphaComponent(Quire.Layout.Kbd.onFillEdgeAlpha))
-            legendColor = ink
         case .standard, .inField, .large:
             // `raised` with a 1 pt edge and a second 1 pt line inside the bottom edge for key depth; Increase
             // Contrast draws both in `ruleStrong`.

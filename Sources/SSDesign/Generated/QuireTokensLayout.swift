@@ -677,7 +677,6 @@ extension Quire {
         }
         public enum SplitButton {
             public static let menuWidth: [CGFloat] = [20, 24, 30]
-            public static let keycapGap: CGFloat = 6
             public static let divider: CGFloat = 1
             public static let dividerAlpha: CGFloat = 0.3
             public static let dimAlpha: CGFloat = 0.5
@@ -844,8 +843,6 @@ extension Quire {
             public static let radius: CGFloat = 3
             public static let largeRadius: CGFloat = 5
             public static let inField: CGFloat = 16
-            public static let onFill: CGFloat = 16
-            public static let onFillEdgeAlpha: CGFloat = 0.5
         }
         public enum Progress {
             public static let indeterminateSegment: CGFloat = 0.36

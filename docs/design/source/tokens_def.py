@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.14.0"
+VERSION = "1.14.1"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -351,13 +351,12 @@ LAYOUT = {
             "regular": {"height": 28, "padX": 12, "radius": 6, "font": "bodyMedium", "fontStrong": "bodyStrong", "glyph": 14},
             "large": {"height": 36, "padX": 16, "radius": 8, "font": "buttonLarge", "fontStrong": "buttonLargeStrong", "glyph": 18},
             "icon": [22, 24, 28], "iconRadius": [5, 5, 6], "minHit": 24, "glyphGap": 6, "linkPadX": 4, "keycapGap": 8},
- # Send's split button (§5.23, 1.13): one face in the button's size, the action segment (glyph, label, then its keycap
- # inside the face, kbd.onFill high, centred on the face, `keycapGap` after the label) and the menu segment (the chevron,
- # `menuWidth` per size: small / regular / large) behind a `divider` pt line in the label's ink at `dividerAlpha`, as
- # tall as the keycap. The keycap stands as far from the divider as the chevron does, and never nearer than it stands
- # from the face's top. A segment that cannot act on a face that can draws its ink at `dimAlpha` (the chevron while Send
- # is sending).
- "splitButton": {"menuWidth": [20, 24, 30], "keycapGap": 6, "divider": 1, "dividerAlpha": 0.3, "dimAlpha": 0.5},
+ # Send's split button (§5.23, 1.13; no keycap since 1.14.1): one face in the button's size, the action segment (glyph
+ # and label, the button's padX on both sides, centred in it) and the menu segment (the chevron, `menuWidth` per size:
+ # small / regular / large, centred in it) behind a `divider` pt line in the label's ink at `dividerAlpha`, as tall as the
+ # size's glyph (button.<size>.glyph) and centred on the face. A segment that cannot act on a face that can draws its ink
+ # at `dimAlpha` (the chevron while Send is sending).
+ "splitButton": {"menuWidth": [20, 24, 30], "divider": 1, "dividerAlpha": 0.3, "dimAlpha": 0.5},
  "textField": {"helpGap": 5, "helpGlyph": 10, "helpGlyphGap": 4, "secureTracking": 2, "height": 28, "radius": 6, "padX": 8, "settingsHeight": 24},
  "search": {"radius": 6, "glyph": 12, "glyphX": 8, "textX": 26, "trailingInset": 5, "resultsGap": 6, "clearVisual": 16, "clearGlyph": 9, "clearHit": 24},
  "checkbox": {"mixedBar": [8, 2], "disabledOpacity": 0.45, "size": 14, "radius": 3, "glyph": 10, "labelGap": 8},
@@ -376,8 +375,7 @@ LAYOUT = {
  "cheatSheet": {"width": 816, "radius": 12, "pad": 24, "titleRow": 28, "headerGap": 16, "columns": 3, "bands": 2, "columnWidth": 240, "columnGap": 24,
                 "sectionGap": 20, "sectionTitle": 22, "row": 28, "keyColumn": 96, "keycap": 24, "keycapGap": 4, "close": 24, "closeInset": 16, "top": 92, "minMargin": 24,
                 "searchTermGap": 8},
- "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16,
-         "onFill": 16, "onFillEdgeAlpha": 0.5},
+ "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16},
  "progress": {"indeterminateSegment": 0.36, "reducedSegment": 0.4, "barHeight": 4, "barRadius": 2, "contrail": 2, "contrailHead": 4, "contrailTail": 32,
               "spinner": [12, 16, 32], "spinnerStroke": [1.5, 2, 3], "spinnerArc": 0.75},
  "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 64, "titleGap": 8, "wordmarkCap": 24, "taglineGap": 6, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},

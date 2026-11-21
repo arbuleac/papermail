@@ -1,15 +1,16 @@
 import AppKit
 
-/// A split button (spec §5.23): one face in a `QuireButton` size, cut by a divider into the action segment (a glyph, the
-/// label and its keycap inside the face) and the menu segment (a chevron that opens the action's options). Send is one,
-/// in the composer's bar and the quick reply's tool row.
+/// A split button (spec §5.23): one face in a `QuireButton` size, cut by a divider into the action segment (a glyph and
+/// the label) and the menu segment (a chevron that opens the action's options). Send is one, in the composer's bar and
+/// the quick reply's tool row. No keycap sits on the face (§5.36): the action's key is in its tooltip and its VoiceOver
+/// help, as a host sets them.
 ///
 /// The face is primary: `accentFill` with `onAccent` ink, hover and press per segment. It draws as a secondary button while
 /// its window is not key (§3.4), and quiet (`fill`) while the action cannot act, though the menu may still open: the
-/// options are the user's to choose while Send waits for a recipient. The keycap is the §5.36 On a fill cap, in the
-/// label's ink. Each segment is a `QuireControl` of its own (`actionSegment`, `menuSegment`), so the Tab loop, VoiceOver
-/// and the pointer meet two buttons; this view lays them out and draws the focus ring of the one that has the keyboard,
-/// around that segment and across the divider, its gap painted in `surfaceColor` where it crosses the other half.
+/// options are the user's to choose while Send waits for a recipient. Each segment is a `QuireControl` of its own
+/// (`actionSegment`, `menuSegment`), so the Tab loop, VoiceOver and the pointer meet two buttons; this view lays them out
+/// and draws the focus ring of the one that has the keyboard, around that segment and across the divider, its gap painted
+/// in `surfaceColor` where it crosses the other half.
 ///
 /// Geometry follows `QuireControl`: the frame is the face grown by `QuireFocusRing.margin` on every side, reported as
 /// `alignmentRectInsets`, so `intrinsicContentSize` is the face's size and `frame(forVisualRect:)` places the face.
@@ -46,13 +47,11 @@ public final class QuireSplitButton: NSView {
 
     private let ring = RingView()
 
-    public init(title: String, symbolName: String? = nil, size: QuireButton.Size = .regular, keycap: String? = nil,
-                menuAccessibilityLabel: String) {
+    public init(title: String, symbolName: String? = nil, size: QuireButton.Size = .regular, menuAccessibilityLabel: String) {
         self.size = size
         actionSegment = QuireSplitSegment(kind: .action, title: title, symbolName: symbolName)
         menuSegment = QuireSplitSegment(kind: .menu)
         super.init(frame: .zero)
-        actionSegment.keycap = keycap
         menuSegment.setAccessibilityLabel(menuAccessibilityLabel)
         for segment in [actionSegment, menuSegment] {
             segment.split = self
@@ -134,7 +133,7 @@ public final class QuireSplitButton: NSView {
     func segmentContentDidChange() {
         invalidateIntrinsicContentSize()
         needsLayout = true
-        // Hosts lay their bars out by hand: a wider label or a keycap that comes or goes moves what follows Send.
+        // Hosts lay their bars out by hand: a wider label or a glyph that comes or goes moves what follows Send.
         superview?.needsLayout = true
         ring.needsDisplay = true
     }

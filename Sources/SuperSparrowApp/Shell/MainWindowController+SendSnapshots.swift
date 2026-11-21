@@ -15,6 +15,8 @@ import SSDesign
 /// - `send-norecipient`: Send waiting for a recipient, its drop-down still open to choose;
 /// - `send-locked`: both waiting, as while a reply streams in (§5.56);
 /// - `send-notkey`: the look of a window that is not key;
+/// - `send-narrow` (with `--snapshot`): the window at its minimum width and the list at its widest, so the reader is as
+///   narrow as the shell lets it be and the quick reply's tool row has the least room it ever has (§5.18);
 /// - `send-menu`, `send-menu-send`: after the window's snapshot, the drop-down as AppKit draws it, with Send and Archive or
 ///   Send as the choice, opened over a plain window of the app's own, its window number written beside the snapshot for a
 ///   capture of it alone (`<path>-menu.png.window`).
@@ -104,6 +106,13 @@ extension MainWindowController {
     func applyDebugSendStates() {
         let states = SendSnapshotStates.requested
         guard !states.isEmpty, !CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-compose=") }) else { return }
+        if states.contains("send-narrow"), let window, let content = window.contentView {
+            window.setContentSize(NSSize(width: Quire.Layout.Window.minWidth, height: content.frame.height))
+            content.layoutSubtreeIfNeeded()
+            // The list as wide as it goes: the reader keeps only its own minimum.
+            splitView.setPosition(splitView.bounds.width, ofDividerAt: 1)
+            content.layoutSubtreeIfNeeded()
+        }
         conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in
             guard let self, self.conversation.focusQuickReply(all: false) else { return }
             let bar = self.conversation.quickReplyBar

@@ -1,7 +1,7 @@
 import AppKit
 
-/// One segment of a `QuireSplitButton` (spec §5.23): the action (a glyph, the label and its keycap) or the menu (the
-/// chevron behind the divider).
+/// One segment of a `QuireSplitButton` (spec §5.23): the action (a glyph and the label) or the menu (the chevron behind
+/// the divider).
 ///
 /// Each segment is a control of its own, with its own hover, press, keyboard focus, enabled state, tooltip, target and
 /// VoiceOver name, so the Tab loop, the pointer and VoiceOver meet two buttons where the eye sees one; the split button
@@ -19,12 +19,6 @@ public final class QuireSplitSegment: QuireControl {
     /// A leading symbol at the size's glyph size (action segment).
     public var symbolName: String? {
         didSet { if oldValue != symbolName { contentDidChange() } }
-    }
-
-    /// The key that does what the action does (“⌘↩”), drawn on the face after the label (§5.36 On a fill); nil draws
-    /// none. It gives its place to the gerund while loading.
-    public var keycap: String? {
-        didSet { if oldValue != keycap { contentDidChange() } }
     }
 
     /// Work is running: a spinner in the label colour takes the glyph's place and the label reads `loadingTitle`.
@@ -61,22 +55,23 @@ public final class QuireSplitSegment: QuireControl {
 
     public override var intrinsicContentSize: NSSize {
         switch kind {
-        case .action: return NSSize(width: ceil(actionWidth), height: size.height)
+        case .action: return NSSize(width: actionWidth(symbolName: symbolName), height: size.height)
         case .menu: return NSSize(width: metrics.menuWidth, height: size.height)
         }
     }
 
-    /// The action's face: its content at rest (glyph, label, keycap) or loading (spinner, gerund), whichever is wider,
-    /// so the face never moves when work starts. Widths use the strong role, the widest the face can draw in.
-    private var actionWidth: CGFloat {
-        let m = metrics
+    /// The action's face with `symbolName` as its glyph: its content at rest (glyph, label) or loading (spinner, gerund),
+    /// whichever is wider, padded on both sides, so the face never moves when work starts. Widths use the strong role,
+    /// the widest the face can draw in. Public so a host can ask whether the glyph fits before it shows it (the quick
+    /// reply's tool row, §5.18).
+    public func actionWidth(symbolName: String?) -> CGFloat {
+        let padX = metrics.padX
         let role = size.strongRole
         let lead = symbolName.map { glyphWidth($0) }
-        var rest = m.padX + contentWidth(title, role: role, lead: lead)
-        if let keycap { rest += m.keycapGap + QuireKeycap.size(for: keycap, style: .onFill).width + m.keycapInset } else { rest += m.padX }
-        guard let loadingTitle else { return rest }
+        let rest = 2 * padX + contentWidth(title, role: role, lead: lead)
+        guard let loadingTitle else { return ceil(rest) }
         let loadingLead = max(lead ?? 0, QuireSpinnerView.Size.small.diameter)
-        return max(rest, 2 * m.padX + contentWidth(loadingTitle, role: role, lead: loadingLead))
+        return ceil(max(rest, 2 * padX + contentWidth(loadingTitle, role: role, lead: loadingLead)))
     }
 
     private func contentWidth(_ text: String, role: QuireFont.Role, lead: CGFloat?) -> CGFloat {
@@ -109,7 +104,6 @@ public final class QuireSplitSegment: QuireControl {
         var fills: [NSColor]
         var edge: NSColor?
         var ink: NSColor
-        var keycapInk: NSColor
         var divider: NSColor
         var spinner: NSColor
     }
@@ -124,7 +118,7 @@ public final class QuireSplitSegment: QuireControl {
                 : state == .pressed ? .qAccentFillPressed : state == .hover ? .qAccentFillHover : .qAccentFill
             // The face can act but this segment cannot (the chevron while Send sends): its ink steps back.
             let ink: NSColor = isEnabled ? .qOnAccent : NSColor.qOnAccent.withAlphaComponent(Quire.Layout.SplitButton.dimAlpha)
-            return Palette(fills: [fill], edge: nil, ink: ink, keycapInk: ink,
+            return Palette(fills: [fill], edge: nil, ink: ink,
                            divider: NSColor.qOnAccent.withAlphaComponent(Quire.Layout.SplitButton.dividerAlpha), spinner: .qOnAccent)
         case .raised:
             let ink: NSColor
@@ -132,7 +126,7 @@ public final class QuireSplitSegment: QuireControl {
             case .action: ink = isEnabled ? .qInk : .qInkDisabled
             case .menu: ink = !isEnabled ? .qInkDisabled : state == .rest ? .qInk2 : .qInk
             }
-            return Palette(fills: [.qRaised] + wash, edge: .qRuleStrong, ink: ink, keycapInk: isEnabled ? .qInk2 : .qInkDisabled,
+            return Palette(fills: [.qRaised] + wash, edge: .qRuleStrong, ink: ink,
                            divider: .qRuleStrong, spinner: isEnabled ? .qInk3 : .qInkDisabled)
         case .quiet:
             let ink: NSColor
@@ -140,7 +134,7 @@ public final class QuireSplitSegment: QuireControl {
             case .action: ink = .qInkDisabled
             case .menu: ink = !isEnabled ? .qInkDisabled : state == .rest ? .qInk2 : .qInk
             }
-            return Palette(fills: [.qFill] + wash, edge: nil, ink: ink, keycapInk: .qInkDisabled,
+            return Palette(fills: [.qFill] + wash, edge: nil, ink: ink,
                            divider: NSColor.qInk.withAlphaComponent(Quire.Layout.SplitButton.dividerAlpha / 2), spinner: .qInkDisabled)
         }
     }
@@ -192,20 +186,16 @@ public final class QuireSplitSegment: QuireControl {
             let string = QuireDraw.line(content.title, role, palette.ink)
             QuireDraw.draw(string, x: label.minX, top: label.minY, maxWidth: label.width, lineHeight: role.lineHeight)
         }
-        if let cap = content.keycap, let keycap {
-            QuireKeycap.draw(keycap, style: .onFill, ink: palette.keycapInk, in: cap)
-        }
     }
 
     struct ContentLayout {
         var lead: NSRect?
         var label: NSRect?
-        var keycap: NSRect?
         var title: String
     }
 
-    /// At rest: the glyph from the leading padding, the label, and the keycap as far from the divider as from the face's
-    /// top; loading: the spinner and the gerund centred. A face wider than its rest content (a long gerund) centres it.
+    /// The glyph and the label, or loading the spinner and the gerund, centred in the face between its paddings: a face
+    /// wider than its content (the rest content of a face kept as wide as its gerund) centres it.
     func contentLayout(in face: NSRect) -> ContentLayout {
         let m = metrics
         let text = isLoading ? (loadingTitle ?? title) : title
@@ -213,10 +203,7 @@ public final class QuireSplitSegment: QuireControl {
         if isLoading { lead = max(lead ?? 0, QuireSpinnerView.Size.small.diameter) }
         let labelWidth = text.isEmpty ? 0 : ceil(QuireDraw.width(QuireDraw.line(text, role, .black)))
         let gap = lead != nil && labelWidth > 0 ? Quire.Layout.Button.glyphGap : 0
-        let showsKeycap = keycap != nil && !isLoading
-        let capSize = keycap.map { QuireKeycap.size(for: $0, style: .onFill) } ?? .zero
-        let tail = showsKeycap ? m.keycapGap + capSize.width + m.keycapInset : m.padX
-        let natural = m.padX + (lead ?? 0) + gap + labelWidth + tail
+        let natural = 2 * m.padX + (lead ?? 0) + gap + labelWidth
         var x = face.minX + m.padX + max(0, ((face.width - natural) / 2).rounded())
         var result = ContentLayout(title: text)
         if let lead {
@@ -226,12 +213,8 @@ public final class QuireSplitSegment: QuireControl {
         }
         if labelWidth > 0 {
             let lineHeight = role.lineHeight
-            let end = showsKeycap ? face.maxX - tail + m.keycapGap : face.maxX - m.padX
-            result.label = NSRect(x: x, y: (face.midY - lineHeight / 2).rounded(), width: max(0, end - x), height: lineHeight)
-        }
-        if showsKeycap {
-            result.keycap = NSRect(x: face.maxX - m.keycapInset - capSize.width, y: (face.midY - capSize.height / 2).rounded(),
-                                   width: capSize.width, height: capSize.height)
+            result.label = NSRect(x: x, y: (face.midY - lineHeight / 2).rounded(), width: max(0, face.maxX - m.padX - x),
+                                  height: lineHeight)
         }
         return result
     }
@@ -317,16 +300,12 @@ public final class QuireSplitSegment: QuireControl {
 }
 
 extension QuireSplitSegment {
-    /// The size's metrics (`layout.splitButton`, `layout.button`, `layout.kbd.onFill`).
+    /// The size's metrics (`layout.splitButton`, `layout.button`).
     struct Metrics {
         let padX: CGFloat
         let menuWidth: CGFloat
-        let keycapGap: CGFloat
-        /// The keycap's distance from the divider: the chevron's on the other side, so the divider stands in the middle,
-        /// and never less than the keycap's distance from the face's top.
-        let keycapInset: CGFloat
         let divider: CGFloat
-        /// The divider is as tall as the keycap, its ends level with the cap's.
+        /// The divider is as tall as the size's glyph, centred on the face: its ends level with the paper plane's box.
         let dividerInsetY: CGFloat
 
         init(size: QuireButton.Size) {
@@ -334,10 +313,8 @@ extension QuireSplitSegment {
             let index = QuireButton.Size.allCases.firstIndex(of: size) ?? 1
             padX = size.padX
             menuWidth = s.menuWidth[index]
-            keycapGap = s.keycapGap
             divider = s.divider
-            dividerInsetY = ((size.height - Quire.Layout.Kbd.onFill) / 2).rounded(.down)
-            keycapInset = max(dividerInsetY, ((menuWidth - divider - Quire.Layout.Popup.chevron) / 2).rounded())
+            dividerInsetY = ((size.height - size.glyph) / 2).rounded(.down)
         }
     }
 }

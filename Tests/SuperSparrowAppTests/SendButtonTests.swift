@@ -5,10 +5,11 @@ import XCTest
 @testable import SuperSparrowApp
 
 /// Send as a split button (spec §5.20, §5.23, §5.18): the composer's bar is Send, Attach and Format on one centre line and
-/// the status, with no loose keycap and no Write control; Send's two segments do what Send and Send Options did; the
-/// drop-down shows, beside each choice, the key that does it in either default, the same keys the Message menu holds; a key
-/// pressed while the drop-down is open sends as its row says and never changes the choice; and the quick reply's Send is
-/// the same button. Drafts go to a temporary folder, settings to throwaway defaults, the windows are a throwaway store's.
+/// the status, with no keycap and no Write control; Send's two segments do what Send and Send Options did; the drop-down
+/// shows, beside each choice, the key that does it in either default, the same keys the Message menu holds; a key pressed
+/// while the drop-down is open sends as its row says and never changes the choice; and the quick reply's Send is the same
+/// button, the paper plane on it too, which gives way before Send would reach under the tools. Drafts go to a temporary
+/// folder, settings to throwaway defaults, the windows are a throwaway store's.
 @MainActor
 final class SendButtonTests: XCTestCase {
     private var folder: URL!
@@ -90,8 +91,8 @@ final class SendButtonTests: XCTestCase {
 
     // MARK: The bar
 
-    /// Send, then Attach and Format, then the status: nothing else in the bar, no loose “⌘↩”, no Write control; every control
-    /// centred on the bar's middle; Attach and Format tell their keys.
+    /// Send, then Attach and Format, then the status: nothing else in the bar, no keycap on Send or beside it, no Write
+    /// control; every control centred on the bar's middle; Attach and Format tell their keys.
     func testTheBarIsSendAttachFormatAndTheStatusOnOneCentreLine() throws {
         let (harness, _) = try harness()
         defer { harness.close() }
@@ -101,8 +102,7 @@ final class SendButtonTests: XCTestCase {
         XCTAssertEqual(bar.subviews.map(ObjectIdentifier.init), [bar.send, bar.attachButton, bar.formatButton, bar.statusView].map(ObjectIdentifier.init))
         XCTAssertFalse(descendants(of: bar).contains { ($0 as? QuireButton)?.title == "Write" || $0.accessibilityLabel() == "Write with Help Me Write" },
                        "Help me write has no control in the bar: it is in the body's text")
-        XCTAssertTrue(descendants(of: bar).allSatisfy { !($0 is QuireKeycap) }, "no loose keycap: ⌘↩ is on Send's face")
-        XCTAssertEqual(bar.sendButton.keycap, "⌘↩")
+        XCTAssertTrue(descendants(of: bar).allSatisfy { !($0 is QuireKeycap) }, "no keycap in the bar")
 
         let middle = bar.bounds.midY
         let send = bar.convert(bar.send.faceRect, from: bar.send)
@@ -116,7 +116,7 @@ final class SendButtonTests: XCTestCase {
         XCTAssertEqual(bar.attachButton.toolTip, "Attach Files…  ⇧⌘A")
         XCTAssertEqual(bar.formatButton.toolTip, "Show Format Row  ⇧⌘T")
         XCTAssertEqual(bar.sendOptionsButton.toolTip, "Send Options")
-        XCTAssertEqual(bar.sendButton.accessibilityHelp(), "⌘Return", "VoiceOver hears the key the face shows")
+        XCTAssertEqual(bar.sendButton.accessibilityHelp(), "⌘Return", "VoiceOver hears Send's key as its help")
         XCTAssertEqual(bar.sendOptionsButton.accessibilityLabel(), "Send Options")
         XCTAssertEqual(bar.sendOptionsButton.accessibilityRole(), .menuButton)
     }
@@ -215,8 +215,8 @@ final class SendButtonTests: XCTestCase {
 
     // MARK: The quick reply
 
-    /// The quick reply's Send is the composer's button, small: the same words and keycap, no glyph; trailing in the tool row,
-    /// centred on it like its tools; its key hides with the reader's keycaps in a narrow reader.
+    /// The quick reply's Send is the composer's button, small: the same words and paper plane; trailing in the tool row,
+    /// centred on it like its tools.
     func testTheQuickReplysSendIsTheSameButton() throws {
         let (harness, _) = try harness()
         defer { harness.close() }
@@ -234,17 +234,102 @@ final class SendButtonTests: XCTestCase {
         XCTAssertEqual(split.size, .small)
         XCTAssertEqual(big.size, .regular)
         XCTAssertEqual(split.actionSegment.title, big.actionSegment.title)
-        XCTAssertNil(split.actionSegment.symbolName, "the tool row is tight and the rest glyph is the plane already")
+        XCTAssertEqual(split.actionSegment.symbolName, Quire.Icon.send, "the composer's paper plane")
         XCTAssertEqual(big.actionSegment.symbolName, Quire.Icon.send)
-        XCTAssertEqual(split.actionSegment.keycap, "⌘↩")
         XCTAssertEqual(split.actionSegment.accessibilityHelp(), "⌘Return")
         XCTAssertEqual(split.menuSegment.accessibilityLabel(), "Send Options")
         XCTAssertFalse(split.isHidden)
         XCTAssertTrue(bar.sendControlsEnabled.send)
         XCTAssertFalse(descendants(of: bar).contains { $0 is QuireKeycap && !$0.isHidden && $0.accessibilityLabel() == "⌘↩" },
-                       "no loose ⌘↩ beside it")
+                       "no ⌘↩ beside it")
         let face = bar.convert(split.faceRect, from: split)
         let attach = try XCTUnwrap(descendants(of: bar).compactMap { $0 as? QuireIconButton }.first { $0.accessibilityLabel() == "Attach" })
         XCTAssertEqual(face.midY, bar.convert(attach.faceRect, from: attach).midY, accuracy: 0.5, "on the tools' centre line")
+    }
+
+    /// Neither Send carries a keycap (§5.36: none on an accent fill): the composer's and the quick reply's faces are their
+    /// paper plane and “Send”, padded on both sides, and nothing else; the key is in the tooltip and VoiceOver's help.
+    func testNeitherSendShowsAKeycapAndBothCarryThePlane() throws {
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        let composer = try composer(harness)
+        let thread = try XCTUnwrap(harness.list.conversations.first { $0.id.providerID == "thread-2" }?.id)
+        harness.list.selectedConversationID = thread
+        harness.list.onSelectionChange?(thread)
+        harness.spin { harness.reader.currentConversationID == thread }
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let bar = harness.reader.quickReplyBar
+        bar.text = "Thanks"
+        bar.layoutSubtreeIfNeeded()
+        let composerBar = composer.content.bottomBar
+        composerBar.layoutSubtreeIfNeeded()
+        // A new message only sends, whatever the choice; the reply does what the choice says (§5.23).
+        for (name, split, tip) in [("composer", composerBar.send, "Send  ⌘↩"), ("quick reply", bar.sendSplitButton, "Send and Archive  ⌘↩")] {
+            XCTAssertFalse(split.isHidden, name)
+            XCTAssertTrue(descendants(of: split).allSatisfy { !($0 is QuireKeycap) }, "\(name): no keycap on Send")
+            let action = split.actionSegment
+            XCTAssertEqual(action.symbolName, Quire.Icon.send, "\(name): the paper plane")
+            let glyph = QuireDraw.symbolSize(Quire.Icon.send, size: .custom(split.size.glyph)).width
+            let rest = ceil(2 * split.size.padX + glyph + Quire.Layout.Button.glyphGap
+                + QuireDraw.width(QuireDraw.line("Send", split.size.strongRole, .black)))
+            // The composer's face keeps the gerund's width (“Sending…”), its plane and label centred in it.
+            XCTAssertEqual(action.intrinsicContentSize.width, max(rest, action.actionWidth(symbolName: Quire.Icon.send)), name)
+            XCTAssertEqual(action.actionWidth(symbolName: Quire.Icon.send), action.intrinsicContentSize.width, name)
+            if action.loadingTitle == nil { XCTAssertEqual(action.intrinsicContentSize.width, rest, "\(name): plane, label, padding only") }
+            XCTAssertEqual(action.toolTip, tip, "\(name): the tooltip names the key")
+            XCTAssertEqual(action.accessibilityHelp(), "⌘Return", name)
+        }
+        XCTAssertEqual(composerBar.send.size, .regular)
+        XCTAssertEqual(bar.sendSplitButton.size, .small)
+    }
+
+    /// In the narrowest reader the quick reply's Send keeps its plane and the tools' group gap; where a row is too tight
+    /// for the plane (narrower than any reader), the plane gives way first and Send still clears the tools.
+    func testTheQuickReplysPlaneGivesWayBeforeSendReachesUnderTheTools() throws {
+        let m = Quire.Layout.QuickReply.self
+        func layOut(width: CGFloat) throws -> (bar: QuickReplyView, window: NSWindow, send: NSRect, tools: NSRect) {
+            let bar = QuickReplyView(frame: NSRect(x: 0, y: 0, width: width, height: 60))
+            let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: width, height: 400), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let content = try XCTUnwrap(window.contentView)
+            content.addSubview(bar)
+            NSLayoutConstraint.activate([
+                bar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                bar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                bar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            ])
+            window.layoutIfNeeded()
+            bar.focus()
+            // Held open as while its menu shows, so the tool row shows whether or not the offscreen field took focus.
+            bar.isHeldOpen = true
+            bar.text = "Thanks"
+            window.layoutIfNeeded()
+            bar.layoutSubtreeIfNeeded()
+            let split = bar.sendSplitButton
+            XCTAssertFalse(split.isHidden, "\(width): the tool row shows")
+            let composer = try XCTUnwrap(descendants(of: bar).compactMap { $0 as? QuireIconButton }
+                .first { $0.accessibilityLabel() == "Open in Composer" })
+            XCTAssertFalse(composer.isHidden)
+            return (bar, window, bar.convert(split.faceRect, from: split), bar.convert(composer.faceRect, from: composer))
+        }
+        for width in [Quire.Layout.Window.readerMinWidth, Quire.Layout.Window.readerNarrow - 1, Quire.Layout.Window.readerKeycapsMin - 1,
+                      Quire.Layout.Window.readerKeycapsMin, 800] {
+            let laid = try layOut(width: width)
+            defer { laid.window.close() }
+            XCTAssertEqual(laid.bar.sendSplitButton.actionSegment.symbolName, Quire.Icon.send, "\(width) pt reader: the plane shows")
+            XCTAssertGreaterThanOrEqual(laid.send.minX - laid.tools.maxX, m.toolGroupGap, "\(width) pt reader: Send clears the tools")
+            XCTAssertEqual(laid.send.maxX, laid.bar.restGeometry.field.maxX - m.sendInset, accuracy: 0.5)
+        }
+        // A row just too tight for the plane: it gives way, and Send without it still keeps the gap.
+        let widest = try layOut(width: Quire.Layout.Window.readerMinWidth)
+        let action = widest.bar.sendSplitButton.actionSegment
+        let plane = action.actionWidth(symbolName: Quire.Icon.send) - action.actionWidth(symbolName: nil)
+        let spare = widest.send.minX - widest.tools.maxX - m.toolGroupGap
+        widest.window.close()
+        let tight = try layOut(width: Quire.Layout.Window.readerMinWidth - spare - plane / 2)
+        defer { tight.window.close() }
+        XCTAssertNil(tight.bar.sendSplitButton.actionSegment.symbolName, "the plane gives way first")
+        XCTAssertGreaterThanOrEqual(tight.send.minX - tight.tools.maxX, m.toolGroupGap, "Send never reaches under the tools")
     }
 }

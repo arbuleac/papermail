@@ -11,8 +11,8 @@ import AppKit
 /// underline at rest (§3.1).
 ///
 /// A keycap sits beside the face, `keycapGap` away, before or after it (R · A · F after the reader's footer buttons,
-/// “⌘Z” before the quick reply strip's Undo), and is not part of the face or the ring. Send, whose “⌘↩” is part of
-/// its face, is a `QuireSplitButton` (§5.23).
+/// “⌘Z” before the quick reply strip's Undo), and is not part of the face or the ring: a keycap never sits on an
+/// accent fill (§5.36).
 @MainActor
 public final class QuireButton: QuireControl {
     public var title: String {
@@ -32,7 +32,7 @@ public final class QuireButton: QuireControl {
         didSet { if oldValue != symbolName { contentDidChange() } }
     }
 
-    /// A keycap legend drawn beside the face (“⌘↩”, “R”). nil draws none.
+    /// A keycap legend drawn beside the face (“R”, “⌘Z”). nil draws none.
     public var keycap: String? {
         didSet { if oldValue != keycap { contentDidChange() } }
     }

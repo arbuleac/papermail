@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 909 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 909, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 906 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 906, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -709,7 +709,6 @@ final class MetricDriftTests: XCTestCase {
 
     func testLayoutSplitButton() {
         numbers(Quire.Layout.SplitButton.menuWidth.map { Double($0) }, "layout.splitButton.menuWidth")
-        number(Quire.Layout.SplitButton.keycapGap, "layout.splitButton.keycapGap")
         number(Quire.Layout.SplitButton.divider, "layout.splitButton.divider")
         number(Quire.Layout.SplitButton.dividerAlpha, "layout.splitButton.dividerAlpha")
         number(Quire.Layout.SplitButton.dimAlpha, "layout.splitButton.dimAlpha")
@@ -888,8 +887,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Kbd.radius, "layout.kbd.radius")
         number(Quire.Layout.Kbd.largeRadius, "layout.kbd.largeRadius")
         number(Quire.Layout.Kbd.inField, "layout.kbd.inField")
-        number(Quire.Layout.Kbd.onFill, "layout.kbd.onFill")
-        number(Quire.Layout.Kbd.onFillEdgeAlpha, "layout.kbd.onFillEdgeAlpha")
     }
 
     func testLayoutProgress() {
