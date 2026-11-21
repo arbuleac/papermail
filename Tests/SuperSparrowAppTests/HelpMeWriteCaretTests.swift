@@ -323,6 +323,42 @@ final class HelpMeWriteCaretTests: XCTestCase {
         XCTAssertEqual(bar.barHeight - full, WritePromptLine.blockHeight, accuracy: 0.5)
     }
 
+    /// The prompt line lies in the text view, over the text's own gap: a click on its capsule outside the field (its pencil,
+    /// its ↩, its padding) or between its chips is the line's, never the text's, whose click would move the caret there
+    /// and close the line. On the capsule the keyboard goes to the field.
+    func testAClickOnThePromptLineStaysInIt() throws {
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        let (field, session) = try type("first line\nsecond line", harness)
+        field.setSelectedRange(NSRange(location: 10, length: 0))
+        harness.reader.helpMeWriteWithInstructions(nil)
+        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
+        let prompt = session.layer.prompt
+        let window = try XCTUnwrap(field.window)
+        window.makeFirstResponder(prompt.chips[0])
+        XCTAssertTrue(session.isPromptShown)
+        let capsule = prompt.capsuleRect
+        let chips = prompt.chips[0].frame
+        for spot in [NSPoint(x: capsule.minX + 4, y: capsule.midY), NSPoint(x: capsule.maxX - 6, y: capsule.midY),
+                     NSPoint(x: chips.maxX + 1, y: chips.midY)] {
+            let point = prompt.convert(spot, to: nil)
+            func mouse(_ type: NSEvent.EventType) -> NSEvent? {
+                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            }
+            let down = try XCTUnwrap(mouse(.leftMouseDown))
+            // Should the text take the press, its tracking ends on this.
+            window.postEvent(try XCTUnwrap(mouse(.leftMouseUp)), atStart: false)
+            let hit = window.contentView?.superview?.hitTest(window.contentView!.superview!.convert(point, from: nil))
+            XCTAssertTrue(hit === prompt, "\(spot): the line is under the pointer, not \(String(describing: hit))")
+            prompt.mouseDown(with: down)
+            _ = NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true)
+            XCTAssertTrue(session.isPromptShown, "\(spot): the line stays open")
+            XCTAssertEqual(field.selectedRange(), NSRange(location: 10, length: 0), "\(spot): the caret stays where it was")
+        }
+        XCTAssertTrue(prompt.fieldHoldsFocus, "a click on the capsule puts the keyboard in its field")
+    }
+
     /// The afterline hangs under the draft's last line; typing, Esc and the keyboard leaving take it away.
     func testTheAfterlineHangsUnderTheDraftUntilTheUserMovesOn() throws {
         let (harness, _) = try harness(reply: "Tuesday at ten works for me. I\u{2019}ll bring the draft budget, and we can go through the open questions on the venue together.")

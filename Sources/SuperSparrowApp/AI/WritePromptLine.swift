@@ -87,6 +87,14 @@ final class WritePromptLine: NSView, NSTextFieldDelegate {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// A click on the capsule outside its field (the pencil, the ↩, the padding) puts the keyboard in the field, as a
+    /// search field's does; one in the line's gaps (between the chips, under the capsule) does nothing. Neither goes on to
+    /// the text view the line lies in, whose click would move the caret into the text under the line and close it.
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if capsuleRect.contains(point), !fieldHoldsFocus { window?.makeFirstResponder(field) }
+    }
+
     /// Frames are set by hand: a new size lays the capsule and the chips out again.
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
