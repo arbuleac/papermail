@@ -145,7 +145,8 @@ final class AppEnvironment {
     private static func makeDemo(settings: AppSettings) throws -> AppEnvironment {
         let store = try SQLiteMailStore(path: demoDatabasePath)
         // The generated mailbox is rebuilt every launch; the store remembers what the user did to it.
-        let service = DemoMailService(restore: { id in try? store.message(id) })
+        let service = DemoMailService(restore: { id in try? store.message(id) },
+                                      restoreRules: { DemoMailService.serverRules(mirroredIn: store, accountID: $0) })
         let engine = MailEngine(
             store: store,
             tokenStore: InMemoryTokenStore(),

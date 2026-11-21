@@ -14,14 +14,19 @@ public enum DemoSeeder {
             }
             guard !present else { continue }
             let account = try await client.addAccount(kind: profile.kind)
-            try client.setSenderRule(.trash, for: blockedSender, accountID: account.id, performing: [])
+            // As the first read of the demo server's rules would write it, so Senders… shows it from the first launch.
+            try client.store.replaceServerSenderRules(
+                accountID: account.id,
+                with: [ServerSenderRule(serverID: DemoMailbox.blockedRuleID, address: blockedSender, action: .trash)],
+                readAt: Date())
             added.append(account)
         }
         return added
     }
 
-    /// A made-up sender each demo account blocks, so Settings › Accounts › Senders… has a rule to show. No demo mail comes
-    /// from it, so the demo's mailboxes are as they were.
+    /// A made-up sender each demo account blocks, a rule its made-up server holds from the start (`DemoMailbox`), so
+    /// Settings › Accounts › Senders… has a rule to show. No demo mail comes from it, so the demo's mailboxes are as they
+    /// were.
     public static let blockedSender = "offers@deals.example"
 
     /// The demo's Later sample (spec §5.43, §5.54): one of its archived conversations snoozed until tomorrow at 17:00, so

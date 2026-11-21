@@ -90,3 +90,22 @@ extension DemoMailProvider: CalendarProvider {
         mailbox.deleteCalendarEvent(providerID: providerID)
     }
 }
+
+/// The demo account's server rules (its made-up Gmail filters or Outlook inbox rules), served from its mailbox and kept in
+/// memory for the run like the rest of the made-up server.
+extension DemoMailProvider: RuleProvider {
+    /// The demo's token scope is "demo", which names no rules scope, but its made-up server needs no reconnect.
+    public func hasRulesPermission() async -> Bool { true }
+
+    public func serverRules() async throws -> ServerRuleListing {
+        mailbox.serverRules()
+    }
+
+    public func createSenderRule(address: String, action: SenderRule.Action) async throws -> String {
+        mailbox.createSenderRule(address: address, action: action)
+    }
+
+    public func deleteRule(serverID: String) async throws {
+        mailbox.deleteRule(serverID: serverID)
+    }
+}
