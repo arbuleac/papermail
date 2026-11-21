@@ -23,6 +23,9 @@ struct GraphRequest: Sendable {
     var authenticated = true
     /// What Graph counts against the mailbox's limit each time this is sent: one, or a `$batch` envelope's parts.
     var countedRequests = 1
+    /// False for a lookup that needs an id in Graph's default (REST) form rather than the immutable form the client asks
+    /// for everywhere else: the Archive folder's id as an inbox rule may name it (`GraphProvider+Rules`).
+    var immutableIDs = true
 }
 
 /// What came back, with header names lowercased so lookups do not depend on Graph's casing.

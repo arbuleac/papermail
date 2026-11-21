@@ -13,6 +13,26 @@ extension GraphProvider: RuleProvider {
     /// ever: Exchange keeps inbox rules within a 256 KB quota, a few hundred rules at most.
     static let maxRulePages = 10
 
+    /// The Archive folder's id in both of Graph's forms. The well-known folder cache holds the immutable id (every request
+    /// asks for `IdType="ImmutableId"`), while an inbox rule's `moveToFolder` may name the folder in the default REST form,
+    /// whatever the preference: an archive rule is recognized by either, so the app's own rules never read back as some
+    /// other rule and drop out of the mirror.
+    struct ArchiveFolderIDs: Equatable, Sendable {
+        var immutable: String
+        /// Nil when the default-form lookup found no folder (removed since the well-known folders were read).
+        var rest: String?
+
+        var all: Set<String> {
+            Set([immutable] + (rest.map { [$0] } ?? []))
+        }
+
+        /// What a create names: the default REST form, as Graph documents `moveToFolder`, and the immutable id only when
+        /// that is all there is.
+        var forCreate: String {
+            rest ?? immutable
+        }
+    }
+
     /// From the scopes the token came with: no request.
     public func hasRulesPermission() async -> Bool {
         OAuthEndpoints.grants(await client.tokens.grantedScopes(for: accountID), .rules, kind: .microsoft)
@@ -20,14 +40,14 @@ extension GraphProvider: RuleProvider {
 
     public func serverRules() async throws -> ServerRuleListing {
         do {
-            let ((rules, archive), sent) = try await GraphRequestTally.counting { () -> ([GraphMessageRule], String?) in
+            let ((rules, archive), sent) = try await GraphRequestTally.counting { () -> ([GraphMessageRule], ArchiveFolderIDs?) in
                 let rules = try await listRules()
-                return (rules, try await archiveFolderID(needed: rules.contains(where: \.movesToFolder)))
+                return (rules, try await archiveFolderIDs(needed: rules.contains(where: \.movesToFolder)))
             }
             var senderRules: [ServerSenderRule] = []
             var others = 0
             for rule in rules {
-                if let senderRule = Self.senderRule(from: rule, archiveFolderID: archive) {
+                if let senderRule = Self.senderRule(from: rule, archiveFolderIDs: archive?.all ?? []) {
                     senderRules.append(senderRule)
                 } else {
                     others += 1
@@ -46,14 +66,15 @@ extension GraphProvider: RuleProvider {
     public func createSenderRule(address: String, action: SenderRule.Action) async throws -> String {
         do {
             let rules = try await listRules()
-            let archive = try await archiveFolderID(needed: action == .archive || rules.contains(where: \.movesToFolder))
+            let archive = try await archiveFolderIDs(needed: action == .archive || rules.contains(where: \.movesToFolder))
             let wanted = ServerSenderRule.singleAddress(address)
-            if let existing = rules.lazy.compactMap({ Self.senderRule(from: $0, archiveFolderID: archive) })
+            if let existing = rules.lazy.compactMap({ Self.senderRule(from: $0, archiveFolderIDs: archive?.all ?? []) })
                 .first(where: { $0.address == wanted && $0.action == action }) {
                 return existing.serverID
             }
             let sequence = (rules.compactMap(\.sequence).max() ?? 0) + 1
-            guard let payload = Self.rulePayload(address: address, action: action, archiveFolderID: archive, sequence: sequence) else {
+            guard let payload = Self.rulePayload(address: address, action: action, archiveFolderID: archive?.forCreate,
+                                                 sequence: sequence) else {
                 Self.folderLog.notice("rules: an archive rule needs the Archive folder, which this mailbox does not have")
                 throw RuleProviderError.refused
             }
@@ -84,9 +105,10 @@ extension GraphProvider: RuleProvider {
 
     /// The sender rule an inbox rule is, or nil when it is anything more or less: enabled; conditions of `fromAddresses`
     /// alone, holding one address; no exception; actions of a move to the Archive folder (archive) or a delete that is not
-    /// permanent (block), each with at most `stopProcessingRules`. A move anywhere else, or anywhere at all while the
-    /// Archive folder's id is unknown, is some other rule.
-    static func senderRule(from rule: GraphMessageRule, archiveFolderID: String?) -> ServerSenderRule? {
+    /// permanent (block), each with at most `stopProcessingRules`. The Archive folder is named by any of
+    /// `archiveFolderIDs` (its id in either of Graph's forms, `ArchiveFolderIDs`). A move anywhere else, or anywhere at all
+    /// while the Archive folder's id is unknown, is some other rule.
+    static func senderRule(from rule: GraphMessageRule, archiveFolderIDs: Set<String>) -> ServerSenderRule? {
         guard rule.isEnabled == true, let id = rule.id, !id.isEmpty else { return nil }
         guard let conditions = rule.conditions?.objectValue, setKeys(of: conditions) == ["fromAddresses"],
               case .array(let senders)? = conditions["fromAddresses"], senders.count == 1,
@@ -99,7 +121,7 @@ extension GraphProvider: RuleProvider {
         }
         guard let actions = rule.actions?.objectValue else { return nil }
         let set = setKeys(of: actions).subtracting(["stopProcessingRules"])
-        if set == ["moveToFolder"], let folder = actions["moveToFolder"]?.stringValue, let archiveFolderID, folder == archiveFolderID {
+        if set == ["moveToFolder"], let folder = actions["moveToFolder"]?.stringValue, archiveFolderIDs.contains(folder) {
             return ServerSenderRule(serverID: id, address: address, action: .archive)
         }
         if set == ["delete"], actions["delete"] == .bool(true) {
@@ -125,7 +147,7 @@ extension GraphProvider: RuleProvider {
         }
     }
 
-    /// Exactly what `senderRule(from:archiveFolderID:)` reads back as `action`; nil for an archive without the Archive
+    /// Exactly what `senderRule(from:archiveFolderIDs:)` reads back as `action`; nil for an archive without the Archive
     /// folder's id.
     static func rulePayload(address: String, action: SenderRule.Action, archiveFolderID: String?,
                             sequence: Int) -> GraphMessageRulePayload? {
@@ -161,13 +183,28 @@ extension GraphProvider: RuleProvider {
         return all
     }
 
-    /// The Archive folder's id from the well-known folder cache, looked up (once) when the cache is empty or has none
-    /// (Outlook creates Archive lazily, and the user may have made it since). Nil when the mailbox has none, or when
-    /// nothing needs it.
-    private func archiveFolderID(needed: Bool) async throws -> String? {
+    /// The Archive folder's ids (`ArchiveFolderIDs`): the immutable one from the well-known folder cache, looked up (once)
+    /// when the cache is empty or has none (Outlook creates Archive lazily, and the user may have made it since), and the
+    /// default REST one, looked up once for the provider's life (`GraphFolderCache`). Nil when the mailbox has none, or
+    /// when nothing needs it.
+    private func archiveFolderIDs(needed: Bool) async throws -> ArchiveFolderIDs? {
         guard needed else { return nil }
-        if let cached = await folderCache.current()?.id("archive") { return cached }
-        return try await resolveWellKnownFolders().id("archive")
+        var known = await folderCache.current()?.id("archive")
+        if known == nil { known = try await resolveWellKnownFolders().id("archive") }
+        guard let immutable = known else { return nil }
+        if let rest = await folderCache.defaultFormArchiveID(besides: immutable) {
+            return ArchiveFolderIDs(immutable: immutable, rest: rest)
+        }
+        var request = GraphRequest(method: .get, url: try GraphURL.make("/me/mailFolders/archive", query: [("$select", "id")]))
+        request.immutableIDs = false
+        do {
+            let rest = try await client.json(GraphFolder.self, for: request).id
+            await folderCache.storeDefaultFormArchiveID(rest, besides: immutable)
+            return ArchiveFolderIDs(immutable: immutable, rest: rest)
+        } catch ProviderError.notFound {
+            // Gone since the well-known folders were read: the id known is all there is, and the next call looks again.
+            return ArchiveFolderIDs(immutable: immutable, rest: nil)
+        }
     }
 
     /// A rule's own URL. Its id is Exchange's base64, whose `/` and `+` must not split or change the path.
