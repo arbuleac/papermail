@@ -518,7 +518,6 @@ extension Quire {
             public static let toolIcon: CGFloat = 22
             public static let toolIconGlyph: CGFloat = 14
             public static let sendInset: CGFloat = 8
-            public static let sendKeycapGap: CGFloat = 8
             public static let maxLines: CGFloat = 5
             public static let fieldMax: CGFloat = 150
             public static let max: CGFloat = 172
@@ -562,7 +561,6 @@ extension Quire {
             public static let bannerInsetX: CGFloat = 16
             public static let bannerInsetY: CGFloat = 8
             public static let barPadX: CGFloat = 16
-            public static let barKeycapGap: CGFloat = 8
             public static let barGroupGap: CGFloat = 12
             public static let barIconGap: CGFloat = 2
             public static let statusGlyphGap: CGFloat = 6
@@ -675,6 +673,14 @@ extension Quire {
             public static let minHit: CGFloat = 24
             public static let glyphGap: CGFloat = 6
             public static let linkPadX: CGFloat = 4
+            public static let keycapGap: CGFloat = 8
+        }
+        public enum SplitButton {
+            public static let menuWidth: [CGFloat] = [20, 24, 30]
+            public static let keycapGap: CGFloat = 6
+            public static let divider: CGFloat = 1
+            public static let dividerAlpha: CGFloat = 0.3
+            public static let dimAlpha: CGFloat = 0.5
         }
         public enum TextField {
             public static let helpGap: CGFloat = 5
@@ -838,6 +844,8 @@ extension Quire {
             public static let radius: CGFloat = 3
             public static let largeRadius: CGFloat = 5
             public static let inField: CGFloat = 16
+            public static let onFill: CGFloat = 16
+            public static let onFillEdgeAlpha: CGFloat = 0.5
         }
         public enum Progress {
             public static let indeterminateSegment: CGFloat = 0.36

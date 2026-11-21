@@ -25,6 +25,15 @@ public enum SendAction: String, CaseIterable, Sendable {
     /// The Send button's tooltip while a click and ⌘↩ do this: “Send and Archive  ⌘↩” (§5.34).
     public var tooltip: String { title + "  ⌘↩" }
 
+    /// The key that does this action while `current` is Send's choice (§5.23), as the drop-down shows it beside the
+    /// action: ⌘↩ for the checked choice, since ⌘↩ and Send do it; ⇧⌘↩ for Send and Archive while Send is the choice,
+    /// since ⇧⌘↩ always sends and archives; none for Send while Send and Archive is the choice, since no key only sends
+    /// then. Never a key that does something else.
+    public func key(whenChosen current: SendAction) -> SendKey? {
+        if self == current { return .commandReturn }
+        return self == .sendAndArchive ? .shiftCommandReturn : nil
+    }
+
     /// What a send queued with this action does to a message that does (`answers`) or does not answer a conversation:
     /// a new message has none to archive, so it only sends, and its Send button says so.
     public func effective(answers: Bool) -> SendAction {

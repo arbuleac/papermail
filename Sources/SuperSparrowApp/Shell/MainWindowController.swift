@@ -1086,6 +1086,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         applyDebugCalendarStates()
         applyDebugWriteStates()
+        applyDebugSendStates()
         #endif
         return list.selectedConversationID ?? first
     }

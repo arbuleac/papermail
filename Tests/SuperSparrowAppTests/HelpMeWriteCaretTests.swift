@@ -264,8 +264,9 @@ final class HelpMeWriteCaretTests: XCTestCase {
         defer { harness.close() }
         let (field, session) = try type("tue 10 works, I\u{2019}ll bring the budget", harness)
         let bar = harness.reader.quickReplyBar
-        let controls = bar.subviews.filter { !$0.isHidden && ($0 is QuireControl || $0 is QuireUnderlineTabs) }
-        XCTAssertFalse(controls.isEmpty)
+        let controls = bar.subviews.filter { !$0.isHidden && ($0 is QuireControl || $0 is QuireUnderlineTabs || $0 is QuireSplitButton) }
+            .filter { !($0 is WriteSelectionPill) }
+        XCTAssertTrue(controls.contains { $0 is QuireSplitButton }, "Send is among them")
         let field1 = bar.restGeometry.field
         for selection in [NSRange(location: 14, length: 21), NSRange(location: 0, length: 6), NSRange(location: 4, length: 2)] {
             field.setSelectedRange(selection)

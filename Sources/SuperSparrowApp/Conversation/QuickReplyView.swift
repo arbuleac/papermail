@@ -231,10 +231,15 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     private let tabs = QuireUnderlineTabs(items: QuickReplyView.tabItems(replyAll: true))
     private let attach = QuireIconButton(symbolName: Quire.Icon.attach, size: .small, accessibilityLabel: "Attach")
     private let openInComposer = QuireIconButton(symbolName: Quire.Icon.openInComposer, size: .small, accessibilityLabel: "Open in Composer")
-    private let send = QuireButton(title: "Send", variant: .primary, size: .small)
-    /// Send's drop-down (§5.23), 2 pt after it: the menu that chooses what Send and ⌘↩ do.
-    private let sendOptions = QuireIconButton(symbolName: Quire.Icon.titleMenu, size: .small, accessibilityLabel: "Send Options")
+    /// Send, the composer's split button at the small size (§5.23): its face carries “⌘↩” and its drop-down. No glyph, as
+    /// before: the row is tight, and the bar's rest glyph is already the paper plane.
+    private let sendSplit = QuireSplitButton(title: "Send", size: .small, keycap: SendKey.commandReturn.legend,
+                                             menuAccessibilityLabel: "Send Options")
+    private var send: QuireSplitSegment { sendSplit.actionSegment }
+    /// Send's drop-down, its menu segment: the menu that chooses what Send and ⌘↩ do.
+    private var sendOptions: QuireSplitSegment { sendSplit.menuSegment }
     private lazy var sendActionMenu = SendActionMenu(choose: { [weak self] action in self?.onChooseSendAction?(action) },
+                                                     send: { [weak self] action in self?.send(as: action) },
                                                      sendLater: { [weak self] date in self?.sendLater(at: date) })
     private let statusGlyph = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
@@ -359,19 +364,16 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         openInComposer.action = #selector(openInComposerPressed)
         openInComposer.toolTip = "Open in Composer  ⇧⌘R"
         addSubview(openInComposer)
-        send.keycap = "⌘↩"
-        send.keycapLeads = true
-        send.keycapGap = Quire.Layout.QuickReply.sendKeycapGap
         send.target = self
         send.action = #selector(sendPressed)
-        addSubview(send)
-        // A pull-down's chevron at the popup chevron's size (§4.11), on the tool row's 22 pt icon button.
-        sendOptions.symbolSize = .custom(Quire.Layout.Popup.chevron)
-        sendOptions.isMenuButton = true
+        // VoiceOver hears the key the face shows, as it hears a menu item's (the name says what Send does, §5.23).
+        send.setAccessibilityHelp(SendKey.commandReturn.spoken)
         sendOptions.toolTip = "Send Options"
         sendOptions.target = self
         sendOptions.action = #selector(showSendOptions)
-        addSubview(sendOptions)
+        // The tool row lies in the field: a segment's focus ring cuts the other half in the field's `sheet`.
+        sendSplit.surfaceColor = .qSheet
+        addSubview(sendSplit)
         sendActionDidChange()
 
         statusGlyph.imageScaling = .scaleNone
@@ -654,10 +656,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
         let rowY = field.minY + m.fieldPadTop + extra + CGFloat(lines) * lineHeight + m.toolRowGap
         let showsStatus = status != .none
-        send.isHidden = !toolRow
-        sendOptions.isHidden = !toolRow
+        sendSplit.isHidden = !toolRow
         sendOptions.isEnabled = !refusesEdits
-        send.keycap = keycaps ? "⌘↩" : nil
+        send.keycap = keycaps ? SendKey.commandReturn.legend : nil
         send.isEnabled = status != .noRecipients && !refusesEdits && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         send.toolTip = sendToolTip
         let tabSize = tabs.intrinsicContentSize
@@ -667,14 +668,11 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         attach.frame = attach.frame(forVisualRect: NSRect(x: x, y: iconY, width: m.toolIcon, height: m.toolIcon))
         x += m.toolIcon + m.toolIconGap
         let composerX = showsStatus ? nil : x
-        // Trailing, 8 pt from the edge: the drop-down, and 2 pt before it Send with its “⌘↩” leading.
-        let optionsVisual = NSRect(x: field.maxX - m.sendInset - m.toolIcon, y: iconY, width: m.toolIcon, height: m.toolIcon)
-        sendOptions.frame = sendOptions.frame(forVisualRect: optionsVisual)
-        send.sizeToFit()
-        let sendSize = send.alignmentRect(forFrame: send.frame).size
-        let sendVisual = NSRect(x: optionsVisual.minX - m.toolIconGap - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
+        // Trailing, 8 pt from the edge: Send, its “⌘↩” and its drop-down on one face, centred in the row as the tools are.
+        let sendSize = sendSplit.intrinsicContentSize
+        let sendVisual = NSRect(x: field.maxX - m.sendInset - sendSize.width, y: rowY + (m.toolRow - sendSize.height) / 2,
                                 width: sendSize.width, height: sendSize.height)
-        send.frame = send.frame(forVisualRect: sendVisual)
+        sendSplit.frame = sendSplit.frame(forVisualRect: sendVisual)
         tabs.isHidden = !toolRow || showsStatus
         attach.isHidden = !toolRow || showsStatus
         openInComposer.isHidden = !toolRow || (showsStatus && status == .error)
@@ -906,10 +904,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         onSend?(typed, mode, action)
     }
 
-    /// Send's drop-down: hung from the chevron; the choice goes to the owner and nothing is sent.
+    /// Send's drop-down: hung from Send's face; the choice goes to the owner and a click sends nothing.
     @objc private func showSendOptions() {
         guard !refusesEdits else { return }
-        SendActionMenu.popUp(sendOptionsMenu(), from: sendOptions)
+        SendActionMenu.popUp(sendOptionsMenu(), from: sendSplit)
     }
 
     /// The drop-down's menu as it opens now (the app's tests choose from it).
@@ -923,7 +921,7 @@ final class QuickReplyView: NSView, QuirePointerTarget {
             NSSound.beep()
             return
         }
-        SendActionMenu.popUp(sendLaterMenu(), from: sendOptions)
+        SendActionMenu.popUp(sendLaterMenu(), from: sendSplit)
     }
 
     /// The menu ⇧⌘L pops (the app's tests choose from it).
@@ -964,6 +962,9 @@ final class QuickReplyView: NSView, QuirePointerTarget {
 
     /// Whether Send and its drop-down take a click now (tests).
     var sendControlsEnabled: (send: Bool, options: Bool) { (send.isEnabled, sendOptions.isEnabled) }
+
+    /// Send's split button, its face, keycap and drop-down (tests and debug renders).
+    var sendSplitButton: QuireSplitButton { sendSplit }
 
     // While a reply streams in, the text is not the user's yet: it moves to no composer until the write ends.
     @objc private func openInComposerPressed() {

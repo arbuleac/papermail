@@ -308,14 +308,14 @@ LAYOUT = {
  "quickReply": {"rest": 60, "barPadY": 11, "field": 38, "fieldRadius": 8, "fieldPadTop": 9, "fieldPadBottom": 8,
                 "face": 24, "faceX": 12, "faceTop": 7, "faceMonogram": 11, "faceMonogramTwoLetter": 10, "textX": 48, "restTrailing": 67, "focusedTrailing": 12,
                 "restSend": 28, "restSendGlyph": 15, "restSendInset": 5, "restKeycapGap": 8,
-                "toolRowGap": 4, "toolRow": 28, "toolRowBottom": 4, "modeGap": 16, "modeHitPad": 6, "toolGroupGap": 12, "toolIconGap": 2, "toolIcon": 22, "toolIconGlyph": 14, "sendInset": 8, "sendKeycapGap": 8,
+                "toolRowGap": 4, "toolRow": 28, "toolRowBottom": 4, "modeGap": 16, "modeHitPad": 6, "toolGroupGap": 12, "toolIconGap": 2, "toolIcon": 22, "toolIconGlyph": 14, "sendInset": 8,
                 "maxLines": 5, "fieldMax": 150, "max": 172, "stripGlyph": 14, "stripGap": 8, "stripKeycapGap": 8, "modeUnderlineY": 24,
                 "dropInset": 0},
  "composer": {"dropOutline": 2, "dropInset": 8, "dropDash": [6, 4], "dropVeil": 0.9, "stripGlyph": 14, "removeGlyph": 9, "width": 640, "height": 600, "minWidth": 520, "minHeight": 420, "fieldRow": 36, "subjectRow": 42, "labelX": 16, "labelColumn": 56,
               "valueX": 84, "bodyPadTop": 20, "bodyPadRight": 24, "bottomBar": 52, "strip": 48, "stripChip": 30, "stripChipRadius": 6,
               "removeVisual": 16, "fromDot": 7, "fromDotGap": 8, "fieldTrailing": 16, "ccBccGap": 4,
               "focusRingX": 78, "focusRingInsetY": 3, "focusRingRadius": 5, "focusRingButtonGap": 6, "bannerInsetX": 16, "bannerInsetY": 8,
-              "barPadX": 16, "barKeycapGap": 8, "barGroupGap": 12, "barIconGap": 2, "statusGlyphGap": 6,
+              "barPadX": 16, "barGroupGap": 12, "barIconGap": 2, "statusGlyphGap": 6,
               "stripPadX": 16, "stripChipPadLeft": 8, "stripChipInnerGap": 6, "stripChipPadRight": 4, "stripChipSpacing": 8, "stripChipMaxWidth": 240,
               "formatRow": 36, "formatToggle": 28, "formatGap": 2, "formatGroupGap": 12,
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
@@ -350,7 +350,14 @@ LAYOUT = {
  "button": {"small": {"height": 22, "padX": 9, "radius": 5, "font": "label", "fontStrong": "labelStrong", "glyph": 12},
             "regular": {"height": 28, "padX": 12, "radius": 6, "font": "bodyMedium", "fontStrong": "bodyStrong", "glyph": 14},
             "large": {"height": 36, "padX": 16, "radius": 8, "font": "buttonLarge", "fontStrong": "buttonLargeStrong", "glyph": 18},
-            "icon": [22, 24, 28], "iconRadius": [5, 5, 6], "minHit": 24, "glyphGap": 6, "linkPadX": 4},
+            "icon": [22, 24, 28], "iconRadius": [5, 5, 6], "minHit": 24, "glyphGap": 6, "linkPadX": 4, "keycapGap": 8},
+ # Send's split button (§5.23, 1.13): one face in the button's size, the action segment (glyph, label, then its keycap
+ # inside the face, kbd.onFill high, centred on the face, `keycapGap` after the label) and the menu segment (the chevron,
+ # `menuWidth` per size: small / regular / large) behind a `divider` pt line in the label's ink at `dividerAlpha`, as
+ # tall as the keycap. The keycap stands as far from the divider as the chevron does, and never nearer than it stands
+ # from the face's top. A segment that cannot act on a face that can draws its ink at `dimAlpha` (the chevron while Send
+ # is sending).
+ "splitButton": {"menuWidth": [20, 24, 30], "keycapGap": 6, "divider": 1, "dividerAlpha": 0.3, "dimAlpha": 0.5},
  "textField": {"helpGap": 5, "helpGlyph": 10, "helpGlyphGap": 4, "secureTracking": 2, "height": 28, "radius": 6, "padX": 8, "settingsHeight": 24},
  "search": {"radius": 6, "glyph": 12, "glyphX": 8, "textX": 26, "trailingInset": 5, "resultsGap": 6, "clearVisual": 16, "clearGlyph": 9, "clearHit": 24},
  "checkbox": {"mixedBar": [8, 2], "disabledOpacity": 0.45, "size": 14, "radius": 3, "glyph": 10, "labelGap": 8},
@@ -369,7 +376,8 @@ LAYOUT = {
  "cheatSheet": {"width": 816, "radius": 12, "pad": 24, "titleRow": 28, "headerGap": 16, "columns": 3, "bands": 2, "columnWidth": 240, "columnGap": 24,
                 "sectionGap": 20, "sectionTitle": 22, "row": 28, "keyColumn": 96, "keycap": 24, "keycapGap": 4, "close": 24, "closeInset": 16, "top": 92, "minMargin": 24,
                 "searchTermGap": 8},
- "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16},
+ "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16,
+         "onFill": 16, "onFillEdgeAlpha": 0.5},
  "progress": {"indeterminateSegment": 0.36, "reducedSegment": 0.4, "barHeight": 4, "barRadius": 2, "contrail": 2, "contrailHead": 4, "contrailTail": 32,
               "spinner": [12, 16, 32], "spinnerStroke": [1.5, 2, 3], "spinnerArc": 0.75},
  "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 64, "titleGap": 8, "wordmarkCap": 24, "taglineGap": 6, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},

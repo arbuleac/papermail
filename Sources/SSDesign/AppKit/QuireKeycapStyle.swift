@@ -12,12 +12,17 @@ extension QuireKeycap {
         /// 18 pt on a slip: no fill, an `onSlipEdge` outline, legend `onSlip2` (`onSlip` while its action is
         /// hovered or pressed).
         case onSlip
+        /// 16 pt on a button's face (Send's “⌘↩”, §5.23): no fill, drawn in the ink it is given, the face's label
+        /// colour: the legend in it, the outline at `kbd.onFillEdgeAlpha` of it, so it reads on the accent, on a
+        /// raised face and disabled alike, and its legend keeps the label's contrast.
+        case onFill
 
         /// The cap's height, which is also its minimum width.
         public var height: CGFloat {
             switch self {
             case .standard, .onSlip: return Quire.Layout.Kbd.height
             case .inField: return Quire.Layout.Kbd.inField
+            case .onFill: return Quire.Layout.Kbd.onFill
             case .large: return Quire.Layout.Kbd.largeHeight
             }
         }

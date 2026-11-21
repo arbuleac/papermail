@@ -131,9 +131,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var signaturePlaced = false
     /// Set while a From change replaces the signature, so that edit is not taken for the user's own (§5.20 Status).
     private var isReplacingSignature = false
-    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default; a Send Later time schedules this
-    /// message for it.
+    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default; a row's key pressed while it is
+    /// open sends as ⌘↩ or ⇧⌘↩ would; a Send Later time schedules this message for it.
     private lazy var sendActionMenu = SendActionMenu(choose: { SendActionPreference.choose($0) },
+                                                     send: { [weak self] action in self?.send(fromMenu: action) },
                                                      sendLater: { [weak self] date in self?.sendLater(at: date) })
 
     // MARK: Presenting
@@ -446,7 +447,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         loop.append(subjectField)
         loop.append(textView)
         loop.append(content.strip)
-        loop += [bar.sendButton, bar.sendOptionsButton, bar.attachButton, bar.formatButton, bar.writeControl.writeButton]
+        loop += [bar.sendButton, bar.sendOptionsButton, bar.attachButton, bar.formatButton]
         if content.showsFormatRow { loop += content.formatRow.buttons.map(\.button) }
         for (index, view) in loop.enumerated() {
             view.nextKeyView = loop[(index + 1) % loop.count]
@@ -1262,6 +1263,16 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         send(as: .sendAndArchive)
     }
 
+    /// A row's key pressed while the drop-down is open: the checked row's ⌘↩ does what Send does, Send and Archive's ⇧⌘↩
+    /// always archives, as the keys do with the menu closed.
+    private func send(fromMenu action: SendAction) {
+        if action == SendActionPreference.current {
+            send(nil)
+        } else {
+            sendAndArchive(nil)
+        }
+    }
+
     private func send(as action: SendAction) {
         guard !isSending, !isPrefilling, !refusesBodyEdits, validateRecipients() else {
             NSSound.beep()
@@ -1281,11 +1292,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         performSend(action)
     }
 
-    /// Send's drop-down (§5.23): the two actions, the default checked; choosing one makes it the default for every Send
-    /// button and ⌘↩. It never sends. Hung from the chevron; tracks until dismissed.
+    /// Send's drop-down (§5.23): the two actions, the default checked, each with the key that does it now; choosing one
+    /// makes it the default for every Send button and ⌘↩, and a click never sends. Hung from Send's face; tracks until
+    /// dismissed.
     @objc func showSendOptions(_ sender: Any?) {
         guard !isSending, !refusesBodyEdits else { return }
-        SendActionMenu.popUp(sendOptionsMenu(), from: bar.sendOptionsButton)
+        SendActionMenu.popUp(sendOptionsMenu(), from: bar.send)
     }
 
     /// The drop-down's menu as it opens now (the app's tests choose from it).
@@ -1293,15 +1305,20 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         sendActionMenu.menu(current: SendActionPreference.current)
     }
 
+    #if DEBUG
+    /// The drop-down's builder, for a render of the menu with either choice (`SendSnapshotStates`).
+    var debugSendActionMenu: SendActionMenu { sendActionMenu }
+    #endif
+
     // MARK: Send Later
 
-    /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's drop-down as its menu would be.
+    /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's face as its drop-down would be.
     @objc func sendLater(_ sender: Any?) {
         guard !isSending, !refusesBodyEdits, bar.sendButton.isEnabled else {
             NSSound.beep()
             return
         }
-        SendActionMenu.popUp(sendLaterMenu(), from: bar.sendOptionsButton)
+        SendActionMenu.popUp(sendLaterMenu(), from: bar.send)
     }
 
     /// The menu ⇧⌘L pops (the app's tests choose from it).
