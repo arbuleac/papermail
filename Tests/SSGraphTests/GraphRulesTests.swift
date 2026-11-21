@@ -436,6 +436,17 @@ final class GraphRulesTests: GraphTestCase {
         }
     }
 
+    /// A refusal is logged in public by its code alone: Graph's message may name the sender, and a reply with no code has
+    /// only the message, which must never be taken for one.
+    func testOnlyAGraphErrorCodeIsEverLoggedInPublic() {
+        XCTAssertEqual(GraphProvider.code(of: "ErrorInvalidRequest: The request is invalid."), "ErrorInvalidRequest")
+        XCTAssertEqual(GraphProvider.code(of: "The address promo@shop.example is not valid"), "no code")
+        XCTAssertEqual(GraphProvider.code(of: "Invalid sender promo@shop.example: not found"), "no code")
+        XCTAssertEqual(GraphProvider.code(of: "ErrorRulesOverQuota"), "ErrorRulesOverQuota", "a code with no message")
+        XCTAssertEqual(GraphProvider.code(of: "promo@shop.example"), "no code")
+        XCTAssertEqual(GraphProvider.code(of: ""), "no code")
+    }
+
     func testThrottlesTheServiceAndTheNetworkPassAsTheyAre() async {
         route { _ in .json(#"{"error": {"code": "ApplicationThrottled", "message": "Too many requests"}}"#, status: 429,
                            headers: ["Retry-After": "7"]) }

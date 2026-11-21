@@ -247,8 +247,15 @@ extension GraphProvider: RuleProvider {
         return text.contains("quota") && text.contains("rule")
     }
 
-    /// Graph's error code, which `GraphErrorMapper` puts before the message.
-    private static func code(of message: String) -> String {
-        message.split(separator: ":", maxSplits: 1).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
+    /// Graph's error code, which `GraphErrorMapper` puts before the message, for a public log line. A reply without a code
+    /// leaves the message alone, whose words (which may name the sender) are never taken for one: a code is one word of
+    /// letters, digits and dots.
+    static func code(of message: String) -> String {
+        let head = message.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "."))
+        guard !head.isEmpty, head.unicodeScalars.allSatisfy({ allowed.contains($0) && $0.isASCII }) else {
+            return "no code"
+        }
+        return head
     }
 }
