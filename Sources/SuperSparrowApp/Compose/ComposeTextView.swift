@@ -94,6 +94,19 @@ final class ComposeTextView: NSTextView {
         }
     }
 
+    /// Help me write's block hanging below the body's last line (§5.56, the prompt line or the afterline under it): the
+    /// editor grows by it, so the quoted original moves down and the block stays inside the editor, where its clicks land.
+    var reservedBottom: CGFloat = 0 {
+        didSet {
+            guard oldValue != reservedBottom else { return }
+            invalidateIntrinsicContentSize()
+            enclosingScrollView?.layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// The areas of what Help me write lays on the text (its marks, §5.56), which keep their own pointer.
+    var markAreas: () -> [NSRect] = { [] }
+
     /// Kept alive here: in TextKit 1 the text view holds its container, the container points weakly at
     /// the layout manager, and the layout manager points weakly at the storage.
     private let ownedStorage: NSTextStorage
@@ -278,7 +291,7 @@ final class ComposeTextView: NSTextView {
     /// banner, a popover, the cheat sheet) keeps its own, and links keep the I-beam, since a click there places the
     /// caret.
     override func resetCursorRects() {
-        addTextPointerRects(cutting: overlyingSiblingAreas())
+        addTextPointerRects(cutting: overlyingSiblingAreas() + markAreas())
     }
 
     /// The frames of the views laid on the editor after it in its superview (the failed-send banner in its top inset),
@@ -297,7 +310,7 @@ final class ComposeTextView: NSTextView {
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         // An empty document still has its first line, so the caret has somewhere to sit.
-        let height = max(used.height, lineHeight)
+        let height = max(used.height, lineHeight) + reservedBottom
         return NSSize(width: NSView.noIntrinsicMetric, height: ceil(height) + topInset)
     }
 

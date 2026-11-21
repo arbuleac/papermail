@@ -2,8 +2,8 @@ import AppKit
 import SSCore
 
 /// A text view Help Me Write writes into (spec §5.56): the quick reply's field or a reply composer's body. The two
-/// owners answer what differs between them (whose text is the user's, where the Write control and the instruction strip
-/// sit, what the reply answers); `WriteSession` does the rest the same way for both.
+/// owners answer what differs between them (whose text is the user's, the host's height, what the reply answers);
+/// `WriteSession` and its marks in the text (`WriteInlineLayer`) do the rest the same way for both.
 @MainActor
 protocol WriteField: AnyObject {
     /// The text view the reply goes into. Its identity is the writer's field (`AIFieldID`).
@@ -20,14 +20,16 @@ protocol WriteField: AnyObject {
     /// What the write needs from the conversation, read now on the main thread (its bodies are read off it, after
     /// `keepBodies`); nil when the field answers nothing any more.
     func writeContext() -> WriteContextInputs?
-    /// The Write control in the field's tool row (the quick reply's row, the composer's bar).
-    var writeControl: WriteToolControl { get }
-    /// The instruction strip the field docks above its text.
-    var instructionStrip: WriteInstructionStrip { get }
-    /// Docks the strip above the text, or takes it away; the owner lays the field out again.
-    func setStripShown(_ shown: Bool)
-    /// The quick reply stays open around its text while the strip or a write holds it, though the keyboard may be in the
-    /// strip; a composer is always open.
+    /// Help me write's marks in the text, made by the field's owner with its text view.
+    var writeLayer: WriteInlineLayer { get }
+    /// The quick reply's placeholder (“Reply to Sam…”) shows on its empty text: the ghost follows its words, this far
+    /// after the caret. nil where there is none (a composer's body).
+    var placeholderWidth: CGFloat? { get }
+    /// A reserved block (the prompt line, the afterline) opened, closed or moved: the owner lays the field out again, its
+    /// height grown by the block's `overflow`.
+    func reservedSpaceDidChange()
+    /// The quick reply stays open around its text while the prompt line or a write holds it, though the keyboard may be in
+    /// the prompt line; a composer is always open.
     func setHeldOpen(_ held: Bool)
     /// Puts the keyboard in the text.
     func focusText()

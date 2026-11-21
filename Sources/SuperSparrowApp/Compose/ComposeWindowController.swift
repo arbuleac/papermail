@@ -110,6 +110,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var linkPopover: ComposeLinkPopover?
     /// Help me write on the body of a reply (§5.56), made the first time it is reached (`bodyWriteSession`).
     var writeSession: WriteSession?
+    /// Help me write's marks in the body's text (§5.56), made with the session; the pill floats on the body's page, which
+    /// holds it where it hangs under the body's last line.
+    private(set) lazy var bodyWriteLayer = WriteInlineLayer(textView: textView, floatHost: bodyDocument)
     /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`),
     /// and so does everything else that would take the half-written reply or edit around it: Send, ⌘↩, Send and Archive
     /// and Send Later, which would send it; From, whose signature swap the body would refuse; and the other fields,
@@ -489,7 +492,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         for row in [fromRow, toRow, ccRow, bccRow, subjectRow] { row.needsDisplay = true }
         for field in [toField, ccField, bccField] { field.windowKeyDidChange() }
         content.strip.windowKeyDidChange()
-        // The Write control's state is read from this Mac as the window comes forward (spec §3b: no provider is asked).
+        // Help me write's availability is read from this Mac as the window comes forward (spec §3b: no provider is asked).
         if note.name == NSWindow.didBecomeKeyNotification { bodyWriteSession?.refresh() }
         if note.name == NSWindow.didResignKeyNotification {
             for field in [toField, ccField, bccField] { field.closeAutocomplete() }
@@ -697,6 +700,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// the toggles follow the caret all the same (§5.20, Format row).
     func textViewDidChangeTypingAttributes(_ notification: Notification) {
         updateFormatState()
+    }
+
+    /// The body's right-click menu opens with Help Me Write's group on a reply (§5.56): the mouse's way to it, now that the
+    /// bar has no Write button. Showing it sends nothing.
+    func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        guard view === textView, let session = bodyWriteSession else { return menu }
+        for (index, item) in session.contextMenuItems().enumerated() { menu.insertItem(item, at: index) }
+        return menu
     }
 
     // MARK: Format row

@@ -138,7 +138,7 @@ public final class AIWriter {
     }
 
     /// The provider's health from this Mac alone (no network, no process): Settings › AI's status line as it opens and
-    /// the Write control's ready or dimmed state.
+    /// whether the reply's text shows Help me write's marks.
     public func localHealth(of configuration: AIProviderConfiguration) -> AIHealth {
         guard let provider = resolve(configuration) else {
             return .unavailable(reason: AIError.unavailable.message(for: configuration.kind))

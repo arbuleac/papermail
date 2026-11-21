@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.12.0"
+VERSION = "1.13.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -212,7 +212,8 @@ MOTION = {
               "spinnerDelay": 150, "skeletonDelay": 300, "gHudDelay": 500, "gSequenceWindow": 2000,
               "toastLife": 5000, "undoSendChoices": [5000, 10000, 20000], "toastCoalesce": 1000, "undoKeyGrace": 10000, "undoSendDefault": 5000,
               "sentConfirm": 1500, "copiedConfirm": 1500, "toastConfirm": 2000, "stripNotice": 3000, "spinnerTurn": 900, "contrailSweep": 1200,
-              "printImageWait": 3000, "nowTick": 60000},
+              "printImageWait": 3000, "nowTick": 60000,
+              "writeGhostPause": 700, "writeSelectionSettle": 250, "writePencilBob": 1600},
  "curve": {"settle": [0.2, 0.8, 0.2, 1.0], "leave": [0.4, 0.0, 1.0, 1.0], "glide": [0.4, 0.0, 0.2, 1.0], "linear": [0.0, 0.0, 1.0, 1.0]},
 }
 LAYOUT = {
@@ -319,20 +320,30 @@ LAYOUT = {
               "formatRow": 36, "formatToggle": 28, "formatGap": 2, "formatGroupGap": 12,
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
               "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8, "pictureSelectedWash": 0.45},
- # Help me write in place (§5.56, 1.12): the Write control in the quick reply's tool row and the composer's bar, a small
- # ghost button, `gap` before the status line that follows it; the hint's keycap only `hintGap` after Write's face, whose
- # own padding makes the rest of the space; the line's glyph or spinner is `statusGlyph`, `statusGlyphGap` before its
- # words; a keycap sits `keycapGap` before its words, a link `linkGap` after a dot. The hint shows once the user's own
- # text holds `hintMinWords` words, or with text selected. Text streaming in is drawn in `pencilInk` (ink2) and turns to
- # ink when the reply lands. Where the row is tight the hint gives way first (its short words, its keycap alone, none),
- # and only then Write its label; nothing is ever drawn past the room the row gives.
- "writeTool": {"gap": 8, "hintGap": 2, "statusGlyph": 12, "statusGlyphGap": 6, "keycapGap": 4, "linkGap": 3,
-               "hintMinWords": 2, "pencilInk": "ink2"},
- # The instruction strip (⇧⌘J), docked inside the reply above its text: a 28 pt field (`textField.height`), then
- # `chipsGap` and the three preset chips (small secondary buttons) `chipGap` apart; `gap` below it to the text. In the
- # composer it sits `composerPadTop` under the header rows, at the body's text inset. Chips leave from the last while
- # the field would be narrower than `fieldMinWidth`.
- "writeStrip": {"gap": 6, "chipsGap": 8, "chipGap": 4, "fieldMinWidth": 160, "composerPadTop": 12},
+ # Help me write at the caret (§5.56, 1.13): every affordance is drawn in the reply's own text, at or after the caret,
+ # the selection or the draft, never in a bar. The ghost (“⌘J to write a reply”, “⌘J to write from your notes”) starts
+ # `ghostGap` after the caret (or the quick reply's placeholder) on the caret's baseline, in the field's writing font; its
+ # quiet keycap (no fill, a hairline, `keycapHeight` tall, `keycapPadX` each side of its legend) sits `keycapGap` from its
+ # words. The notes ghost waits `ghostPause` after the last key; a selection settles `selectionSettle` after the last
+ # keyboard change. The selection pill hangs `pillGap` under the selection's last line: a capsule `pillHeight` tall,
+ # `pillPadX` in, its glyph `pillGlyph`, `pillGlyphGap` before “Rewrite”. A reserved block (the prompt line, the
+ # afterline) is a gap in the text's flow under its anchor line, `blockGapTop` above its content and `blockGapBottom`
+ # below. The prompt line is a `promptHeight` capsule, at most `promptMaxWidth` wide, `promptPadX` in, its glyph
+ # `promptGlyph` and `promptGlyphGap` before the field; `chipsGap` under it the preset chips, `chipHeight` tall, their
+ # words `chipPadX` in, `chipGap` apart. The afterline is one row `afterlineHeight` tall, its glyph `afterGlyph` and
+ # `afterGlyphGap` before its words, `afterGap` between its parts. While a reply streams, the pencil (`pencilGlyph`)
+ # sits `pencilGap` after the last letter and bobs `pencilBob` pt each way once every `pencilBobPeriod`, its esc keycap
+ # `keycapGap` on. Text streaming in is drawn in `pencilInk` (ink2) and turns to ink as the reply lands. The notes ghost
+ # shows once the user's own text holds `hintMinWords` words.
+ "writeCaret": {"ghostGap": 6, "keycapHeight": 16, "keycapPadX": 4, "keycapGap": 5,
+                "ghostPause": "motion.duration.writeGhostPause", "selectionSettle": "motion.duration.writeSelectionSettle",
+                "pillGap": 4, "pillHeight": 24, "pillPadX": 9, "pillGlyph": 12, "pillGlyphGap": 5,
+                "blockGapTop": 6, "blockGapBottom": 8,
+                "promptHeight": 32, "promptMaxWidth": 560, "promptPadX": 12, "promptGlyph": 14, "promptGlyphGap": 8,
+                "chipsGap": 6, "chipHeight": 20, "chipPadX": 7, "chipGap": 2,
+                "afterlineHeight": 20, "afterGlyph": 12, "afterGlyphGap": 5, "afterGap": 6,
+                "pencilGlyph": 13, "pencilGap": 2, "pencilBob": 1, "pencilBobPeriod": "motion.duration.writePencilBob",
+                "hintMinWords": 2, "pencilInk": "ink2"},
  "token": {"invalidGlyph": 10, "height": 22, "padX": 9, "gap": 4, "lineGrow": 26, "maxLines": 3, "rowMax": 88, "moreGap": 6},
  "autocomplete": {"width": 320, "row": 40, "avatar": 24, "maxRows": 6, "radius": 8, "pad": 4, "rowRadius": 5, "rowPadX": 8, "avatarGap": 10, "keycapTrailing": 8, "highlightRule": 3,
                   "anchor": "tokenStart", "offsetX": -46, "offsetY": 4},
@@ -504,10 +515,10 @@ CHEAT_SHEET = [
          ("G then O", "Outbox"), ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0 … ⌘9", "All Inboxes · one account"),
          ("[ ] T", "Day before · after · today")]),
  # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32). Help me
- # write (1.11, §5.56) makes Write nine rows, as long as View, so band 2 keeps its height.
+ # write (1.11, §5.56; at the caret since 1.13) makes Write nine rows, as long as View, so band 2 keeps its height.
  ("Write", [("C", "New message"), ("R A", "Reply · reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"),
            ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files"),
-           ("⌘J ⇧⌘J", "Write · say how")]),
+           ("⌘J ⇧⌘J", "Write at caret · say how")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⌥⌘I", "Insert picture"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
  ("View", [("⇧⌘I ⇧⌘O", "Images · original colors"), (".", "Show · hide quoted text"), ("⌥⌘F", "Find in conversation"),

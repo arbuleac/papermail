@@ -121,6 +121,9 @@ extension Quire {
         public static let contrailSweep: TimeInterval = 1.2
         public static let printImageWait: TimeInterval = 3
         public static let nowTick: TimeInterval = 60
+        public static let writeGhostPause: TimeInterval = 0.7
+        public static let writeSelectionSettle: TimeInterval = 0.25
+        public static let writePencilBob: TimeInterval = 1.6
 
         public enum Curve: String, CaseIterable, Sendable {
             case settle

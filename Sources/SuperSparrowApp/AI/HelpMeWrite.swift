@@ -6,7 +6,7 @@ import SSCore
 /// Help Me Write's half in the app (spec §5.56): one per `AppEnvironment`, holding the `AIWriter` the UI writes through,
 /// the API-key store Settings › AI writes, and where the provider choice and the permission given in Settings › AI are
 /// read. The reply's sessions (`WriteSession`) and Settings › AI reach it; nothing else does. Nothing here reaches beyond
-/// this Mac until the user presses Write or Check (spec §3b): the Write control's state comes from local facts only.
+/// this Mac until the user asks for a write or presses Check (spec §3b): what the text shows comes from local facts only.
 ///
 /// The real environment resolves providers through `AIProviderFactory` with the Keychain; the demo and the app's tests
 /// resolve every provider to the demo writer, which writes canned replies on this Mac (`DemoAIProvider`).
@@ -39,7 +39,7 @@ final class HelpMeWrite {
     var consentOverride: Set<AIProviderKind> = []
     /// Snapshots: Help Me Write shows as off whatever Settings › AI chose.
     var forcesOff = false
-    /// Settings… on a Write line: Settings › AI. The app delegate sets it.
+    /// Settings… on the afterline: Settings › AI. The app delegate sets it.
     var openSettings: () -> Void = {}
     /// Shows Settings › AI's privacy sheet; the app's tests replace it to answer it.
     var presentAlert: (AppAlert, NSWindow?, @escaping AppAlert.Completion) -> Void = { alert, window, done in
@@ -101,9 +101,9 @@ final class HelpMeWrite {
         await endProcesses()
     }
 
-    // MARK: What the Write control shows
+    // MARK: What the text shows
 
-    /// Posted (object: this) when what the Write control shows may have changed: the provider, its permission, a key, a
+    /// Posted (object: this) when what Help me write shows in the text may have changed: the provider, its permission, a key, a
     /// CLI chosen. Hosts read `availability()` again.
     static let availabilityDidChange = Notification.Name("HelpMeWrite.availabilityDidChange")
 
@@ -128,7 +128,7 @@ final class HelpMeWrite {
 
     /// Whether the reply can be written in now, from this Mac's facts alone (spec §3b): a provider chosen and turned on,
     /// a key stored or a CLI found at a version this build runs. No network, no process.
-    func availability() -> WriteToolControl.Availability {
+    func availability() -> WriteAvailability {
         guard let configuration else { return .off }
         let kind = configuration.kind
         guard hasConsent(for: kind) else { return .unavailable(reason: Self.turnOnWords) }
@@ -151,8 +151,7 @@ final class HelpMeWrite {
         availabilityChanged()
     }
 
-    /// Who writes, in the Write line's words: “Writing with Claude…”, “Written by Claude”. The demo's writer is the demo,
-    /// never a model (§5.56).
+    /// Who writes, in the afterline's words: “Written by Claude”. The demo's writer is the demo, never a model (§5.56).
     func writerName(for kind: AIProviderKind) -> String {
         if makesUpReplies(for: kind) { return "the demo" }
         switch kind {
@@ -212,8 +211,8 @@ final class HelpMeWrite {
     /// The source line in the demo, where no model writes: what is shown is attributed truthfully (§5.56).
     static let demoSourceLine = "Demo \u{00b7} made up on this Mac"
 
-    /// The source line for `configuration` (the Write control's tooltips): the model and its company, or the demo's when
-    /// the demo writes.
+    /// The source line for `configuration` (the afterline's tooltip): the model and its company, or the demo's when the
+    /// demo writes.
     func sourceLine(for configuration: AIProviderConfiguration) -> String {
         makesUpReplies(for: configuration.kind) ? Self.demoSourceLine : configuration.sourceLine
     }

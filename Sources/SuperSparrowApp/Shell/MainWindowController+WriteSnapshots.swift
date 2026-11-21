@@ -3,23 +3,29 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// `--snapshot-state=write-…` (debug builds): Help me write in place (spec §5.56), on the quick reply with `--snapshot`
+/// `--snapshot-state=write-…` (debug builds): Help me write at the caret (spec §5.56), on the quick reply with `--snapshot`
 /// and on a reply composer with `--snapshot-compose`. The provider and its permission are held in memory for the run,
-/// never saved; the demo writer writes, so nothing leaves the Mac.
+/// never saved; the demo writer writes, so nothing leaves the Mac. Renders launched from a terminal may never be the key
+/// window: the session draws as in the key window.
 ///
-/// - `write-hint`: notes typed, the Write control and its hint “⌘J writes from your notes”;
-/// - `write-writing`: a reply part-way in, in pencil, held there, the line “Writing with … esc”;
-/// - `write-written`: the reply landed, “Written by … · ⌘J Try again · ⌘Z Undo”;
-/// - `write-strip`: ⇧⌘J's strip docked above the notes, an instruction typed, the chips;
-/// - `write-failed`: the key refused, the line in `danger` with Try again and Settings…;
+/// - `write-ghost-empty`: the empty reply focused, the ghost “⌘J to write a reply” after the caret;
+/// - `write-ghost-notes`: notes typed, the ghost “⌘J to write from your notes” after them, as after a pause;
+/// - `write-pill`: the notes' second half selected, the pill “Rewrite ⌘J” under it (on its line in the quick reply);
+/// - `write-pill-start`: the notes' first words selected, text after them on their line;
+/// - `write-prompt`: ⇧⌘J's prompt line under the notes, an instruction typed, the chips;
+/// - `write-writing`: a reply part-way in, in pencil, held there, the pencil mark after it;
+/// - `write-written`: the reply landed, the afterline under it;
+/// - `write-failed`: the key refused, the afterline in `danger` with Try again and Settings…;
 /// - `write-rewrite`: part of the notes selected and rewritten, held mid-stream;
-/// - `write-unavailable`: a provider chosen but not turned on, the Write control dimmed.
+/// - `write-unavailable`: a provider chosen but not turned on, ⌘J pressed: the reason under the caret's line.
 @MainActor
 enum WriteSnapshotStates {
-    static let states = ["write-hint", "write-writing", "write-written", "write-strip", "write-failed", "write-rewrite",
-                         "write-unavailable"]
+    static let states = ["write-ghost-empty", "write-ghost-notes", "write-pill", "write-pill-start", "write-prompt", "write-writing", "write-written",
+                         "write-failed", "write-rewrite", "write-unavailable"]
 
-    static let notes = "tue 10 works, I'll bring the budget"
+    /// Typed with its curly apostrophe, as the text's smart quotes would leave it: their late substitution would move the
+    /// caret and collapse a staged selection.
+    static let notes = "tue 10 works, I\u{2019}ll bring the budget"
     static let reply = "Tuesday at ten works for me. I\u{2019}ll bring the draft budget, and we can go through the open "
         + "questions on the venue together."
 
@@ -49,36 +55,40 @@ enum WriteSnapshotStates {
         center.availabilityChanged()
     }
 
+    /// The second half of the notes, “I'll bring the budget”.
+    private static func secondHalf(of textView: NSTextView) -> NSRange {
+        let text = textView.string as NSString
+        let range = text.range(of: "I\u{2019}ll bring the budget")
+        return range.location == NSNotFound ? text.range(of: "I'll bring the budget") : range
+    }
+
     /// Types the notes into `textView` and stages `state` on `session`.
     static func stage(_ state: String, session: WriteSession, textView: NSTextView, all: Set<String>) {
         textView.window?.makeFirstResponder(textView)
-        let own = session.field.ownTextRange
-        textView.insertText(notes, replacementRange: own)
-        session.refresh()
-        if all.contains("key") {
-            // A snapshot launched from a terminal may never be the key window: the controls draw their key-window look.
-            @MainActor func forceKey(_ view: NSView) {
-                (view as? QuireControl)?.windowKeyOverride = true
-                view.subviews.forEach(forceKey)
-            }
-            forceKey(session.field.writeControl)
-            forceKey(session.field.instructionStrip)
+        session.assumesKeyWindow = true
+        if state != "write-ghost-empty" {
+            let own = session.field.ownTextRange
+            textView.insertText(notes, replacementRange: own)
         }
+        session.refresh()
         switch state {
-        case "write-writing", "write-written", "write-failed":
+        case "write-ghost-notes":
+            session.showNotesGhostNow()
+        case "write-pill":
+            textView.setSelectedRange(secondHalf(of: textView))
+        case "write-pill-start":
+            textView.setSelectedRange(NSRange(location: session.field.ownTextRange.location, length: 6))
+        case "write-writing", "write-written", "write-failed", "write-unavailable":
             session.write()
         case "write-rewrite":
-            // “I'll bring the budget”: the second half of the notes.
-            let text = textView.string as NSString
-            let range = text.range(of: "I\u{2019}ll bring the budget")
-            textView.setSelectedRange(range.location == NSNotFound ? text.range(of: "I'll bring the budget") : range)
+            textView.setSelectedRange(secondHalf(of: textView))
             session.write()
-        case "write-strip":
-            session.showStrip()
-            session.field.instructionStrip.instruction = "Warmer, and offer Wednesday too"
-            let typed = (session.field.instructionStrip.instruction as NSString).length
-            (session.field.instructionStrip.field.textField.currentEditor() as? NSTextView)?
-                .setSelectedRange(NSRange(location: typed, length: 0))
+        case "write-prompt":
+            session.showPrompt()
+            let prompt = session.layer.prompt
+            prompt.instruction = "Warmer, and offer Wednesday too"
+            let typed = (prompt.instruction as NSString).length
+            (prompt.field.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: typed, length: 0))
         default:
             break
         }

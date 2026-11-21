@@ -115,7 +115,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 scheduleMarkRead(for: id)
                 scheduleAcknowledge(for: id)
             } else if !isOnScreen {
-                // Help me write's card belongs to a bar on screen (§5.56): it closes, a reply streaming in put back.
+                // Help me write belongs to a bar on screen (§5.56): it ends, a reply streaming in put back.
                 endHelpMeWrite()
                 markReadTimer?.invalidate()
                 markReadTimer = nil
@@ -364,8 +364,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         quickReply.willHideText = { [weak self] in self?.endHelpMeWrite() }
         quickReply.onUserEdit = { [weak self] in self?.writeSession?.userDidEdit() }
         quickReply.onSelectionChange = { [weak self] in self?.writeSession?.selectionDidChange() }
-        // The Write control's state is read from this Mac as the bar takes the keyboard (spec §3b: nothing is asked of a
-        // provider until Write).
+        // Help me write's availability is read from this Mac as the bar takes the keyboard (spec §3b: nothing is asked of a
+        // provider until the user asks for a write).
         quickReply.onFocusChange = { [weak self] focused in
             if focused { self?.quickReplyWriteSession?.refresh() }
         }

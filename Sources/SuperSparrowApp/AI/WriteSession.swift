@@ -3,16 +3,20 @@ import SSCore
 import SSDesign
 import os
 
-/// Help me write on one reply, in place (spec §5.56): the quick reply's field or a reply composer's body, with its Write
-/// control in the tool row and its instruction strip docked above the text. No card: ⌘J (or Write) starts at once and
-/// the reply streams into the field in pencil, replacing the user's notes (or the selection), then lands in ink as one
-/// undoable step, “Undo Help Me Write”, which brings the notes back. Right after, ⌘J tries again from the same notes; once
-/// the user edits the draft, ⌘J writes from what the field holds now. ⇧⌘J opens the strip to say how.
+/// Help me write on one reply, at the caret (spec §5.56): the quick reply's field or a reply composer's body. Everything
+/// it shows is in the text itself (`WriteInlineLayer`): the ghost “⌘J to write a reply” after the caret, “⌘J to write from
+/// your notes” once the user pauses at the end of them, the pill “Rewrite ⌘J” under a settled selection, ⇧⌘J's prompt
+/// line under the caret's line, the pencil after the last word while a reply streams, and the afterline under the draft.
+/// ⌘J (or the ghost, the pill, the context menu) starts at once: the reply streams into the field in pencil, replacing the
+/// user's notes (or the selection), then lands in ink as one undoable step, “Undo Help Me Write”, which brings the notes
+/// back. Right after, ⌘J tries again from the same notes; once the user edits the draft, ⌘J writes from what the field
+/// holds now.
 ///
-/// Nothing about the conversation is read, built or sent before the user's Write (spec §3b): the control's state comes
-/// from this Mac's facts alone (`HelpMeWrite.availability`), and the write itself is the one place in the app that makes a
-/// write's `AIUserAction`. There is no permission sheet here: permission is given in Settings › AI when a provider is
-/// chosen; without it, ⌘J says so in the tool row and sends nothing.
+/// Nothing about the conversation is read, built or sent before the user acts (spec §3b): what shows comes from this
+/// Mac's facts alone (`HelpMeWrite.availability`), and the write itself is the one place in the app that makes a write's
+/// `AIUserAction`. The ghost's and the pill's timers are local; showing any mark, opening the prompt line or the context
+/// menu sends nothing. There is no permission sheet here: permission is given in Settings › AI when a provider is
+/// chosen; without it, ⌘J says so under the caret's line and sends nothing.
 ///
 /// The quick reply's owner and each reply composer keep one session for as long as the reply lives. `end()` stops its
 /// write first: the writer's field is the text view's identity, and a write must never outlive the reply it fills.
@@ -21,17 +25,26 @@ final class WriteSession {
     let center: HelpMeWrite
     /// The field's adapter, which holds its owner weakly: the owner keeps the session, the session keeps the adapter.
     let field: WriteField
+    /// The marks in the text.
+    let layer: WriteInlineLayer
 
-    /// What the session is doing, as the Write control shows it.
-    private(set) var phase: WriteToolControl.Phase = .idle {
+    /// What the session is doing, as the text shows it.
+    private(set) var phase: WritePhase = .idle {
         didSet {
             guard oldValue != phase else { return }
-            field.writeControl.phase = phase
+            render()
         }
     }
 
-    /// The strip is docked above the text.
-    private(set) var isStripShown = false
+    /// Whether Help me write can write here now, from this Mac's facts (read again on `refresh()`).
+    private(set) var availability: WriteAvailability = .off
+
+    /// Where the prompt line hangs while it shows.
+    private var promptAnchor: WriteInlineLayer.Anchor?
+    var isPromptShown: Bool { promptAnchor != nil }
+
+    /// Where a failure's afterline hangs: under the caret's line as ⌘J was pressed.
+    private var failureAnchor: WriteInlineLayer.Anchor = .caret(0)
 
     /// The last reply written here, while it stands as written: Try again replaces it from the same notes.
     private struct Draft {
@@ -48,6 +61,9 @@ final class WriteSession {
         var textBefore: String
         /// The selection before ⌘J (the caret, usually), which ⌘Z puts back with the notes.
         var selection: [NSValue]
+        /// Who wrote it, for the afterline.
+        var writer: String
+        var source: String?
     }
 
     private var lastDraft: Draft?
@@ -65,6 +81,23 @@ final class WriteSession {
     private var isChangingText = false
     private var responderObservation: NSKeyValueObservation?
     private var availabilityObserver: NSObjectProtocol?
+    private var windowObservers: [NSObjectProtocol] = []
+    private weak var observedWindow: NSWindow?
+
+    /// The notes ghost waits for a pause in the typing (`layout.writeCaret.ghostPause`); a selection made from the keyboard
+    /// settles before its pill shows (`selectionSettle`). Both timers are this Mac's alone.
+    private var ghostTimer: Timer?
+    private var notesGhostReady = false
+    private var pillTimer: Timer?
+    private var selectionSettled = true
+
+    /// Renders launched from a terminal stand for the key window, which they may never be (debug snapshots).
+    var assumesKeyWindow = false {
+        didSet {
+            layer.windowKeyOverride = assumesKeyWindow ? true : nil
+            render()
+        }
+    }
 
     private static let logger = Logger(subsystem: "io.supersparrow.mac", category: "ai")
     private static let signposter = OSSignposter(subsystem: "io.supersparrow.mac", category: "ai")
@@ -79,17 +112,16 @@ final class WriteSession {
     init(center: HelpMeWrite, field: WriteField) {
         self.center = center
         self.field = field
-        let control = field.writeControl
-        control.onWrite = { [weak self] in self?.writeFromControl() }
-        control.onStop = { [weak self] in self?.stop() }
-        control.onTryAgain = { [weak self] in self?.writeFromControl() }
-        control.onUndo = { [weak self] in self?.undoDraft() }
-        control.onOpenSettings = { [weak self] in self?.openSettings() }
-        control.onSayHow = { [weak self] in self?.sayHowFromControl() }
-        control.onPreset = { [weak self] preset in self?.runPresetFromControl(preset) }
-        let strip = field.instructionStrip
-        strip.onRun = { [weak self] instruction in self?.run(instruction: instruction) }
-        strip.onEscape = { [weak self] in _ = self?.stripEscape() }
+        layer = field.writeLayer
+        layer.ghost.onPress = { [weak self] in self?.writeFromMark() }
+        layer.pill.onPress = { [weak self] in self?.writeFromMark() }
+        layer.pencil.onPress = { [weak self] in self?.stop() }
+        layer.afterline.onAction = { [weak self] action in self?.afterlineAction(action) }
+        layer.prompt.onRun = { [weak self] instruction in self?.runFromPrompt(instruction) }
+        layer.prompt.onEscape = { [weak self] in _ = self?.promptEscape() }
+        layer.prompt.onFocusChange = { [weak self] in self?.layer.prompt.needsDisplay = true }
+        layer.onReservedSpaceChange = { [weak field] in field?.reservedSpaceDidChange() }
+        layer.onScroll = { [weak self] in self?.textDidScroll() }
         availabilityObserver = NotificationCenter.default.addObserver(forName: HelpMeWrite.availabilityDidChange, object: center,
                                                                       queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
@@ -99,6 +131,9 @@ final class WriteSession {
 
     deinit {
         if let availabilityObserver { NotificationCenter.default.removeObserver(availabilityObserver) }
+        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+        ghostTimer?.invalidate()
+        pillTimer?.invalidate()
     }
 
     var isWriting: Bool { phase == .writing }
@@ -111,25 +146,69 @@ final class WriteSession {
 
     private var textView: NSTextView { field.writeTextView }
 
-    // MARK: What the control shows
+    // MARK: What the text shows
 
-    /// Reads the provider's state again from this Mac (the field took the keyboard, Settings changed) and the hint.
+    /// Reads the provider's state again from this Mac (the field took the keyboard, Settings changed) and shows it.
     func refresh() {
-        field.writeControl.availability = center.availability()
-        updateHint()
+        availability = center.availability()
+        layer.prompt.writer = availability.writer
         watchTheKeyboard()
+        render()
     }
 
-    /// The hint says what ⌘J does with the user's text (§5.56): with text selected, it rewrites the selection; once the
-    /// user's own text holds a few words, it writes from them, their notes.
-    private func updateHint() {
-        if rewritableSelection != nil {
-            field.writeControl.hint = .selection
-        } else if Self.wordCount(in: ownText) >= Int(Quire.Layout.WriteTool.hintMinWords) {
-            field.writeControl.hint = .notes
-        } else {
-            field.writeControl.hint = nil
+    /// The marks the text shows now, from the phase, the caret, the selection and the provider's state.
+    private func render() {
+        layer.textAttributes = field.writeAttributes(at: NSRange(location: textView.selectedRange().location, length: 0))
+        var state = WriteInlineLayer.State()
+        if isWriting {
+            state.pencil = edit.map { NSMaxRange($0.range) }
+        } else if let promptAnchor {
+            state.block = .prompt(promptAnchor)
+        } else if phase == .written, let lastDraft, textView.string == lastDraft.textAfter {
+            let end = lastDraft.range.location + (lastDraft.reply as NSString).length
+            state.block = .afterline(.end(end), .written(writer: lastDraft.writer, rewrite: lastDraft.isRewrite, source: lastDraft.source))
+        } else if case .failed(let reason, let settings) = phase {
+            state.block = .afterline(failureAnchor, .failed(reason: reason, offersSettings: settings))
         }
+        if !isWriting, canShowMarks {
+            // Read once a keystroke: a composer finds its signature by walking the body's attributes.
+            let own = field.ownTextRange
+            if !isPromptShown, selectionSettled, let selection = rewritableSelection, NSMaxRange(selection) <= NSMaxRange(own) {
+                state.pill = selection
+            }
+            if state.block == nil { state.ghost = ghost(own: own) }
+        }
+        layer.apply(state)
+    }
+
+    /// The text has the keyboard in a key window, a provider is ready and no marked text (an input method's) is open:
+    /// the ghost and the pill may show.
+    private var canShowMarks: Bool {
+        guard availability.isReady, let window = textView.window, window.firstResponder === textView, !textView.hasMarkedText(),
+              !textView.isHiddenOrHasHiddenAncestor else { return false }
+        return assumesKeyWindow || window.isKeyWindow
+    }
+
+    /// The ghost after the caret (§5.56): on an empty reply at once; at the end of a paragraph of the user's notes once
+    /// they pause; never mid-line, never in the signature.
+    private func ghost(own: NSRange) -> WriteInlineLayer.Ghost? {
+        let selection = textView.selectedRange()
+        guard selection.length == 0 else { return nil }
+        let text = textView.string as NSString
+        let at = selection.location
+        guard at >= own.location, at <= NSMaxRange(own) else { return nil }
+        // At the end of a paragraph: the next letter is a line break, or the user's text ends there.
+        guard at == NSMaxRange(own) || (at < text.length && WriteTextGeometry.isLineEnd(text.character(at: at))) else { return nil }
+        // Never the whole notes copied or counted on each key: the first letter, then the first few words, are enough.
+        guard NSMaxRange(own) <= text.length else { return nil }
+        if text.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted, options: [], range: own).location == NSNotFound {
+            if let offset = field.placeholderWidth {
+                return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostAfterPlaceholder, offset: offset)
+            }
+            return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostReply)
+        }
+        guard notesGhostReady, Self.hasWords(Int(Quire.Layout.WriteCaret.hintMinWords), in: text, range: own) else { return nil }
+        return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostNotes, fades: true)
     }
 
     /// The selection ⌘J would rewrite, less its leading and trailing blanks: nil with nothing selected, or a selection of
@@ -143,11 +222,29 @@ final class WriteSession {
         return core
     }
 
-    /// The selection moved: the hint, and the open strip's placeholder, follow what ⌘J would rewrite.
+    /// The selection moved (a click, the arrows, a drag let go): the ghost goes until the next pause, the pill follows the
+    /// selection once it has settled, and the open prompt's placeholder follows what ⌘J would rewrite.
     func selectionDidChange() {
         guard !isWriting, !isChangingText else { return }
-        updateHint()
-        if isStripShown { field.instructionStrip.rewritesSelection = rewritableSelection != nil }
+        restartGhostPause()
+        pillTimer?.invalidate()
+        pillTimer = nil
+        if rewritableSelection != nil, NSApp.currentEvent?.type == .keyDown {
+            // ⇧→ held or repeated: the pill waits until the selection stops moving.
+            selectionSettled = false
+            let timer = Timer(timeInterval: Quire.Motion.writeSelectionSettle, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.selectionSettled = true
+                    self?.render()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            pillTimer = timer
+        } else {
+            selectionSettled = true
+        }
+        if isPromptShown { layer.prompt.rewritesSelection = rewritableSelection != nil }
+        render()
     }
 
     private var ownText: String {
@@ -162,22 +259,70 @@ final class WriteSession {
         text.split(whereSeparator: { $0.isWhitespace }).filter { $0.contains { $0.isLetter || $0.isNumber } }.count
     }
 
-    /// The user changed the text (typing, a paste, an undo): a line about the last reply or a failure goes, and Try again
-    /// with it.
+    /// Whether `range` of `text` holds at least `count` words (`wordCount`'s words), reading no further than they reach.
+    static func hasWords(_ count: Int, in text: NSString, range: NSRange) -> Bool {
+        guard count > 0 else { return true }
+        let blank = CharacterSet.whitespacesAndNewlines
+        let wordy = CharacterSet.letters.union(.decimalDigits)
+        var found = 0
+        var inRun = false
+        var runHasWord = false
+        var index = range.location
+        let end = NSMaxRange(range)
+        while index < end {
+            let unit = text.character(at: index)
+            let isBlank = UnicodeScalar(unit).map { blank.contains($0) } ?? false
+            if isBlank {
+                if inRun, runHasWord { found += 1; if found >= count { return true } }
+                inRun = false
+                runHasWord = false
+            } else {
+                inRun = true
+                // A surrogate half is part of a letter outside the BMP: it counts as one.
+                if UnicodeScalar(unit).map({ wordy.contains($0) }) ?? true { runHasWord = true }
+            }
+            index += 1
+        }
+        if inRun, runHasWord { found += 1 }
+        return found >= count
+    }
+
+    /// The user changed the text (typing, a paste, an undo): the afterline about the last reply or a failure goes, and
+    /// Try again with it; the notes ghost waits for the next pause.
     func userDidEdit() {
         guard !isChangingText else { return }
-        if phase == .written || isFailed { phase = .idle }
+        if phase == .written || phase.isFailed { phase = .idle }
         // ⌘Z back to the notes and ⌘⇧Z back to the reply keep Try again: a redone reply is tried again from its notes.
         if phase != .writing, let lastDraft, textView.string != lastDraft.textAfter, textView.string != lastDraft.textBefore {
             self.lastDraft = nil
         }
-        updateHint()
+        restartGhostPause()
+        render()
     }
 
-    private var isFailed: Bool {
-        if case .failed = phase { return true }
-        return false
+    /// The notes ghost goes now and comes back once the user has paused (`ghostPause`).
+    private func restartGhostPause() {
+        notesGhostReady = false
+        ghostTimer?.invalidate()
+        let timer = Timer(timeInterval: Quire.Motion.writeGhostPause, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.notesGhostReady = true
+                self.render()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        ghostTimer = timer
     }
+
+    private func textDidScroll() {
+        guard notesGhostReady, layer.state.ghost != nil else { return }
+        restartGhostPause()
+        render()
+    }
+
+    /// The text's own I-beam is cut out of the marks (§4.17): each keeps its own pointer.
+    var pointerHoles: [NSRect] { layer.pointerHoles }
 
     // MARK: What ⌘J does now
 
@@ -210,29 +355,57 @@ final class WriteSession {
         }
     }
 
+    // MARK: The context menu
+
+    /// The text's right-click menu's Help Me Write group (§5.56), at its top while a provider is on: what ⌘J does here,
+    /// then Say How…, then a separator. Showing it sends nothing; choosing an item does what its key does.
+    func contextMenuItems() -> [NSMenuItem] {
+        guard availability != .off, !isWriting else { return [] }
+        let write = WriteMenuAction.item(menuTitle(withInstructions: false), key: "j", modifiers: .command) { [weak self] in
+            self?.writeFromMark()
+        }
+        let sayHow = WriteMenuAction.item("Say How\u{2026}", key: "j", modifiers: [.command, .shift]) { [weak self] in
+            self?.sayHowFromMark()
+        }
+        return [write, sayHow, .separator()]
+    }
+
     // MARK: Writing
 
-    /// The Write button or a line's Try again: the keyboard goes to the text first, so a selection there counts.
-    private func writeFromControl() {
-        if textView.window?.firstResponder !== textView, !field.instructionStrip.holdsFocus { field.focusText() }
+    /// The ghost, the pill, the afterline's Try again or the context menu: the keyboard goes to the text first, so a
+    /// selection there counts.
+    private func writeFromMark() {
+        if textView.window?.firstResponder !== textView, !layer.promptHoldsFocus { field.focusText() }
         write()
     }
 
-    /// ⌘J: Try again, a selection's rewrite, or a reply from the notes, with the strip's instruction while it shows.
+    /// ⌘J: Try again, a selection's rewrite, or a reply from the notes, with the prompt line's instruction while it shows.
     func write() {
-        run(instruction: isStripShown ? field.instructionStrip.instruction.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
+        if isPromptShown {
+            runFromPrompt(layer.prompt.instruction.trimmingCharacters(in: .whitespacesAndNewlines))
+            return
+        }
+        run(instruction: nil)
     }
 
-    /// Runs a write with `instruction` (the strip's ↩ or a chip; nil: ⌘J's own, the last draft's on Try again).
+    /// The prompt line's ↩ or a chip: the line closes, its words kept for the next ⇧⌘J, and the write runs with them.
+    private func runFromPrompt(_ instruction: String) {
+        guard !isWriting else { return }
+        closePrompt(focusText: true)
+        run(instruction: instruction)
+    }
+
+    /// Runs a write with `instruction` (the prompt line's ↩, a chip, Shorter; nil: ⌘J's own, the last draft's on Try again).
     func run(instruction: String?) {
         guard !isWriting else { return }
         refresh()
+        failureAnchor = .caret(textView.selectedRange().location)
         guard let configuration = center.configuration else {
             phase = .failed(reason: HelpMeWrite.offWords, offersSettings: true)
             announceFailure(HelpMeWrite.offWords)
             return
         }
-        if case .unavailable(let reason) = field.writeControl.availability {
+        if case .unavailable(let reason) = availability {
             phase = .failed(reason: reason, offersSettings: true)
             announceFailure(reason)
             return
@@ -308,17 +481,17 @@ final class WriteSession {
         field.refusesEdits = true
         field.setHeldOpen(true)
         markStreaming(true, in: textView.window)
-        field.writeControl.isRewriting = isRewrite
         phase = .writing
         QuireAccessibility.announce((isRewrite ? "Rewriting with " : "Writing with ") + center.writerName(for: configuration.kind),
-                                    from: field.writeControl)
+                                    from: textView)
 
         let writer = center.writer
         let signature = context.appendsSignature
-        // The one place a write's user action is made: the user pressed Write, ⌘J, ⇧⌘J's ↩, a chip or Try again.
+        // The one place a write's user action is made: the user pressed ⌘J, the ghost, the pill, a menu item, the prompt
+        // line's ↩ or a chip, Try again or Shorter.
         let action = AIUserAction(userPressed: .write)
         writeTask = Task { [weak self] in
-            // Read and redacted off the main thread, only now that Write was pressed (§5.56: nothing before).
+            // Read and redacted off the main thread, only now that the user asked (§5.56: nothing before).
             let built = await Task.detached(priority: .userInitiated) { context.build(ask: ask) }.value
             guard let self, self.generation == mine, !Task.isCancelled else { return }
             let request = WritePrompt.request(for: built, appendsSignature: signature, configuration: configuration)
@@ -377,52 +550,57 @@ final class WriteSession {
     // MARK: Stopping
 
     /// Esc in the text (claimed before anything else answers it, §6.1): a write stops and the notes come back exactly;
-    /// else the strip closes. False when neither applies, so Esc goes on as it would.
+    /// else the prompt line closes; else the afterline goes, the draft kept. False when none applies, so Esc goes on as it
+    /// would.
     @discardableResult
     func escape() -> Bool {
         if isWriting {
             stop()
             return true
         }
-        if isStripShown {
-            closeStrip(focusText: true)
+        if isPromptShown {
+            closePrompt(focusText: true)
+            return true
+        }
+        if phase == .written || phase.isFailed {
+            phase = .idle
             return true
         }
         return false
     }
 
-    /// Esc in the strip: a write stops; else the strip closes and the keyboard goes back to the text.
+    /// Esc in the prompt line: a write stops; else the line closes and the keyboard goes back to the text.
     @discardableResult
-    func stripEscape() -> Bool {
+    func promptEscape() -> Bool {
         if isWriting {
             stop()
         } else {
-            closeStrip(focusText: true)
+            closePrompt(focusText: true)
         }
         return true
     }
 
-    /// Stop or Esc while writing: the field comes back as it was, at once.
+    /// Stop, the pencil or Esc while writing: the field comes back as it was, at once.
     func stop() {
         guard isWriting else { return }
         let keyboardWasHere = keyboardIsHere
         stopWriting()
         phase = .idle
-        field.setHeldOpen(isStripShown)
-        if keyboardWasHere, !field.instructionStrip.holdsFocus { field.focusText() }
-        QuireAccessibility.announce("Stopped", from: field.writeControl)
+        field.setHeldOpen(isPromptShown)
+        if keyboardWasHere, !layer.promptHoldsFocus { field.focusText() }
+        QuireAccessibility.announce("Stopped", from: textView)
     }
 
     /// The reply goes away (another conversation, text set from outside, sent, the window closing): a write stops with the
-    /// field put back, the strip closes, and Try again and the strip's instruction are forgotten.
+    /// field put back, the prompt line closes, and Try again and the prompt's instruction are forgotten.
     func end() {
         stopWriting()
-        phase = .idle
         lastDraft = nil
-        field.instructionStrip.instruction = ""
-        if isStripShown { setStrip(false) }
+        layer.prompt.instruction = ""
+        promptAnchor = nil
+        phase = .idle
         field.setHeldOpen(false)
-        updateHint()
+        render()
     }
 
     private func stopWriting() {
@@ -450,46 +628,64 @@ final class WriteSession {
         let keyboardWasHere = keyboardIsHere
         stopWriting()
         phase = .idle
-        field.setHeldOpen(isStripShown)
-        if keyboardWasHere, !field.instructionStrip.holdsFocus { field.focusText() }
+        field.setHeldOpen(isPromptShown)
+        if keyboardWasHere, !layer.promptHoldsFocus { field.focusText() }
     }
 
-    // MARK: The instruction strip (⇧⌘J)
+    // MARK: The prompt line (⇧⌘J)
 
-    /// ⇧⌘J: the strip docks above the text with the keyboard in it, its last instruction kept (and selected).
-    func showStrip() {
-        if !isStripShown { setStrip(true) }
-        field.instructionStrip.rewritesSelection = rewritableSelection != nil
-        field.instructionStrip.focus()
-    }
-
-    /// The written line's Say how, or Write's menu: the strip, as ⇧⌘J opens it.
-    private func sayHowFromControl() {
+    /// ⇧⌘J: the prompt line opens under the caret's line (a selection's last line; a draft's, right after one), the
+    /// keyboard in it, its last instruction kept and selected. Opening it sends nothing.
+    func showPrompt() {
         guard !isWriting else { return }
-        if !isStripShown, textView.window?.firstResponder !== textView { field.focusText() }
-        showStrip()
+        if !isPromptShown {
+            if let selection = rewritableSelection {
+                promptAnchor = .end(NSMaxRange(selection))
+            } else if phase == .written, let lastDraft, textView.string == lastDraft.textAfter {
+                promptAnchor = .end(lastDraft.range.location + (lastDraft.reply as NSString).length)
+            } else {
+                promptAnchor = .caret(textView.selectedRange().location)
+            }
+            // One block at a time: the prompt takes the afterline's place; Try again stays a ⌘J away.
+            if phase == .written || phase.isFailed { phase = .idle }
+            field.setHeldOpen(true)
+            render()
+            QuireAccessibility.announce("Help Me Write instructions", from: layer.prompt)
+        }
+        layer.prompt.rewritesSelection = rewritableSelection != nil
+        layer.prompt.focus()
     }
 
-    /// A preset from Write's menu: run as the strip's chip runs it, the strip showing what was asked.
-    private func runPresetFromControl(_ preset: String) {
+    /// The afterline's Say how or the context menu: the prompt line, as ⇧⌘J opens it.
+    private func sayHowFromMark() {
         guard !isWriting else { return }
-        if textView.window?.firstResponder !== textView, !field.instructionStrip.holdsFocus { field.focusText() }
-        field.instructionStrip.instruction = preset
-        run(instruction: preset)
+        if !isPromptShown, textView.window?.firstResponder !== textView { field.focusText() }
+        showPrompt()
     }
 
-    func closeStrip(focusText: Bool) {
-        guard isStripShown else { return }
-        let hadFocus = field.instructionStrip.holdsFocus
-        setStrip(false)
+    func closePrompt(focusText: Bool) {
+        guard isPromptShown else { return }
+        let hadFocus = layer.promptHoldsFocus
+        promptAnchor = nil
+        field.setHeldOpen(isWriting)
+        render()
         if focusText || hadFocus { field.focusText() }
     }
 
-    private func setStrip(_ shown: Bool) {
-        isStripShown = shown
-        field.setHeldOpen(shown || isWriting)
-        field.setStripShown(shown)
-        if shown { QuireAccessibility.announce("Help Me Write instructions", from: field.instructionStrip) }
+    // MARK: The afterline
+
+    private func afterlineAction(_ action: WriteAfterline.Action) {
+        switch action {
+        case .tryAgain: writeFromMark()
+        case .shorter:
+            guard !isWriting else { return }
+            if textView.window?.firstResponder !== textView { field.focusText() }
+            layer.prompt.instruction = WriteWords.presets[0]
+            run(instruction: WriteWords.presets[0])
+        case .sayHow: sayHowFromMark()
+        case .undo: undoDraft()
+        case .settings: openSettings()
+        }
     }
 
     // MARK: Streaming into the field
@@ -510,17 +706,19 @@ final class WriteSession {
         let signpost = Self.signposter.beginInterval("ai.flush")
         edit.show(written)
         field.streamDidUpdate()
+        // The pencil follows the last word, at most once a frame with the text.
+        render()
         Self.signposter.endInterval("ai.flush", signpost)
         // The text was replaced around the stream by something that did not stop it first: the write ends here and
         // writes nothing more (`WriteStreamEdit.wasDisturbed`).
         if edit.wasDisturbed {
             stopWriting()
             phase = .idle
-            field.setHeldOpen(isStripShown)
+            field.setHeldOpen(isPromptShown)
         }
     }
 
-    /// The reply is complete: one undoable change in ink, the caret after it, and the line that offers Try again and Undo.
+    /// The reply is complete: one undoable change in ink, the caret after it, and the afterline under it.
     private func finish() {
         guard let edit, let running else { return }
         let keyboardWasHere = keyboardIsHere
@@ -539,46 +737,48 @@ final class WriteSession {
         isChangingText = false
         field.streamDidUpdate()
         written = ""
-        field.setHeldOpen(isStripShown)
+        field.setHeldOpen(isPromptShown)
         guard committed else {
             // Text replaced around the stream at the last moment is the user's now: nothing is said about the reply.
             if edit.wasDisturbed {
                 phase = .idle
             } else {
                 let reason = AIError.emptyReply.lineMessage(for: configuration?.kind)
+                failureAnchor = .caret(textView.selectedRange().location)
                 phase = .failed(reason: reason, offersSettings: false)
                 announceFailure(reason)
             }
             return
         }
-        lastDraft = Draft(ask: running.ask, range: edit.originalRange, isRewrite: running.isRewrite, reply: reply,
-                          textAfter: textView.string, textBefore: edit.textBefore, selection: edit.originalSelection)
-        phase = .written
-        // The caret waits after the reply; the keyboard goes to it from the strip or the text, never from elsewhere.
-        if keyboardWasHere { field.focusText() }
-        updateHint()
         let writer = configuration.map { center.writerName(for: $0.kind) } ?? "Claude"
+        lastDraft = Draft(ask: running.ask, range: edit.originalRange, isRewrite: running.isRewrite, reply: reply,
+                          textAfter: textView.string, textBefore: edit.textBefore, selection: edit.originalSelection,
+                          writer: writer, source: configuration.map { center.sourceLine(for: $0) })
+        // The caret waits after the reply; the keyboard goes to it from the text or the prompt, never from elsewhere.
+        if keyboardWasHere { field.focusText() }
+        phase = .written
+        render()
         QuireAccessibility.announce(running.isRewrite ? "Selection rewritten by \(writer)" : "Reply written by \(writer)",
-                                    from: field.writeControl)
+                                    from: textView)
         Self.logger.debug("Help Me Write committed \(reply.count, privacy: .public) characters")
     }
 
-    /// The write failed: the field as it was, and the tool row says why in words (never the request or the reply).
+    /// The write failed: the field as it was, and the afterline says why in words (never the request or the reply).
     private func fail(_ error: AIError) {
         let keyboardWasHere = keyboardIsHere
         stopWriting()
-        field.setHeldOpen(isStripShown)
+        field.setHeldOpen(isPromptShown)
         let reason = error == .consentRequired ? HelpMeWrite.turnOnWords : error.lineMessage(for: configuration?.kind)
         phase = .failed(reason: reason, offersSettings: error.needsSettings || error == .consentRequired)
-        if keyboardWasHere, !field.instructionStrip.holdsFocus { field.focusText() }
+        if keyboardWasHere, !layer.promptHoldsFocus { field.focusText() }
         announceFailure(reason)
     }
 
     private func announceFailure(_ reason: String) {
-        QuireAccessibility.announce("Couldn\u{2019}t write. " + reason, from: field.writeControl)
+        QuireAccessibility.announce("Couldn\u{2019}t write. " + reason, from: textView)
     }
 
-    /// The line's Undo: the reply's one step, as ⌘Z would take it back.
+    /// The afterline's Undo: the reply's one step, as ⌘Z would take it back.
     private func undoDraft() {
         field.focusText()
         guard let undo = textView.undoManager, undo.canUndo, undo.undoActionName == WriteStreamEdit.actionName else {
@@ -595,9 +795,9 @@ final class WriteSession {
 
     // MARK: The keyboard
 
-    /// Whether the keyboard is in the text, the strip, the Write control or nowhere, with the field on screen. A write
-    /// that ends moves the keyboard only then: what the user went on to type elsewhere (a search, J and K in the list) must
-    /// not land in the reply.
+    /// Whether the keyboard is in the text, the prompt line or nowhere, with the field on screen. A write that ends moves
+    /// the keyboard only then: what the user went on to type elsewhere (a search, J and K in the list) must not land in
+    /// the reply.
     private var keyboardIsHere: Bool {
         guard let window = textView.window, !textView.isHiddenOrHasHiddenAncestor else { return false }
         return isHere(window.firstResponder) || window.firstResponder === window || window.firstResponder == nil
@@ -605,22 +805,45 @@ final class WriteSession {
 
     private func isHere(_ responder: NSResponder?) -> Bool {
         guard let responder else { return false }
-        if responder === textView || field.instructionStrip.holdsFocus { return true }
-        return (responder as? NSView)?.isDescendant(of: field.writeControl) ?? false
+        if responder === textView || layer.prompt.holdsFocus { return true }
+        return (responder as? NSView)?.isDescendant(of: layer.prompt) ?? false
     }
 
-    /// The user moving away (the keyboard leaving the text, the strip and the control) ends the line about the last reply
-    /// or a failure, and closes the strip unless a write runs (§5.56); its instruction stays for the next ⇧⌘J.
+    /// The user moving away (the keyboard leaving the text and the prompt line) ends the afterline and closes the prompt
+    /// line unless a write runs (§5.56; its instruction stays for the next ⇧⌘J); the ghost and the pill go with the
+    /// keyboard. The keyboard coming back to the text by a click closes the prompt line too: it hung under a caret that
+    /// has moved.
     private func watchTheKeyboard() {
-        guard responderObservation == nil, let window = textView.window else { return }
-        responderObservation = window.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
-            MainActor.assumeIsolated {
-                guard let self, let responder = window.firstResponder, responder !== window else { return }
-                guard !self.isHere(responder), self.textView.window === window else { return }
-                if self.phase == .written || self.isFailed { self.phase = .idle }
-                if self.isStripShown, !self.isWriting { self.setStrip(false) }
+        guard let window = textView.window else { return }
+        if responderObservation == nil || observedWindow !== window {
+            responderObservation = window.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
+                MainActor.assumeIsolated { self?.firstResponderDidChange(in: window) }
+            }
+            for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+            windowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.render() }
+                }
+            }
+            observedWindow = window
+        }
+    }
+
+    private func firstResponderDidChange(in window: NSWindow) {
+        guard textView.window === window else { return }
+        let responder = window.firstResponder
+        if responder === textView, isPromptShown, !isWriting, !layer.prompt.holdsFocus {
+            promptAnchor = nil
+            field.setHeldOpen(false)
+        } else if let responder, responder !== window, !isHere(responder) {
+            if phase == .written || phase.isFailed { phase = .idle }
+            if isPromptShown, !isWriting {
+                promptAnchor = nil
+                field.setHeldOpen(false)
             }
         }
+        if responder !== textView { notesGhostReady = false }
+        render()
     }
 
     private func markStreaming(_ on: Bool, in window: NSWindow?) {
@@ -628,5 +851,39 @@ final class WriteSession {
         let key = ObjectIdentifier(window)
         let count = (Self.streaming[key] ?? 0) + (on ? 1 : -1)
         Self.streaming[key] = count > 0 ? count : nil
+    }
+
+    #if DEBUG
+    /// Renders and tests: the notes ghost as after a pause, without waiting for it.
+    func showNotesGhostNow() {
+        ghostTimer?.invalidate()
+        notesGhostReady = true
+        render()
+    }
+    #endif
+}
+
+/// A context-menu item that runs a closure: the text's menu belongs to the text view, and Help me write's items act on
+/// the session that made them.
+@MainActor
+final class WriteMenuAction: NSObject {
+    private let run: () -> Void
+
+    private init(_ run: @escaping () -> Void) {
+        self.run = run
+    }
+
+    @objc func runFromMenu(_ sender: Any?) {
+        run()
+    }
+
+    /// An item titled `title` showing `key` with `modifiers`, which runs `run`; the item keeps its target.
+    static func item(_ title: String, key: String, modifiers: NSEvent.ModifierFlags, run: @escaping () -> Void) -> NSMenuItem {
+        let target = WriteMenuAction(run)
+        let item = NSMenuItem(title: title, action: #selector(runFromMenu(_:)), keyEquivalent: key)
+        item.keyEquivalentModifierMask = modifiers
+        item.target = target
+        item.representedObject = target
+        return item
     }
 }
