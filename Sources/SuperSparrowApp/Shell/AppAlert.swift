@@ -151,6 +151,19 @@ struct AppAlert {
                                       body: "The made-up mailboxes are removed from this Mac when your account is added.",
                                       buttons: [Button(title: "Continue"), Button(title: "Cancel")])
 
+    /// The first sender rule on an account that has not let SuperSparrow save rules on the server (§5.52): the rule becomes
+    /// a Gmail filter or an Outlook rule, which needs one more permission. Continue is the default, since the user just
+    /// chose the rule: it keeps the rule and opens the browser to allow it. Cancel sets nothing.
+    static func saveSenderRules(_ kind: ProviderKind, action: SenderRule.Action) -> AppAlert {
+        let service = SenderRuleCopy.service(kind)
+        let rule = kind == .gmail ? "a Gmail filter" : "an Outlook rule"
+        let effect = action == .archive ? "is archived" : "goes to the Trash"
+        return AppAlert(title: "Save sender rules in \(service)?",
+                        body: "SuperSparrow saves this as \(rule), so mail from this sender \(effect) on every device, even when "
+                            + "this Mac is off. \(service) asks you to allow it once.",
+                        buttons: [Button(title: "Continue"), Button(title: "Cancel")])
+    }
+
     /// Composer: Message › Discard Draft… (§5.20). `recipient` is the first To name, if any.
     static func discardDraft(recipient: String?) -> AppAlert {
         let subject = recipient.map { "The message to \($0) hasn't been sent." } ?? "This message hasn't been sent."
@@ -248,6 +261,8 @@ struct AppAlert {
             databaseUnavailable(reason: "The disk is full."),
             leaveDemo,
             replaceDemo,
+            saveSenderRules(.gmail, action: .archive),
+            saveSenderRules(.microsoft, action: .trash),
             openProgram(filename: "Invoice.command"),
             helpMeWriteTurnOn(.claudeAPI),
             helpMeWriteTurnOn(.claudeCode),

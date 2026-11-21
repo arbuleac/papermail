@@ -60,6 +60,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Asks `account` for the calendar permission through the app's sign-in (`AppDelegate`), which calls back with
     /// whether it was granted; wired by the app delegate.
     var onConnectCalendar: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// Asks `account` for the permission to save sender rules on the server through the app's sign-in (`AppDelegate`,
+    /// `MailClient.connectRules`), after the first rule's alert; wired by the app delegate.
+    var onConnectRules: ((Account) -> Void)?
     /// Opens a calendar link (Join, Open in Google Calendar, the setup guide). Tests replace it, so no test opens a browser.
     var openCalendarURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Asks the engine to read every account's calendar: the kept window (nil), or shown days outside it as well.
@@ -2116,14 +2119,53 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         conversation.senderRule(for: message)
     }
 
-    /// Sets the rule for `messageID`'s sender from a message's menu, in one store transaction with what the rule would
-    /// have done to that sender's mail in the conversation had it come after the rule (Block: theirs out of the Trash;
-    /// Always Archive: theirs in the Inbox), so the row leaves as it will for the next one. The toast always shows, since
-    /// no row shows a rule; its Undo puts back the rule the sender had (none, or the other one) and the mail it moved.
-    /// The rule is listed and removed in Settings › Accounts › Senders…, and nowhere else.
+    /// Sets the rule for `messageID`'s sender from a message's menu (spec §5.52). The rule lives on the server, as a Gmail
+    /// filter or an Outlook rule: on an account that has not let SuperSparrow save rules there yet (`RulesSyncState
+    /// .notConnected`, known without a request once the account's first live cycle ran) the alert asks first, and Continue
+    /// sets the rule and opens the browser to allow it, while Cancel sets nothing. With the permission, or before the
+    /// engine knows (the rule then waits, and Senders says so), it is set at once.
     @discardableResult
     func setSenderRule(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
-        guard !showingWelcome, accountsByID[messageID.accountID] != nil, let message = (try? environment.store.message(messageID)) ?? nil,
+        guard !showingWelcome, let account = accountsByID[messageID.accountID],
+              let message = (try? environment.store.message(messageID)) ?? nil, conversation.offersSenderRule(message),
+              message.from?.address != nil else {
+            NSSound.beep()
+            return false
+        }
+        guard senderRule(for: message) != action else { return true }
+        guard rulesState(of: account.id) == .notConnected else { return setSenderRuleNow(action, from: messageID) }
+        let reader = actingReader?.window
+        presentAlert(AppAlert.saveSenderRules(account.kind, action: action), reader?.window ?? window) { [weak self, weak reader] choice in
+            guard choice == 0, let self else { return }
+            // The answer comes after the step that asked has returned: a reader window still open takes the rule as its own
+            // step again, so its toast and undo are that window's, as they would have been without the question.
+            var set = false
+            if let reader, self.readerWindows.contains(where: { $0 === reader }) {
+                self.act(in: reader, closing: false) { set = self.setSenderRuleNow(action, from: messageID) }
+            } else {
+                set = self.setSenderRuleNow(action, from: messageID)
+            }
+            // Stored first, so a sign-in abandoned in the browser leaves the rule waiting for the permission.
+            if set { self.onConnectRules?(account) }
+        }
+        return true
+    }
+
+    /// Where the account's server rules stand, as the engine last reported them.
+    private func rulesState(of id: AccountID) -> RulesSyncState {
+        statuses.first { $0.accountID == id }?.rules ?? .unknown
+    }
+
+    /// Sets the rule in one store transaction with what the rule would have done to that sender's mail in the
+    /// conversation had it come after the rule (Block: theirs out of the Trash; Always Archive: theirs in the Inbox), so
+    /// the row leaves as it will for the next one, which the server's rule takes before this Mac sees it. The toast always
+    /// shows, since no row shows a rule, and names the server that runs it from now on; its Undo puts back the rule the
+    /// sender had (none, or the other one) and the mail it moved. The rule is listed and removed in Settings › Accounts ›
+    /// Senders…, and nowhere else. Reads the message again: after the alert it may have gone.
+    @discardableResult
+    private func setSenderRuleNow(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
+        guard !showingWelcome, let account = accountsByID[messageID.accountID],
+              let message = (try? environment.store.message(messageID)) ?? nil,
               conversation.offersSenderRule(message), let address = message.from?.address else {
             NSSound.beep()
             return false
@@ -2151,8 +2193,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let inverse = record?.inverse ?? []
         let conversationID = message.conversationID
         let fromLater = actionView == .later
-        recordExternalUndo(command: command, accounts: [accountID], toast: MailActionCopy.senderRuleSet(action, address: sender),
+        recordExternalUndo(command: command, accounts: [accountID], toast: SenderRuleCopy.toast(action, address: sender, kind: account.kind),
                            symbol: action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender) { [weak self] in
+            // A rule not on the server yet just goes; one the server has is deleted there, or set back to the old action.
             do {
                 try engine.setSenderRule(previous, for: address, accountID: accountID, performing: self?.restorable(inverse) ?? inverse)
             } catch {

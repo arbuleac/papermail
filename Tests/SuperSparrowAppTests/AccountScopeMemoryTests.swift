@@ -228,7 +228,7 @@ final class AccountScopeMemoryTests: XCTestCase {
         #if DEBUG
         for option in ["--snapshot=/tmp/x.png", "--snapshot-compose=/tmp/x.png", "--snapshot-welcome=/tmp/x.png",
                        "--snapshot-welcome-states=/tmp/x.png", "--snapshot-settings=/tmp/x.png", "--snapshot-settings-states=/tmp/x.png",
-                       "--snapshot-cheatsheet=/tmp/x.png", "--snapshot-hud=/tmp/x.png", "--snapshot-alerts=/tmp/x.png",
+                       "--snapshot-senders=/tmp/x.png", "--snapshot-cheatsheet=/tmp/x.png", "--snapshot-hud=/tmp/x.png", "--snapshot-alerts=/tmp/x.png",
                        "--snapshot-gallery=/tmp/x.png"] {
             XCTAssertTrue(LaunchOptions(arguments: ["SuperSparrow", "--demo", option]).isSnapshot, option)
         }

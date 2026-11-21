@@ -44,6 +44,8 @@ struct LaunchOptions: Equatable {
     /// Debug aid (demo mode): the Settings states of spec §5.40 (adding, add failed, reconnecting, empty, the
     /// OAuth notices and Saved), stacked, then quit.
     var settingsStatesSnapshotPath: String?
+    /// Debug aid (demo mode): Settings › Accounts › Senders… in each of its states (§5.52), stacked, then quit.
+    var sendersSnapshotPath: String?
     /// Debug aid (demo mode): the main window with the keyboard cheat sheet open, then quit.
     var cheatSheetSnapshotPath: String?
     /// Debug aid (demo mode): the main window with the g-sequence HUD showing, then quit.
@@ -122,6 +124,9 @@ struct LaunchOptions: Equatable {
             case let value where value.hasPrefix("--snapshot-settings-states="):
                 settingsStatesSnapshotPath = Self.value(of: value, after: "--snapshot-settings-states=")
                 demo = true
+            case let value where value.hasPrefix("--snapshot-senders="):
+                sendersSnapshotPath = Self.value(of: value, after: "--snapshot-senders=")
+                demo = true
             case let value where value.hasPrefix("--snapshot-cheatsheet="):
                 cheatSheetSnapshotPath = Self.value(of: value, after: "--snapshot-cheatsheet=")
                 demo = true
@@ -164,7 +169,8 @@ struct LaunchOptions: Equatable {
     /// leave it running, as the first two always have.
     var hasQuittingSnapshots: Bool {
         gallerySnapshotPath != nil || welcomeSnapshotPath != nil || settingsSnapshotPath != nil || welcomeStatesSnapshotPath != nil
-            || settingsStatesSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || alertsSnapshotPath != nil
+            || settingsStatesSnapshotPath != nil || sendersSnapshotPath != nil || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil
+            || alertsSnapshotPath != nil
     }
 
     /// Any snapshot that draws the main window or a composer from the demo: those windows then take their
@@ -186,7 +192,7 @@ struct LaunchOptions: Equatable {
     /// else asked for, launch skips opening one.
     var needsMailEnvironment: Bool {
         snapshotPath != nil || composeSnapshotPath != nil || readerWindowSnapshotPath != nil || settingsSnapshotPath != nil
-            || settingsStatesSnapshotPath != nil
+            || settingsStatesSnapshotPath != nil || sendersSnapshotPath != nil
             || cheatSheetSnapshotPath != nil || hudSnapshotPath != nil || !hasQuittingSnapshots
     }
 

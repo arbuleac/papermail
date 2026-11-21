@@ -411,9 +411,37 @@ final class ReaderWindowTests: XCTestCase {
         reader.blockSender(nil)
         XCTAssertEqual(try harness.environment.store.senderRules().map(\.address), [address])
         XCTAssertTrue(reader.place.window === reader)
-        XCTAssertEqual(message(in: reader), MailActionCopy.senderRuleSet(.trash, address: address))
+        let kind = try XCTUnwrap(harness.controller.accountsByID[target.id.accountID]).kind
+        XCTAssertEqual(message(in: reader), SenderRuleCopy.toast(.trash, address: address, kind: kind))
         XCTAssertFalse(reader.validateMenuItem(block), "the rule the sender has is checked and has nothing to do")
         XCTAssertEqual(block.state, .on)
+        XCTAssertTrue(reader.perform(.undo))
+        XCTAssertTrue(try harness.environment.store.senderRules().isEmpty)
+        harness.close()
+    }
+
+    /// On an account that has not let SuperSparrow save rules on the server, the first rule's alert asks on the window the
+    /// rule was set from, and Continue makes the rule that window's step, its toast there, before the browser is asked.
+    func testTheFirstRulesAlertAsksOnTheWindowAndContinueIsItsStep() throws {
+        let harness = try MainWindowHarness()
+        let (_, reader) = try open(0, harness)
+        let target = try XCTUnwrap(reader.conversation.senderRuleTarget, "mail from someone else")
+        let account = try XCTUnwrap(harness.controller.accountsByID[target.id.accountID])
+        harness.controller.statusesChanged([AccountSyncStatus(accountID: account.id, phase: .idle, lastSuccessfulSyncAt: Date(),
+                                                              rules: .notConnected)])
+        var askedOn: NSWindow?
+        var connected: [AccountID] = []
+        harness.controller.onConnectRules = { connected.append($0.id) }
+        harness.controller.presentAlert = { _, window, done in
+            askedOn = window
+            done(0)
+        }
+        reader.blockSender(nil)
+        XCTAssertTrue(askedOn === reader.window, "asked where it was chosen")
+        XCTAssertEqual(try harness.environment.store.senderRules().map(\.sync), [.creating])
+        let address = SenderRule.normalizedAddress(try XCTUnwrap(target.from?.address))
+        XCTAssertEqual(message(in: reader), SenderRuleCopy.toast(.trash, address: address, kind: account.kind), "the window's step")
+        XCTAssertEqual(connected, [account.id])
         XCTAssertTrue(reader.perform(.undo))
         XCTAssertTrue(try harness.environment.store.senderRules().isEmpty)
         harness.close()

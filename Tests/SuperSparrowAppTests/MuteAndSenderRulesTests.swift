@@ -31,6 +31,11 @@ final class MuteAndSenderRulesTests: XCTestCase {
         try store(harness).conversations(ConversationQuery(view: .all, limit: 500)).first { $0.id == id }
     }
 
+    /// The provider of the account `message` belongs to, which the rule's toast names.
+    private func kind(of message: MessageMetadata, _ harness: MainWindowHarness) -> ProviderKind {
+        harness.controller.accountsByID[message.id.accountID]?.kind ?? .gmail
+    }
+
     private func cell(of id: ConversationID, _ harness: MainWindowHarness) throws -> ConversationCellView {
         harness.spin { harness.list.conversations.contains { $0.id == id } }
         let index = try XCTUnwrap(harness.list.conversations.firstIndex { $0.id == id })
@@ -237,7 +242,8 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertEqual(try store(harness).senderRules().map(\.address), [address.lowercased()])
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash])
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.trash), true, "their mail here goes to the Trash")
-        XCTAssertEqual(harness.toastMessage, "Blocked \(address.lowercased())", "the toast names whose mail it takes")
+        XCTAssertEqual(harness.toastMessage, SenderRuleCopy.toast(.trash, address: address.lowercased(), kind: kind(of: target, harness)),
+                       "the toast names the server that runs it and whose mail it takes")
         XCTAssertEqual(harness.toasts.visibleKind, .undoable)
         XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Block Sender")
 
@@ -283,7 +289,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.archive])
         XCTAssertEqual(try store(harness).senderRules().map(\.sync), [.creating], "on its way to the server")
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.inbox), false)
-        XCTAssertEqual(harness.toastMessage, "Always archiving \(sender.address.lowercased())")
+        XCTAssertEqual(harness.toastMessage, SenderRuleCopy.toast(.archive, address: sender.address.lowercased(), kind: kind(of: target, harness)))
         XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Always Archive Mail from This Sender")
 
         let next = MessageMetadata(id: MessageID(accountID: target.id.accountID, providerID: "next"),
@@ -350,7 +356,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertEqual(try store(harness).senderRules().map(\.address), [address])
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash], "Block replaced Always Archive")
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.trash), true)
-        XCTAssertEqual(harness.toastMessage, "Blocked \(address)")
+        XCTAssertEqual(harness.toastMessage, SenderRuleCopy.toast(.trash, address: address, kind: kind(of: target, harness)))
         harness.controller.performUndo(harness.controller.zTarget)
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.archive], "the undo puts back the rule it had")
     }
@@ -405,12 +411,13 @@ final class MuteAndSenderRulesTests: XCTestCase {
 
         let sheet = SendersSheet(model: model, account: a, onDone: {})
         XCTAssertEqual(sheet.rows, [
-            QuireRemovableList.Row(id: "deals@shop.example", title: "deals@shop.example", detail: "Blocked"),
-            QuireRemovableList.Row(id: "news@letter.example", title: "news@letter.example", detail: "Always archived"),
-        ], "another account's rule is not listed")
+            QuireRemovableList.Row(id: "deals@shop.example", title: "deals@shop.example", detail: "Blocked", state: "Saving to Gmail…"),
+            QuireRemovableList.Row(id: "news@letter.example", title: "news@letter.example", detail: "Archived", state: "Saving to Gmail…"),
+        ], "another account's rule is not listed; both are on their way to the server")
         let hosting = NSHostingView(rootView: sheet)
         XCTAssertEqual(hosting.fittingSize.width, Quire.Layout.Settings.sendersWidth)
 
+        // Never saved on the server, the rule just goes.
         sheet.remove(sheet.rows[0])
         XCTAssertEqual(removed.map(\.address), ["deals@shop.example"])
         XCTAssertTrue(ListTestSupport.spin(until: { model.senderRules(for: self.a).map(\.address) == ["news@letter.example"] }, timeout: 3))

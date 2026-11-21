@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let replacement: AppEnvironment?
         /// The day column's Connect (§5.54): told whether the account granted its calendar, or gave up.
         var connected: (@MainActor (Bool) -> Void)?
+        /// Asking for the permission to save sender rules on the server (§5.52): Try Again asks for it again.
+        var asksRules = false
     }
 
     private let options: LaunchOptions
@@ -296,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         jobs.append((options.welcomeStatesSnapshotPath, { [unowned self] in self.writeWelcomeSnapshot(to: $0, states: true) }))
         jobs.append((options.settingsSnapshotPath, { [unowned self] in self.writeSettingsSnapshot(to: $0, states: false) }))
         jobs.append((options.settingsStatesSnapshotPath, { [unowned self] in self.writeSettingsSnapshot(to: $0, states: true) }))
+        jobs.append((options.sendersSnapshotPath, writeSendersSnapshot))
         jobs.append((options.cheatSheetSnapshotPath, writeCheatSheetSnapshot))
         jobs.append((options.hudSnapshotPath, writeHUDSnapshot))
         jobs.append((options.alertsSnapshotPath, writeAlertsSnapshot))
@@ -399,6 +402,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     }
                 }
             }
+        }
+    }
+
+    /// Settings › Accounts › Senders… in demo mode (§5.52), once the demo's rules lane has read its made-up server.
+    private func writeSendersSnapshot(to path: String) {
+        waitForInbox(deadline: Date().addingTimeInterval(20)) { [weak self] in
+            guard let self else { return }
+            self.openSettings()
+            guard let controller = self.settingsWindow else {
+                Self.log.error("snapshot: no settings window")
+                self.quittingSnapshotFinished()
+                return
+            }
+            controller.window?.orderOut(nil)
+            let model = controller.model
+            let gmail = model.accounts.first { $0.kind == .gmail }
+            let deadline = Date().addingTimeInterval(10)
+            // The rules are read after the demo account's first live cycle, a moment after its inbox fills.
+            @MainActor func render() {
+                let read: Bool
+                if let gmail, case .upToDate? = model.statuses[gmail.id]?.rules { read = true } else { read = false }
+                guard read || Date() > deadline else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { MainActor.assumeIsolated { render() } }
+                    return
+                }
+                AppSnapshots.renderSenders(controller) { bitmap in
+                    if let bitmap { SnapshotRenderer.writePNG(bitmap, to: path) }
+                    self.quittingSnapshotFinished()
+                }
+            }
+            render()
         }
     }
 
@@ -561,6 +595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return done(false) }
             self.connectCalendar(account, origin: .main, done: done)
         }
+        window.onConnectRules = { [weak self] account in self?.connectRules(account, origin: .main) }
         window.onOpenSettings = { [weak self] in self?.openSettings() }
         environment.helpMeWrite.openSettings = { [weak self] in self?.openSettings(tab: .ai) }
         window.onOpenAccountsSettings = { [weak self] in self?.openSettings(tab: .accounts) }
@@ -744,7 +779,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func window(for origin: Origin) -> NSWindow? {
         switch origin {
-        case .settings: return settingsWindow?.visibleWindow ?? mainWindow?.window
+        // On Settings' own sheet while one is up (Allow… in Senders): an alert begun on the window itself would queue
+        // behind that sheet until it closed.
+        case .settings: return settingsWindow?.visibleWindow.map { $0.attachedSheet ?? $0 } ?? mainWindow?.window
         case .main, .welcome: return mainWindow?.window
         }
     }
@@ -789,6 +826,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else { return done(false) }
         beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, calendar: true)
         signIn?.connected = done
+    }
+
+    /// Allow… in Settings › Senders, Continue in the first rule's alert and the Settings row's Reconnect while sender rules
+    /// wait (§5.52): the reconnect's browser sign-in, asking for the permission to save rules on the server on top of what
+    /// the account holds (`MailClient.connectRules`), with its alerts. A sign-in abandoned in the browser leaves the rules
+    /// waiting, as Senders shows.
+    func connectRules(_ account: Account, origin: Origin) {
+        guard let environment, signIn == nil, !isPreparingDemo,
+              environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else { return }
+        beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, rules: true)
     }
 
     /// No client: the welcome screen shows its info banner; elsewhere the alert offers Settings › OAuth with
@@ -840,7 +887,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func beginSignIn(kind: ProviderKind, reconnecting: Account?, origin: Origin, in environment: AppEnvironment,
-                             replacement: AppEnvironment?, type: MicrosoftAccountType? = nil, calendar: Bool = false) {
+                             replacement: AppEnvironment?, type: MicrosoftAccountType? = nil, calendar: Bool = false,
+                             rules: Bool = false) {
         let tenant = type.map { $0.tenant(configured: try? environment.clientConfigurations.configuration(for: kind).tenant) }
         signInGeneration += 1
         let generation = signInGeneration
@@ -850,6 +898,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let account: Account
                 if let reconnecting, calendar {
                     account = try await environment.engine.connectCalendar(reconnecting)
+                } else if let reconnecting, rules {
+                    account = try await environment.engine.connectRules(reconnecting)
                 } else if let reconnecting {
                     account = try await environment.engine.reconnect(reconnecting)
                 } else {
@@ -860,7 +910,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 await self?.signInFailed(error, generation: generation)
             }
         }
-        signIn = SignIn(generation: generation, kind: kind, reconnecting: reconnecting, origin: origin, task: task, replacement: replacement)
+        signIn = SignIn(generation: generation, kind: kind, reconnecting: reconnecting, origin: origin, task: task, replacement: replacement,
+                        asksRules: rules)
         reflectSignIn()
     }
 
@@ -927,11 +978,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Self.log.error("sign-in failed: \(String(describing: error), privacy: .public)")
         let reason = ErrorText.signIn(error, kind: current.kind)
         // Try Again asks again as the sign-in did: the calendar's Connect keeps asking for the calendar, and hears the
-        // outcome; anything else ends its round.
+        // outcome; the rules' keeps asking for the rules; anything else ends its round.
         let again = { [weak self] (account: Account) in
             guard let self else { return }
             if let connected = current.connected {
                 self.connectCalendar(account, origin: current.origin, done: connected)
+            } else if current.asksRules {
+                self.connectRules(account, origin: current.origin)
             } else {
                 self.reconnect(account, origin: current.origin)
             }
@@ -1108,6 +1161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 self?.edit(account) { try $0.setSignature(signature, for: id) }
             }
             model.removeSenderRule = { [weak self] rule in self?.removeSenderRule(rule) }
+            model.connectRules = { [weak self] account in self?.connectRules(account, origin: .settings) }
             settingsWindow = controller
             reflectSignIn()
         }
@@ -1130,7 +1184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         settingsWindow?.refreshAccounts()
     }
 
-    /// The Senders sheet's −: through the engine, as the menus set rules, so its observation reaches both windows.
+    /// The Senders sheet's −: through the engine, as the menus set rules, so its observation reaches both windows. The
+    /// rule waits there to be deleted on the server (one never saved there just goes).
     private func removeSenderRule(_ rule: SenderRule) {
         guard let environment else { return }
         do {

@@ -64,6 +64,8 @@ struct QuireInlineLinkText: View {
     private var text: Text {
         guard let link else { return Text(message) }
         let title = Text(linkTitle(link.title)).customAttribute(QuireInlineLinkMark())
+        // A link on its own (the Senders sheet's foot before a read counts the other rules) starts the line.
+        guard !message.isEmpty else { return title }
         return Text("\(Text(message)) \(title)")
     }
 

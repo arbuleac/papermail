@@ -94,10 +94,19 @@ final class SettingsModel: ObservableObject {
     /// The signature's HTML (nil for none) for an account, when editing it ends. By id: the field saves for the account
     /// it was editing, which may no longer be the selected one.
     var setSignature: (String?, AccountID) -> Void = { _, _ in }
-    /// Every sender rule, as the store's observation last delivered them (spec, Sender rules (Q4.2)).
+    /// Every sender rule, as the store's observation last delivered them: the server's rules as the store mirrors them,
+    /// and the changes on their way there (spec §5.52).
     @Published private(set) var senderRules: [SenderRule] = []
-    /// The Senders sheet's −: the rule goes, and the mail it moved stays where it is.
+    /// The Senders sheet's −: the rule is deleted on the server (one never saved there just goes), and the mail it moved
+    /// stays where it is.
     var removeSenderRule: (SenderRule) -> Void = { _ in }
+    /// Allow… in Senders, and the row's Reconnect while sender rules wait: the sign-in asking for the permission to save
+    /// rules on the server.
+    var connectRules: (Account) -> Void = { _ in }
+    /// Senders opening: the engine reads the account's rules from the server now rather than at its own interval.
+    var refreshServerRules: (Account) -> Void = { _ in }
+    /// The Senders foot's link: the provider's own page of rules, in the browser. Tests replace it, so none opens one.
+    var openWebSettings: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
     init(isDemo: Bool, oauthFileURL: URL) {
         self.isDemo = isDemo
@@ -129,6 +138,18 @@ final class SettingsModel: ObservableObject {
     /// The account's rules, by address, as the Senders sheet lists them.
     func senderRules(for account: Account) -> [SenderRule] {
         senderRules.filter { $0.accountID == account.id }
+    }
+
+    /// What the Senders sheet shows for `account` now.
+    func sendersContent(for account: Account) -> SendersSheetContent {
+        SendersSheetContent(account: account, rules: senderRules, status: statuses[account.id], isReconnecting: reconnecting == account.id,
+                            isDemo: isDemo)
+    }
+
+    /// A sender rule set or removed on this Mac waits for the permission to save rules on the server, which the account
+    /// has not granted (the account's row asks for it, as it asks for the calendar's).
+    func senderRulesNeedPermission(_ account: Account) -> Bool {
+        statuses[account.id]?.rules == .notConnected && senderRules(for: account).contains { $0.isPending }
     }
 
     /// One sign-in at a time (§5.44): while one runs, + and every other Reconnect and Retry are disabled.
@@ -171,7 +192,7 @@ final class SettingsModel: ObservableObject {
         let service = ErrorText.service(account.kind)
         switch status.phase {
         case .idle:
-            return status.permissionsNeeded.isEmpty ? upToDate(status, service: service) : .calendarPermission
+            return permissionStatus(for: account, status) ?? upToDate(status, service: service)
         case .bootstrapping:
             // The provider's figure is an estimate; the count never runs past it.
             let done = status.bootstrapProgress ?? 0
@@ -179,7 +200,7 @@ final class SettingsModel: ObservableObject {
         case .syncing:
             if userChecks.contains(account.id) { return .checking }
             if status.lastSuccessfulSyncAt == nil { return .waitingToSync }
-            return status.permissionsNeeded.isEmpty ? upToDate(status, service: service) : .calendarPermission
+            return permissionStatus(for: account, status) ?? upToDate(status, service: service)
         case .hydrating:
             return .downloadingMessages
         case .paused:
@@ -194,6 +215,15 @@ final class SettingsModel: ObservableObject {
             guard let cause = retryCause(status, service: service) else { return .offline }
             return .retrying(inSeconds: SyncLineSummary.retrySeconds(until: status.retryAt, now: now), cause: cause)
         }
+    }
+
+    /// Mail is current, but something set on this Mac waits for a permission the account has not granted: an answered
+    /// invitation for the calendar's (its outbox waits on it, so it comes first), or a sender rule for the rules'. Nil
+    /// while nothing waits.
+    private func permissionStatus(for account: Account, _ status: AccountSyncStatus) -> QuireAccountStatus? {
+        if !status.permissionsNeeded.isEmpty { return .calendarPermission }
+        guard senderRulesNeedPermission(account) else { return nil }
+        return .senderRulesPermission(rules: "\(SenderRuleCopy.service(account.kind)) \(SenderRuleCopy.rules(account.kind))")
     }
 
     /// Why the account waits to try again, when its row reads Retrying: a throttle, or a network failure while
@@ -298,8 +328,13 @@ final class SettingsModel: ObservableObject {
         case .needsReauth?: reconnect(account)
         case .error?: retry(account)
         case .idle?, .syncing?:
-            // Calendar permission needed: the reconnect asks for it on top of mail.
-            if statuses[account.id]?.permissionsNeeded.isEmpty == false { reconnect(account) }
+            // Calendar permission needed: the reconnect asks for it on top of mail (and for the rules', should they wait too).
+            if statuses[account.id]?.permissionsNeeded.isEmpty == false {
+                reconnect(account)
+            } else if senderRulesNeedPermission(account) {
+                // Sender rules need permission: the same reconnect, which reads the rules once they may be saved.
+                connectRules(account)
+            }
         default: break
         }
     }

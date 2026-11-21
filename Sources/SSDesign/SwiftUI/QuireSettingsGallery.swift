@@ -368,22 +368,33 @@ struct QuireGalleryAccountsEmpty: View {
     }
 }
 
-/// The Senders sheet (spec, Sender rules (Q4.2)) as Settings › Accounts › Senders… opens it, then a row's − hovered and
-/// focused: the sheet is a window of its own, which no Settings snapshot holds, so this is where it is seen.
+/// The Senders sheet (spec §5.52) as Settings › Accounts › Senders… opens it on a read account (a saved rule, rules on
+/// their way, the server's other filters at the foot), then without the permission, then a row's − hovered and focused:
+/// the sheet is a window of its own, which no Settings snapshot holds, so this is where it is seen beside
+/// `--snapshot-senders`.
 struct QuireGallerySenders: View {
     private static let rows = [
-        QuireRemovableList.Row(id: "a", title: "news@weekly.example", detail: "Always archived"),
+        QuireRemovableList.Row(id: "a", title: "news@weekly.example", detail: "Archived", state: "Saving to Gmail…"),
         QuireRemovableList.Row(id: "b", title: "offers@deals.example", detail: "Blocked"),
+        QuireRemovableList.Row(id: "d", title: "promo@shop.example", detail: "Blocked", state: "Removing…", isRemovable: false),
         // Long enough to be cut in the middle, keeping its start and its domain.
         QuireRemovableList.Row(id: "c", title: "receipts-and-notifications@accounts.averylongstorename.example", detail: "Blocked"),
     ]
+    private static let caption = "Gmail filters for alex@contoso.test: mail from these senders is archived or moved to the Trash as "
+        + "it arrives, on every device."
 
     var body: some View {
         VStack(alignment: .leading, spacing: Quire.Space.s6) {
-            QuireRuleSheet(title: "Senders",
-                           caption: "Mail from these senders to alex@contoso.test is archived or moved to the Trash as it arrives.",
-                           rows: Self.rows, emptyTitle: "No sender rules", emptyHint: "Set one from a message's menu.",
+            QuireRuleSheet(title: "Senders", caption: Self.caption, rows: Self.rows, emptyTitle: "No sender rules",
+                           emptyHint: "Set one from a message's menu.",
+                           foot: QuireRuleSheetFoot(words: "12 other filters in Gmail", link: ("Open Gmail Settings", {})),
                            onRemove: { _ in }, onDone: {})
+            QuireRuleSheet(title: "Senders", caption: Self.caption,
+                           notice: QuireBanner(.info, "SuperSparrow needs permission to read and save Gmail filters.", link: ("Allow…", {})),
+                           rows: [QuireRemovableList.Row(id: "a", title: "news@weekly.example", detail: "Archived",
+                                                         state: "Waiting for permission")],
+                           emptyTitle: "No sender rules", emptyHint: "Set one from a message's menu.",
+                           foot: QuireRuleSheetFoot(link: ("Open Gmail Settings", {})), onRemove: { _ in }, onDone: {})
             ForEach([("− hover", QuireForcedStates.hovered), ("− focused", .focused)], id: \.0) { caption, state in
                 VStack(alignment: .leading, spacing: Quire.Space.s2) {
                     QuireRemovableList(rows: [Self.rows[1]], emptyTitle: "", emptyHint: "", onRemove: { _ in })

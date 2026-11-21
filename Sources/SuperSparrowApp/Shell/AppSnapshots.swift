@@ -1,9 +1,10 @@
 import AppKit
 import SSCore
 import SSDesign
+import SwiftUI
 
 /// The debug snapshots of the app-level surfaces (`--snapshot-welcome-states`, `--snapshot-settings`,
-/// `--snapshot-settings-states`, `--snapshot-alerts`): each state is applied, given a moment to lay out (and
+/// `--snapshot-settings-states`, `--snapshot-senders`, `--snapshot-alerts`): each state is applied, given a moment to lay out (and
 /// for delayed spinners to appear), drawn by the app itself, and the drawings are stacked into one PNG.
 @MainActor
 enum AppSnapshots {
@@ -127,6 +128,72 @@ enum AppSnapshots {
         render(controller, steps: steps) { bitmap in
             model.oauth = original
             completion(bitmap)
+        }
+    }
+
+    /// Settings › Accounts › Senders… (§5.52), a sheet no Settings snapshot holds, each state in a window of its own off
+    /// screen on the sheet's `canvas`: first the demo's Gmail account as the sheet shows it (the seeded rule, the made-up
+    /// server's other filters, no web link), then the states a real Gmail account goes through, drawn from content built
+    /// here (neither the store nor the model is touched): saved and pending rows with the foot, the permission not given,
+    /// its sign-in waiting for the browser, a failure, the first read; then an Outlook account.
+    static func renderSenders(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
+        let model = controller.model
+        let demo = model.accounts.first { $0.kind == .gmail } ?? model.accounts.first
+        let gmail = Account(id: AccountID("snapshot-gmail"), kind: .gmail, email: "alex@contoso.test", displayName: "Alex Morgan",
+                            addedAt: Date())
+        let outlook = Account(id: AccountID("snapshot-outlook"), kind: .microsoft, email: "alex@fabrikam.test", displayName: "Alex Morgan",
+                              addedAt: Date())
+        let now = Date()
+        func rule(_ account: Account, _ address: String, _ action: SenderRule.Action, _ sync: SenderRule.Sync) -> SenderRule {
+            SenderRule(accountID: account.id, address: address, action: action, createdAt: now, serverIDs: sync == .creating ? [] : ["f"],
+                       sync: sync)
+        }
+        func rules(_ account: Account) -> [SenderRule] {
+            [rule(account, "deals@shop.example", .trash, .saved), rule(account, "news@letter.example", .archive, .creating),
+             rule(account, "offers@deals.example", .trash, .deleting), rule(account, "updates@service.example", .archive, .replacing)]
+        }
+        func status(_ account: Account, _ rules: RulesSyncState) -> AccountSyncStatus {
+            AccountSyncStatus(accountID: account.id, phase: .idle, lastSuccessfulSyncAt: now, rules: rules)
+        }
+        var contents: [SendersSheetContent] = []
+        if let demo { contents.append(model.sendersContent(for: demo)) }
+        contents += [
+            SendersSheetContent(account: gmail, rules: rules(gmail), status: status(gmail, .upToDate(otherCount: 12, readAt: now)),
+                                isReconnecting: false, isDemo: false),
+            SendersSheetContent(account: gmail, rules: [rule(gmail, "news@letter.example", .archive, .creating)],
+                                status: status(gmail, .notConnected), isReconnecting: false, isDemo: false),
+            SendersSheetContent(account: gmail, rules: [rule(gmail, "news@letter.example", .archive, .creating)],
+                                status: status(gmail, .notConnected), isReconnecting: true, isDemo: false),
+            SendersSheetContent(account: gmail, rules: [rule(gmail, "deals@shop.example", .trash, .saved)],
+                                status: status(gmail, .failed(.limitReached, otherCount: 12)), isReconnecting: false, isDemo: false),
+            SendersSheetContent(account: gmail, rules: [], status: status(gmail, .unknown), isReconnecting: false, isDemo: false),
+            SendersSheetContent(account: outlook, rules: rules(outlook), status: status(outlook, .upToDate(otherCount: 1, readAt: now)),
+                                isReconnecting: false, isDemo: false),
+        ]
+        let appearance = NSApp.appearance ?? NSApp.effectiveAppearance
+        let host = NSHostingView(rootView: AnyView(EmptyView()))
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: Quire.Layout.Settings.sendersWidth, height: 400),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = appearance
+        window.backgroundColor = .qCanvas
+        window.contentView = host
+        window.orderBack(nil)
+        let steps: [() -> Void] = contents.map { content in
+            {
+                host.rootView = AnyView(QuireThemeRoot(SendersSheetBody(content: content, onRemove: { _ in }, onAllow: {}, onCancelSignIn: {},
+                                                                        onOpenSettings: {}, onDone: {}))
+                    .modifier(SnapshotDisplayScale()))
+                let size = host.fittingSize
+                window.setFrame(NSRect(origin: NSPoint(x: -30_000, y: -30_000), size: size), display: true)
+            }
+        }
+        sequence(steps, render: {
+            host.layoutSubtreeIfNeeded()
+            return SnapshotRenderer.render(host)
+        }) { bitmaps in
+            window.orderOut(nil)
+            completion(SnapshotRenderer.stack(bitmaps, background: .qRaised, appearance: appearance))
         }
     }
 

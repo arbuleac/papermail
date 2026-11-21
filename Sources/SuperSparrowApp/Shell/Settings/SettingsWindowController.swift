@@ -78,10 +78,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         storageObservation = environment.engine.observeStorageChanges { [weak self] in
             MainActor.assumeIsolated { self?.mailboxMayHaveChanged() }
         }
-        // Rules are set from the main window's menus while the Senders sheet may be open.
+        // Rules are set from the main window's menus while the Senders sheet may be open, and the engine writes what it
+        // reads from the server.
         senderRuleObservation = environment.store.observeSenderRules { [weak self] rules in
             MainActor.assumeIsolated { self?.model.setSenderRules(rules) }
         }
+        let engine = environment.engine
+        model.refreshServerRules = { account in engine.refreshServerRules(accountID: account.id) }
     }
 
     /// The engine swept or trimmed, which changes the size by more than mail arriving: measured again only while the
