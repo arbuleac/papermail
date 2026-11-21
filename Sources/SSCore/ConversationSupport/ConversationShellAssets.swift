@@ -26,8 +26,7 @@ public enum ConversationShellAssets {
     public static let symbols: [String] = [
         "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
         "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-        "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle", "arrow.down.circle",
-        "paperclip",
+        "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip",
     ]
 
     /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
@@ -544,9 +543,21 @@ public enum ConversationShellAssets {
     .ss-atts-head .ss-link[aria-disabled="true"] { color: var(--q-inkDisabled); text-decoration: none; }
     .ss-atts-head.ss-loading .ss-atts-count { display: none; }
     .ss-atts-head.ss-loading .ss-dl { display: block; margin: 0 4px 0 0; }
+    /* A chip whose file could not be fetched shows the warning on a quiet tile where its file mark was (spec §5.17). */
     .ss-tile {
       flex: none; width: 28px; height: 28px; border-radius: var(--q-r-sm); background: var(--q-fill); color: var(--q-ink2);
       display: flex; align-items: center; justify-content: center; font-size: 15px;
+    }
+    /* The file mark (spec §5.57): a sheet of paper with its top trailing corner folded down and a band in the family's
+       file ink carrying the type, drawn from layout.fileMark (SS_FILE_MARK) as QuireFileMark draws it in AppKit: the
+       sheet's paper, the fold's face, then the edges, then the band and its label. */
+    .ss-fm { flex: none; width: 28px; height: 28px; overflow: visible; }
+    .ss-fm-sheet { fill: var(--q-raised); }
+    .ss-fm-fold { fill: var(--q-fill); }
+    .ss-fm-edge { fill: none; stroke: var(--q-ruleStrong); stroke-width: 1px; stroke-linejoin: round; }
+    .ss-fm-label {
+      font-family: var(--q-sans); font-size: 8px; font-weight: 700; font-stretch: 60%; letter-spacing: 0;
+      fill: var(--q-file-label); -webkit-user-select: none;
     }
     .ss-chip-text { display: flex; flex-direction: column; min-width: 0; }
     .ss-chip-name { display: flex; min-width: 0; font: var(--q-font-label); color: var(--q-ink); }
@@ -747,7 +758,7 @@ public enum ConversationShellAssets {
     }
     """#
 
-    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + script
+    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + QuireCSS.fileMarkScript + "\n" + script
 
     /// Message bodies are loaded with `srcdoc` into `sandbox="allow-same-origin"` iframes: no scripts run
     /// inside them, not even listeners the shell adds, so the shell measures each document from the parent
@@ -835,6 +846,55 @@ public enum ConversationShellAssets {
       }
 
       function kbd(legend) { return el('span', 'ss-kbd', legend); }
+
+      // MARK: File marks (spec §5.57)
+
+      var SVG_NS = 'http://www.w3.org/2000/svg';
+
+      function svgNode(tag, cls, attributes) {
+        var node = document.createElementNS(SVG_NS, tag);
+        if (cls) { node.setAttribute('class', cls); }
+        for (var key in attributes) { node.setAttribute(key, attributes[key]); }
+        return node;
+      }
+
+      // A file's mark from SS_FILE_MARK, the tokens' own numbers and paths: the sheet, the fold's face, the edges, and
+      // the band in the family's ink with the label on it. No label is a plain sheet. Decorative: the chip's name and
+      // meta already say what the file is.
+      function fileMark(family, label) {
+        var m = SS_FILE_MARK;
+        if (m.families.indexOf(family) < 0) { family = 'other'; }
+        var svg = svgNode('svg', 'ss-fm', { viewBox: '0 0 ' + m.grid + ' ' + m.grid, 'aria-hidden': 'true', 'data-family': family });
+        svg.appendChild(svgNode('path', 'ss-fm-sheet', { d: m.sheetPath }));
+        svg.appendChild(svgNode('path', 'ss-fm-fold', { d: m.foldPath }));
+        svg.appendChild(svgNode('path', 'ss-fm-edge', { d: m.sheetPath + ' ' + m.foldEdgePath }));
+        if (label) {
+          var band = svgNode('rect', 'ss-fm-band', { x: m.sheetX + m.edge, y: m.bandTop, width: m.sheetWidth - 2 * m.edge, height: m.bandHeight });
+          band.style.fill = 'var(--q-file-' + family + ')';
+          svg.appendChild(band);
+          var text = svgNode('text', 'ss-fm-label', { x: m.sheetX + m.sheetWidth / 2, y: m.labelBaseline, 'text-anchor': 'middle' });
+          text.textContent = String(label).slice(0, m.labelMax);
+          svg.appendChild(text);
+        }
+        return svg;
+      }
+
+      // A label wider than the band (an unknown four-letter type of wide letters) is squeezed to fit, as QuireFileMark
+      // squeezes it; it can only be measured once laid out, so this runs after the chips are in and when a card opens.
+      function fitFileLabels(root) {
+        var m = SS_FILE_MARK;
+        var room = m.sheetWidth - 2 * m.edge - 2 * m.labelPad;
+        var labels = root.querySelectorAll('.ss-fm-label:not([data-fit])');
+        for (var i = 0; i < labels.length; i++) {
+          var width = labels[i].getComputedTextLength();
+          if (!(width > 0)) { continue; }
+          labels[i].setAttribute('data-fit', '');
+          if (width > room) {
+            labels[i].setAttribute('textLength', room);
+            labels[i].setAttribute('lengthAdjust', 'spacingAndGlyphs');
+          }
+        }
+      }
 
       function isDark() { return !!(darkQuery && darkQuery.matches); }
 
@@ -1170,6 +1230,7 @@ public enum ConversationShellAssets {
       // ResizeObserver, which never fires in a pooled view that is not on screen.
       function refitCard(card) {
         if (!card.expanded) { return; }
+        if (card.atts) { fitFileLabels(card.atts); }
         var animate = card.animateFit;
         card.animateFit = false;
         fit(card, animate);
@@ -2251,8 +2312,13 @@ public enum ConversationShellAssets {
         chip.dataset.mime = attachment.mime || '';
         var failed = !!(card.failedAttachments && card.failedAttachments[attachment.id]);
         chip.classList.toggle('ss-failed', failed);
-        var tile = el('span', 'ss-tile');
-        tile.appendChild(sym(failed ? 'exclamationmark.triangle.fill' : (attachment.symbol || 'doc')));
+        var tile;
+        if (failed) {
+          tile = el('span', 'ss-tile');
+          tile.appendChild(sym('exclamationmark.triangle.fill'));
+        } else {
+          tile = fileMark(attachment.family, attachment.label);
+        }
         var text = el('span', 'ss-chip-text');
         text.appendChild(chipName(attachment.name));
         var meta = el('span', 'ss-chip-meta');
@@ -2397,6 +2463,7 @@ public enum ConversationShellAssets {
           : focused ? list.querySelector(focusedKind + '[data-attachment-id="' + CSS.escape(focused) + '"]') : null;
         if (again) { again.focus(); }
         refitCard(card);
+        setTimeout(function () { fitFileLabels(list); }, 0);
       }
 
       // A chip's download, or Download all's on the count line (spec §5.17): fraction 0…1 fills the contrail, null

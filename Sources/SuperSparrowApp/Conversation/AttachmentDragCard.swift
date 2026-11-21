@@ -22,7 +22,7 @@ enum AttachmentDragCard {
 
     /// What the card says for an attachment: its name and the chip's own meta line (`RenderPayloadBuilder`).
     static func content(for info: AttachmentInfo) -> Content {
-        let kind = RenderPayloadBuilder.attachmentType(filename: info.filename, mimeType: info.mimeType).kind
+        let kind = FileMark(filename: info.filename, mimeType: info.mimeType).kind
         let size = RenderPayloadBuilder.sizeString(bytes: info.sizeBytes)
         return Content(name: info.filename.isEmpty ? "Attachment" : info.filename, meta: kind + " · " + size,
                        type: AttachmentFilePromise.fileType(filename: info.filename, mimeType: info.mimeType))

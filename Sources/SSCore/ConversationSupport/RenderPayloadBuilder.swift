@@ -87,14 +87,12 @@ public struct RenderPayloadBuilder: Sendable {
             let attachments = (body?.body.attachments ?? [])
                 .filter { !$0.isInline }
                 .map { attachment in
-                    let type = Self.attachmentType(filename: attachment.filename, mimeType: attachment.mimeType)
-                    return RenderPayload.Attachment(
+                    RenderPayload.Attachment(
                         id: attachment.id,
                         name: attachment.filename.isEmpty ? "Attachment" : attachment.filename,
                         size: Self.sizeString(bytes: attachment.sizeBytes),
                         mime: attachment.mimeType,
-                        symbol: type.symbol,
-                        kind: type.kind
+                        mark: FileMark(filename: attachment.filename, mimeType: attachment.mimeType)
                     )
                 }
             return RenderPayload.Message(
@@ -376,40 +374,6 @@ public struct RenderPayloadBuilder: Sendable {
             range = found.upperBound..<haystack.endIndex
         }
         return count
-    }
-
-    // MARK: Attachments
-
-    /// The chip's type tile symbol and the kind its meta line names (spec §5.17), from the file's extension,
-    /// else its MIME type. Symbols stay inside the reader's rasterised set (§4.11).
-    public static func attachmentType(filename: String, mimeType: String) -> (symbol: String, kind: String) {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        switch ext {
-        case "pdf": return ("doc", "PDF")
-        case "doc", "docx": return ("doc.richtext", "Word")
-        case "pages": return ("doc.richtext", "Pages")
-        case "rtf", "rtfd": return ("doc.richtext", "Rich Text")
-        case "txt", "md": return ("doc", "Text")
-        case "xls", "xlsx": return ("tablecells", "Excel")
-        case "numbers": return ("tablecells", "Numbers")
-        case "csv", "tsv": return ("tablecells", ext.uppercased())
-        case "ppt", "pptx": return ("doc", "PowerPoint")
-        case "key": return ("doc", "Keynote")
-        case "zip", "gz", "tgz", "tar", "7z", "rar", "bz2", "xz": return ("doc.zipper", "Archive")
-        case "mov": return ("film", "QuickTime")
-        case "mp4", "m4v", "avi", "mkv", "webm": return ("film", "Video")
-        case "jpg", "jpeg": return ("photo", "JPEG")
-        case "png", "gif", "heic", "heif", "tif", "tiff", "webp", "bmp": return ("photo", ext.uppercased())
-        default: break
-        }
-        let mime = mimeType.lowercased()
-        if mime == "application/pdf" { return ("doc", "PDF") }
-        if mime.hasPrefix("image/") { return ("photo", "Image") }
-        if mime.hasPrefix("video/") { return ("film", "Video") }
-        if mime.contains("zip") || mime.contains("compressed") { return ("doc.zipper", "Archive") }
-        if mime.contains("spreadsheet") || mime.contains("excel") || mime == "text/csv" { return ("tablecells", "Spreadsheet") }
-        if mime.contains("wordprocessing") || mime.contains("msword") || mime.contains("rtf") { return ("doc.richtext", "Document") }
-        return ("doc", ext.isEmpty ? "File" : ext.uppercased())
     }
 
     // MARK: Sizes

@@ -54,19 +54,27 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// Human-readable size ("1.2 MB"), formatted here so the shell stays locale-free.
         public var size: String
         public var mime: String
-        /// The type tile's SF Symbol (spec §5.17): one of the reader symbols `doc`, `doc.richtext`, `photo`,
-        /// `tablecells`, `doc.zipper`, `film`.
-        public var symbol: String
+        /// The file mark's family (spec §5.57): the band's ink, `--q-file-<family>`.
+        public var family: FileFamily
+        /// The type in capitals on the mark's band (“PDF”), or empty for a plain sheet.
+        public var label: String
         /// The kind named in the chip's meta line, "PDF · 240 KB".
         public var kind: String
 
-        public init(id: String, name: String, size: String, mime: String, symbol: String = "doc", kind: String = "") {
+        public init(id: String, name: String, size: String, mime: String, family: FileFamily = .other, label: String = "",
+                    kind: String = "") {
             self.id = id
             self.name = name
             self.size = size
             self.mime = mime
-            self.symbol = symbol
+            self.family = family
+            self.label = label
             self.kind = kind
+        }
+
+        /// The chip of a stored attachment, its mark and kind from `FileMark` (spec §5.57).
+        public init(id: String, name: String, size: String, mime: String, mark: FileMark) {
+            self.init(id: id, name: name, size: size, mime: mime, family: mark.family, label: mark.label, kind: mark.kind)
         }
     }
 

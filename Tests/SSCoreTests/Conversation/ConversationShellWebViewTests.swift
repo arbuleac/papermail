@@ -818,6 +818,51 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual((menu?["x"] as? NSNumber)?.doubleValue, 40)
     }
 
+    /// Each chip wears its file's mark (spec §5.57): the sheet, the fold and the edges from SS_FILE_MARK, the band in the
+    /// family's file ink and the label in white SF Pro at width 60; no label is a plain sheet; a label wider than the band
+    /// is squeezed to fit; and a failed chip gives its mark up to the warning tile.
+    func testChipsWearTheirFileMarks() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1")
+        let files = [("a1", "plan.pdf", "application/pdf"), ("a2", "Q4.xlsx", "application/octet-stream"),
+                     ("a3", "Makefile", "application/octet-stream"), ("a4", "odd.wmwm", "application/octet-stream")]
+            .map { AttachmentInfo(id: $0.0, filename: $0.1, mimeType: $0.2, sizeBytes: 1_000, isInline: false) }
+        let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: "<p>Files</p>", attachments: files)],
+                                      accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString())); document.documentElement.classList.remove('ss-ic'); true", in: webView)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let families = try await evaluate("Array.from(document.querySelectorAll('.ss-chip .ss-fm')).map(function (n) { return n.getAttribute('data-family'); })", in: webView) as? [String]
+        XCTAssertEqual(families, ["pdf", "spreadsheet", "other", "other"])
+        let labels = try await evaluate("Array.from(document.querySelectorAll('.ss-chip .ss-fm')).map(function (n) { var t = n.querySelector('.ss-fm-label'); return t ? t.textContent : ''; })", in: webView) as? [String]
+        XCTAssertEqual(labels, ["PDF", "XLS", "", "WMWM"])
+        let size = try await evaluate("var r = document.querySelector('.ss-chip .ss-fm').getBoundingClientRect(); [r.width, r.height]", in: webView) as? [Double]
+        XCTAssertEqual(size, [28, 28])
+        let band = try await evaluate("getComputedStyle(document.querySelector('.ss-fm .ss-fm-band')).fill", in: webView) as? String
+        let pdf = QuireCSS.head.components(separatedBy: "--q-file-pdf:")[1].prefix(7)
+        XCTAssertEqual(band, rgb(String(pdf)), "the PDF band is the PDF file ink")
+        let font = try await evaluate("var s = getComputedStyle(document.querySelector('.ss-fm-label')); [s.fontWeight, s.fontStretch, s.fontSize, s.fill]", in: webView) as? [String]
+        XCTAssertEqual(font, ["700", "60%", "8px", "rgb(255, 255, 255)"])
+        let sheet = try await evaluate("document.querySelector('.ss-fm .ss-fm-sheet').getAttribute('d')", in: webView) as? String
+        XCTAssertTrue(QuireCSS.fileMarkScript.contains("\"sheetPath\":\"" + (sheet ?? "-") + "\""), "the tokens' own outline")
+        let plain = try await evaluate("document.querySelectorAll('.ss-chip')[2].querySelectorAll('.ss-fm-band, .ss-fm-label').length", in: webView)
+        XCTAssertEqual(int(plain), 0, "no type, no band")
+        let squeezed = try await evaluate("var t = document.querySelectorAll('.ss-fm-label')[2]; [t.getAttribute('textLength'), t.getAttribute('lengthAdjust')]", in: webView) as? [String]
+        XCTAssertEqual(squeezed, ["21", "spacingAndGlyphs"], "a label wider than the band is squeezed to it")
+        let roomy = try await evaluate("document.querySelectorAll('.ss-fm-label')[0].hasAttribute('textLength')", in: webView) as? Bool
+        XCTAssertEqual(roomy, false, "a label that fits keeps its own width")
+
+        let key = ConversationShellAssets.jsStringLiteral(payload.messages[0].id)
+        _ = try await evaluate("window.ss.attachmentFailed(\(key), 'a1', true)", in: webView)
+        let failed = try await evaluate("var c = document.querySelector('.ss-chip.ss-failed'); [c.querySelectorAll('.ss-fm').length, c.querySelectorAll('.ss-tile .ss-sym-exclamationmark-triangle-fill').length]", in: webView) as? [Int]
+        XCTAssertEqual(failed, [0, 1])
+    }
+
+    private func rgb(_ hex: String) -> String {
+        let v = Int(hex.dropFirst(), radix: 16) ?? 0
+        return "rgb(\(v >> 16), \((v >> 8) & 0xFF), \(v & 0xFF))"
+    }
+
     /// The bottom inset pads the conversation by the quick reply's height + 12, the frame never moves (§8.4).
     func testBottomInsetPadsTheConversation() async throws {
         let (webView, _) = try await loadedShell()

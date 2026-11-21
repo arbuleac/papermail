@@ -14,7 +14,7 @@ final class RenderPayloadJSONTests: XCTestCase {
         "recipients", "snippet", "to", "typesetting", "unsubscribe",
     ]
     static let expectedSenderKeys = ["address", "initials", "name", "tint"]
-    static let expectedAttachmentKeys = ["id", "kind", "mime", "name", "size", "symbol"]
+    static let expectedAttachmentKeys = ["family", "id", "kind", "label", "mime", "name", "size"]
     static let expectedRecipientFieldKeys = ["label", "people"]
     static let expectedPersonKeys = ["address", "name"]
 
@@ -38,7 +38,7 @@ final class RenderPayloadJSONTests: XCTestCase {
                     hasQuotedContent: false,
                     blockedRemoteImageCount: 0,
                     attachments: [RenderPayload.Attachment(id: "att-1", name: "plan.pdf", size: "1.2 MB", mime: "application/pdf",
-                                                           symbol: "doc", kind: "PDF")],
+                                                           family: .pdf, label: "PDF", kind: "PDF")],
                     typesetting: .unstyled,
                     declaresColors: false,
                     coveredByNewYork: true
