@@ -595,6 +595,33 @@ final class MailEngineRulesTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A replacement whose new rule was made but whose old rule's delete the server refused for good is back as the server
+    /// has it now, both rules for the sender (the block winning, as a read folds them), not as it was before the create:
+    /// the next read would otherwise turn the row over again.
+    func testAReplacementWhoseOldRuleCannotBeDeletedIsBackAsTheServerHasItNow() async throws {
+        let clock = HandClock()
+        let provider = ScriptedRuleProvider(accountID: account)
+        let old = provider.seedRule(deals, .archive)
+        provider.deleteResults = [RuleProviderError.refused]
+        let recorder = PhaseRecorder()
+        let harness = try await started(provider, clock: clock)
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        try await waitUntil("mirrored") { try self.rows(harness) == ["\(self.deals) archive saved \(old)"] }
+        try await waitForTheFirstTurn(harness, provider)
+
+        try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
+        try await waitUntil("said") { self.rulesState(recorder) == .failed(.refused, otherCount: 0) }
+        XCTAssertEqual(provider.writeLog, ["create \(deals) trash", "delete \(old)"])
+        XCTAssertEqual(try rows(harness), ["\(deals) trash saved \(old),rule-2"], "as the server has it")
+        let readsBefore = provider.reads
+        harness.engine.refreshServerRules(accountID: account)
+        try await waitUntil("read again") { provider.reads == readsBefore + 1 }
+        try await waitForPolls(2, of: provider)
+        XCTAssertEqual(try rows(harness), ["\(deals) trash saved \(old),rule-2"], "and the read agrees")
+        await harness.shutdown()
+    }
+
     /// The token turns out to lack the scope on the write itself (the granted scopes said otherwise): not connected, the
     /// rule waits, and a reconnect asks for the scope.
     func testAPermissionRefusalOnAWriteLeavesItWaiting() async throws {

@@ -346,10 +346,11 @@ actor RulesLane {
     }
 
     /// The server will never take this write: a create is given up (the row goes), a delete or a replacement is put back
-    /// as the server has it, read from the rules the server held under the row's ids at this turn's read.
+    /// as the server has it now, folded as a read folds it: the rules this turn's read found for the address, less those
+    /// deleted and plus those created since (a replacement's new rule made before the old one's delete was refused), not
+    /// only those under the row's ids when the turn began.
     private func giveUp(_ row: SenderRule, server: [ServerSenderRule], _ error: Error) {
-        let held = server.filter { row.serverIDs.contains($0.serverID) }
-        let serverHas: SenderRule.Action? = held.isEmpty ? nil : (held.contains { $0.action == .trash } ? .trash : .archive)
+        let serverHas = SenderRuleMirror.fold(server.filter { $0.address == row.address })[row.address]?.action
         do {
             try store.settleSenderRule(for: row.address, accountID: accountID, .refused(attempted: row.sync, serverHas: serverHas))
         } catch {
