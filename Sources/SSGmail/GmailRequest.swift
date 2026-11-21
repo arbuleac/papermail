@@ -24,6 +24,8 @@ struct GmailRequest: Sendable {
         /// The Google Calendar API, which marks the user's own copy of an invitation they answered and reads and writes
         /// the main calendar the day column shows. Its quota is the Calendar API's own, not Gmail's.
         case calendar
+        /// Gmail's settings (`users.settings.filters`), where sender rules live as filters. Gmail's quota, priced per call.
+        case settings
     }
 
     var method: Method
@@ -61,6 +63,10 @@ struct GmailRequest: Sendable {
             body: try encode(body),
             kind: kind
         )
+    }
+
+    static func delete(_ resource: String, kind: Kind) throws -> GmailRequest {
+        GmailRequest(method: .delete, url: try apiURL(resource, query: []), headers: [:], body: nil, kind: kind)
     }
 
     /// A Calendar API call on the primary calendar's events: `resource` is empty for the collection, or an event id.
