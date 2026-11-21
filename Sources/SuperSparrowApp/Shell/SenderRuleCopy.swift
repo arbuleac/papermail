@@ -33,11 +33,9 @@ enum SenderRuleCopy {
         }
     }
 
-    /// Where a row stands while the server does not have it as shown yet; nil for a saved one. Without the permission
-    /// nothing goes out, so every pending row waits for it, whichever way it is going.
-    static func state(of rule: SenderRule, kind: ProviderKind, waitingForPermission: Bool) -> String? {
+    /// Where a row stands while the server does not have it as shown yet; nil for a saved one.
+    static func state(of rule: SenderRule, kind: ProviderKind) -> String? {
         guard rule.isPending else { return nil }
-        if waitingForPermission { return "Waiting for permission" }
         switch rule.sync {
         case .creating, .replacing: return "Saving to \(service(kind))…"
         case .deleting: return "Removing…"
@@ -69,9 +67,16 @@ enum SenderRuleCopy {
         "Open \(service(kind)) Settings"
     }
 
-    /// The notice while the account has not granted the rules permission.
-    static func needsPermission(_ kind: ProviderKind) -> String {
-        "SuperSparrow needs permission to read and save \(service(kind)) \(rules(kind))."
+    /// The notice while the account has not granted the rules permission, which is all the sheet shows then: the server's
+    /// rules cannot be read, and rules kept on this Mac from before 1.14 are no rules until the server holds them, so they
+    /// are counted, never listed.
+    static func needsPermission(_ kind: ProviderKind, uploading count: Int) -> String {
+        let ask = "Allow SuperSparrow to read and save \(service(kind)) \(rules(kind))."
+        switch count {
+        case 0: return ask
+        case 1: return ask + " Your sender rule from this Mac moves to \(service(kind)) then."
+        default: return ask + " Your \(count.formatted()) sender rules from this Mac move to \(service(kind)) then."
+        }
     }
 
     /// The notice while that permission's sign-in waits for the browser.

@@ -21,7 +21,7 @@ public struct SyncLineSummary: Equatable, Sendable {
         case sending
         case downloading
         case checking
-        /// Mail is current, but sender rules set or removed on this Mac wait for the permission to save them on the
+        /// Mail is current, but sender rules kept on this Mac from before 1.14 wait for the permission to save them on the
         /// server (spec §5.52): they act nowhere until it is granted, so the line asks rather than leave it to Settings.
         case rulesPermission
         case demo
@@ -83,7 +83,7 @@ public struct SyncLineSummary: Equatable, Sendable {
         public var isChecking: Bool
         /// The moment “retrying in 30 s” counts from.
         public var now: Date
-        /// The accounts with sender rules set or removed on this Mac and not yet on the server (`MailStoring
+        /// The accounts with sender rules kept on this Mac and not yet on the server (`MailStoring
         /// .pendingSenderRules`); with `AccountSyncStatus.rules == .notConnected` they wait for the permission.
         public var rulesWaiting: Set<AccountID>
 

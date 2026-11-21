@@ -157,6 +157,10 @@ public protocol MailClient: AnyObject {
     /// Signs `account` in again asking for the rules scope too (Allow… in Settings › Senders, Continue in the first rule's
     /// alert); once granted, the rules waiting are sent and the server's rules read. Throws as `reconnect` does.
     func connectRules(_ account: Account) async throws -> Account
+    /// Whether `accountID` has granted the permission to save sender rules on the server (`AccountPermission.rules`), from
+    /// the scopes its stored token was granted: no request. The app asks before setting a rule, so a rule is only ever set
+    /// where the server can hold it. False for an account the client does not know, or whose provider keeps no rules.
+    func hasRulesPermission(_ accountID: AccountID) async -> Bool
 }
 
 extension MailClient {
@@ -189,6 +193,8 @@ extension MailClient {
     public func connectRules(_ account: Account) async throws -> Account {
         try await reconnect(account)
     }
+
+    public func hasRulesPermission(_ accountID: AccountID) async -> Bool { false }
 }
 
 extension MailClient {

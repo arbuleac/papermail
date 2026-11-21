@@ -4,8 +4,8 @@ import SwiftUI
 
 /// Settings › Accounts › Senders… (spec §5.40, §5.52): the account's sender rules as its server keeps them, Gmail filters
 /// or Outlook rules, the one place they are listed, each with its − to remove it. The server is the one source of truth:
-/// the sheet shows the store's mirror of it, with the changes made on this Mac until the server has them, and asks the
-/// engine to read the server as it opens. Rules are set from a message's menu, never here, so the sheet has no +.
+/// the sheet shows the store's mirror of it, with the changes on their way there, never a rule of this Mac alone, and
+/// asks the engine to read the server as it opens. Rules are set from a message's menu, never here, so the sheet has no +.
 struct SendersSheet: View {
     @ObservedObject var model: SettingsModel
     let account: Account
@@ -61,7 +61,8 @@ struct SendersSheetBody: View {
     }
 
     var body: some View {
-        QuireRuleSheet(title: "Senders", caption: content.caption, notice: notice, rows: Self.rows(content), emptyTitle: "No sender rules",
+        QuireRuleSheet(title: "Senders", caption: content.caption, notice: notice, rows: content.showsList ? Self.rows(content) : nil,
+                       emptyTitle: "No sender rules",
                        emptyHint: "Set one from a message's menu.", foot: foot, onRemove: onRemove, onDone: onDone)
     }
 

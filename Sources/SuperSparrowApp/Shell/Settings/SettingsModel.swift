@@ -146,8 +146,9 @@ final class SettingsModel: ObservableObject {
                             isDemo: isDemo)
     }
 
-    /// A sender rule set or removed on this Mac waits for the permission to save rules on the server, which the account
-    /// has not granted (the account's row asks for it, as it asks for the calendar's).
+    /// Rules kept on this Mac from before 1.14 wait for the permission to save rules on the server, which the account has
+    /// not granted (the account's row asks for it, as it asks for the calendar's). A rule set since never waits: it is set
+    /// only with the permission.
     func senderRulesNeedPermission(_ account: Account) -> Bool {
         statuses[account.id]?.rules == .notConnected && senderRules(for: account).contains { $0.isPending }
     }
@@ -218,8 +219,8 @@ final class SettingsModel: ObservableObject {
     }
 
     /// Mail is current, but something set on this Mac waits for a permission the account has not granted: an answered
-    /// invitation for the calendar's (its outbox waits on it, so it comes first), or a sender rule for the rules'. Nil
-    /// while nothing waits.
+    /// invitation for the calendar's (its outbox waits on it, so it comes first), or rules kept on this Mac from before
+    /// 1.14 for the rules'. Nil while nothing waits.
     private func permissionStatus(for account: Account, _ status: AccountSyncStatus) -> QuireAccountStatus? {
         if !status.permissionsNeeded.isEmpty { return .calendarPermission }
         guard senderRulesNeedPermission(account) else { return nil }

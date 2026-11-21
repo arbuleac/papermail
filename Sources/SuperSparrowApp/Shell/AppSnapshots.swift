@@ -134,8 +134,9 @@ enum AppSnapshots {
     /// Settings › Accounts › Senders… (§5.52), a sheet no Settings snapshot holds, each state in a window of its own off
     /// screen on the sheet's `canvas`: first the demo's Gmail account as the sheet shows it (the seeded rule, the made-up
     /// server's other filters, no web link), then the states a real Gmail account goes through, drawn from content built
-    /// here (neither the store nor the model is touched): saved and pending rows with the foot, the permission not given,
-    /// its sign-in waiting for the browser, a failure, the first read; then an Outlook account.
+    /// here (neither the store nor the model is touched): saved and pending rows with the foot, the permission not given
+    /// with three rules from this Mac counted, its sign-in waiting for the browser, a refused create, the first read; then
+    /// an Outlook account read, and without the permission with one rule counted.
     static func renderSenders(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
         let demo = model.accounts.first { $0.kind == .gmail } ?? model.accounts.first
@@ -157,18 +158,23 @@ enum AppSnapshots {
         }
         var contents: [SendersSheetContent] = []
         if let demo { contents.append(model.sendersContent(for: demo)) }
+        let migrated = ["a@one.example", "b@two.example", "c@three.example"].map { rule(gmail, $0, .trash, .creating) }
         contents += [
+            // Read: saved, being saved, removed, replaced, with the server's other filters.
             SendersSheetContent(account: gmail, rules: rules(gmail), status: status(gmail, .upToDate(otherCount: 12, readAt: now)),
                                 isReconnecting: false, isDemo: false),
-            SendersSheetContent(account: gmail, rules: [rule(gmail, "news@letter.example", .archive, .creating)],
-                                status: status(gmail, .notConnected), isReconnecting: false, isDemo: false),
-            SendersSheetContent(account: gmail, rules: [rule(gmail, "news@letter.example", .archive, .creating)],
-                                status: status(gmail, .notConnected), isReconnecting: true, isDemo: false),
+            // No permission: no list, the rules kept on this Mac counted.
+            SendersSheetContent(account: gmail, rules: migrated, status: status(gmail, .notConnected), isReconnecting: false, isDemo: false),
+            SendersSheetContent(account: gmail, rules: migrated, status: status(gmail, .notConnected), isReconnecting: true, isDemo: false),
+            // A create refused for good: the row is gone, the banner says why.
             SendersSheetContent(account: gmail, rules: [rule(gmail, "deals@shop.example", .trash, .saved)],
                                 status: status(gmail, .failed(.limitReached, otherCount: 12)), isReconnecting: false, isDemo: false),
-            SendersSheetContent(account: gmail, rules: [], status: status(gmail, .unknown), isReconnecting: false, isDemo: false),
+            // The first read out: the last read's rules, not a rule set before it.
+            SendersSheetContent(account: gmail, rules: rules(gmail), status: status(gmail, .unknown), isReconnecting: false, isDemo: false),
             SendersSheetContent(account: outlook, rules: rules(outlook), status: status(outlook, .upToDate(otherCount: 1, readAt: now)),
                                 isReconnecting: false, isDemo: false),
+            SendersSheetContent(account: outlook, rules: [rule(outlook, "news@letter.example", .archive, .creating)],
+                                status: status(outlook, .notConnected), isReconnecting: false, isDemo: false),
         ]
         let appearance = NSApp.appearance ?? NSApp.effectiveAppearance
         let host = NSHostingView(rootView: AnyView(EmptyView()))

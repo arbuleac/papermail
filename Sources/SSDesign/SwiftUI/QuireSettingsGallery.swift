@@ -389,11 +389,11 @@ struct QuireGallerySenders: View {
                            emptyHint: "Set one from a message's menu.",
                            foot: QuireRuleSheetFoot(words: "12 other filters in Gmail", link: ("Open Gmail Settings", {})),
                            onRemove: { _ in }, onDone: {})
+            // Without the permission there is no list: rules kept on this Mac from before are counted, never listed.
             QuireRuleSheet(title: "Senders", caption: Self.caption,
-                           notice: QuireBanner(.info, "SuperSparrow needs permission to read and save Gmail filters.", link: ("Allow…", {})),
-                           rows: [QuireRemovableList.Row(id: "a", title: "news@weekly.example", detail: "Archived",
-                                                         state: "Waiting for permission")],
-                           emptyTitle: "No sender rules", emptyHint: "Set one from a message's menu.",
+                           notice: QuireBanner(.info, "Allow SuperSparrow to read and save Gmail filters. Your 3 sender rules from this "
+                                                   + "Mac move to Gmail then.", link: ("Allow…", {})),
+                           rows: nil, emptyTitle: "No sender rules", emptyHint: "Set one from a message's menu.",
                            foot: QuireRuleSheetFoot(link: ("Open Gmail Settings", {})), onRemove: { _ in }, onDone: {})
             ForEach([("− hover", QuireForcedStates.hovered), ("− focused", .focused)], id: \.0) { caption, state in
                 VStack(alignment: .leading, spacing: Quire.Space.s2) {

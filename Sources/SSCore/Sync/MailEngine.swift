@@ -331,6 +331,13 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         return connected
     }
 
+    /// Asked of the account's provider, which reads the scopes its token was granted (through the token provider, which
+    /// holds the newest grant; the keychain otherwise): no request. The demo's made-up servers grant it.
+    public func hasRulesPermission(_ accountID: AccountID) async -> Bool {
+        guard let context = try? context(forAccountID: accountID), let rules = context.provider as? RuleProvider else { return false }
+        return await rules.hasRulesPermission()
+    }
+
     /// What a reconnect asks for beyond mail: the permissions queued work waits for (an answered invitation; a sender
     /// rule on its way to the server), and those the account granted before, so signing in again never takes one away.
     /// Reading the old grant is a keychain read on the reconnect's own path, which already writes the new tokens; one

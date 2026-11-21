@@ -239,6 +239,8 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertTrue(harness.controller.validateMenuItem(block))
 
         harness.controller.blockSender(nil)
+        // Set once the account's grant answers (no request); the harness's made-up servers grant it.
+        harness.spin { (try? self.store(harness).senderRules().isEmpty) == false }
         XCTAssertEqual(try store(harness).senderRules().map(\.address), [address.lowercased()])
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash])
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.trash), true, "their mail here goes to the Trash")
@@ -286,6 +288,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
         let target = try XCTUnwrap(harness.reader.senderRuleTarget)
         let sender = try XCTUnwrap(target.from)
         harness.controller.handle(.senderRule(.archive, target.id))
+        harness.spin { (try? self.store(harness).senderRules().isEmpty) == false }
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.archive])
         XCTAssertEqual(try store(harness).senderRules().map(\.sync), [.creating], "on its way to the server")
         XCTAssertEqual(try store(harness).message(target.id)?.roles.contains(.inbox), false)
@@ -352,6 +355,7 @@ final class MuteAndSenderRulesTests: XCTestCase {
         let block = try XCTUnwrap(menu.items.first { $0.title == MailActionCopy.senderRuleCommand(.trash) })
         XCTAssertTrue(block.isEnabled)
         XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(block.action), to: block.target, from: block))
+        harness.spin { (try? self.store(harness).senderRules().map(\.action)) == [.trash] }
 
         XCTAssertEqual(try store(harness).senderRules().map(\.address), [address])
         XCTAssertEqual(try store(harness).senderRules().map(\.action), [.trash], "Block replaced Always Archive")
@@ -409,6 +413,9 @@ final class MuteAndSenderRulesTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { model.senderRules.count == 3 }, timeout: 3))
         XCTAssertEqual(model.senderRules(for: a).map(\.address), ["deals@shop.example", "news@letter.example"], "this account's, by address")
 
+        // The account's rules have been read in this run, so the engine can send what was set since: it shows, saving.
+        model.statuses = [a.id: AccountSyncStatus(accountID: a.id, phase: .idle, lastSuccessfulSyncAt: Date(),
+                                                  rules: .upToDate(otherCount: 0, readAt: Date()))]
         let sheet = SendersSheet(model: model, account: a, onDone: {})
         XCTAssertEqual(sheet.rows, [
             QuireRemovableList.Row(id: "deals@shop.example", title: "deals@shop.example", detail: "Blocked", state: "Saving to Gmail…"),

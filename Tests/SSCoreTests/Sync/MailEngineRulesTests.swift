@@ -217,6 +217,24 @@ final class MailEngineRulesTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// The app asks before it sets a rule: the token's granted scopes answer, as the provider reads them, with no request.
+    func testHasRulesPermissionReadsTheGrantWithoutARequest() async throws {
+        let provider = ScriptedRuleProvider(accountID: account)
+        provider.grantsRules = false
+        let harness = try await started(provider, clock: HandClock())
+        let reads = provider.reads
+        let refused = await harness.engine.hasRulesPermission(account)
+        XCTAssertFalse(refused)
+        provider.grantsRules = true
+        let granted = await harness.engine.hasRulesPermission(account)
+        XCTAssertTrue(granted)
+        let unknown = await harness.engine.hasRulesPermission(AccountID("someone-else"))
+        XCTAssertFalse(unknown, "an account the engine does not know")
+        XCTAssertEqual(provider.reads, reads, "no read of the server")
+        XCTAssertTrue(provider.writeLog.isEmpty)
+        await harness.shutdown()
+    }
+
     /// Parked for sign-in, the account sends nothing for its rules; what was set meanwhile goes once it works again.
     func testAParkedAccountSendsNoRules() async throws {
         let clock = HandClock()

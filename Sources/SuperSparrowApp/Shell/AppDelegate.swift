@@ -29,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let replacement: AppEnvironment?
         /// The day column's Connect (§5.54): told whether the account granted its calendar, or gave up.
         var connected: (@MainActor (Bool) -> Void)?
-        /// Asking for the permission to save sender rules on the server (§5.52): Try Again asks for it again.
+        /// Asking for the permission to save sender rules on the server (§5.52): Try Again asks for it again, and `connected`
+        /// hears whether the sign-in went through.
         var asksRules = false
     }
 
@@ -605,7 +606,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return done(false) }
             self.connectCalendar(account, origin: .main, done: done)
         }
-        window.onConnectRules = { [weak self] account in self?.connectRules(account, origin: .main) }
+        window.onConnectRules = { [weak self] account, done in
+            guard let self else { return done(false) }
+            self.connectRules(account, origin: .main, done: done)
+        }
         window.onOpenSettings = { [weak self] in self?.openSettings() }
         environment.helpMeWrite.openSettings = { [weak self] in self?.openSettings(tab: .ai) }
         window.onOpenAccountsSettings = { [weak self] in self?.openSettings(tab: .accounts) }
@@ -838,14 +842,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         signIn?.connected = done
     }
 
-    /// Allow… in Settings › Senders, Continue in the first rule's alert and the Settings row's Reconnect while sender rules
-    /// wait (§5.52): the reconnect's browser sign-in, asking for the permission to save rules on the server on top of what
-    /// the account holds (`MailClient.connectRules`), with its alerts. A sign-in abandoned in the browser leaves the rules
-    /// waiting, as Senders shows.
-    func connectRules(_ account: Account, origin: Origin) {
+    /// Allow… in Settings › Senders, Continue in a rule's alert, and the Settings row's and the sync line's Reconnect while
+    /// rules from before 1.14 wait (§5.52): the reconnect's browser sign-in, asking for the permission to save rules on the
+    /// server on top of what the account holds (`MailClient.connectRules`), with its alerts. `done` hears whether the
+    /// sign-in went through (the rule's alert sets the rule only then), or gave up.
+    func connectRules(_ account: Account, origin: Origin, done: (@MainActor (Bool) -> Void)? = nil) {
         guard let environment, signIn == nil, !isPreparingDemo,
-              environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else { return }
+              environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else {
+            done?(false)
+            return
+        }
         beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, rules: true)
+        signIn?.connected = done
     }
 
     /// No client: the welcome screen shows its info banner; elsewhere the alert offers Settings › OAuth with
@@ -991,10 +999,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // outcome; the rules' keeps asking for the rules; anything else ends its round.
         let again = { [weak self] (account: Account) in
             guard let self else { return }
-            if let connected = current.connected {
+            if current.asksRules {
+                self.connectRules(account, origin: current.origin, done: current.connected)
+            } else if let connected = current.connected {
                 self.connectCalendar(account, origin: current.origin, done: connected)
-            } else if current.asksRules {
-                self.connectRules(account, origin: current.origin)
             } else {
                 self.reconnect(account, origin: current.origin)
             }

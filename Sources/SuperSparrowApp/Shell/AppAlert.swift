@@ -151,9 +151,9 @@ struct AppAlert {
                                       body: "The made-up mailboxes are removed from this Mac when your account is added.",
                                       buttons: [Button(title: "Continue"), Button(title: "Cancel")])
 
-    /// The first sender rule on an account that has not let SuperSparrow save rules on the server (§5.52): the rule becomes
-    /// a Gmail filter or an Outlook rule, which needs one more permission. Continue is the default, since the user just
-    /// chose the rule: it keeps the rule and opens the browser to allow it. Cancel sets nothing.
+    /// A sender rule on an account that has not let SuperSparrow save rules on the server (§5.52): the rule becomes a Gmail
+    /// filter or an Outlook rule, which needs one more permission. Continue is the default, since the user just chose the
+    /// rule: it opens the browser to allow it, and the rule is set once it is allowed. Cancel sets nothing.
     static func saveSenderRules(_ kind: ProviderKind, action: SenderRule.Action) -> AppAlert {
         let service = SenderRuleCopy.service(kind)
         let rule = kind == .gmail ? "a Gmail filter" : "an Outlook rule"
@@ -162,6 +162,16 @@ struct AppAlert {
                         body: "SuperSparrow saves this as \(rule), so mail from this sender \(effect) on every device, even when "
                             + "this Mac is off. \(service) asks you to allow it once.",
                         buttons: [Button(title: "Continue"), Button(title: "Cancel")])
+    }
+
+    /// After Continue's sign-in came back without the permission (a consent screen that let the user leave it unticked):
+    /// nothing was set, and Try Again asks again.
+    static func senderRulesNotAllowed(_ kind: ProviderKind) -> AppAlert {
+        let service = SenderRuleCopy.service(kind)
+        let rules = kind == .gmail ? "Gmail filters" : "Outlook rules"
+        return AppAlert(title: "\(service) didn't allow sender rules",
+                        body: "The rule wasn't saved. Try again and allow SuperSparrow to read and save \(rules) in your browser.",
+                        buttons: [Button(title: "Try Again"), Button(title: "Cancel")])
     }
 
     /// Composer: Message › Discard Draft… (§5.20). `recipient` is the first To name, if any.
@@ -263,6 +273,7 @@ struct AppAlert {
             replaceDemo,
             saveSenderRules(.gmail, action: .archive),
             saveSenderRules(.microsoft, action: .trash),
+            senderRulesNotAllowed(.gmail),
             openProgram(filename: "Invoice.command"),
             helpMeWriteTurnOn(.claudeAPI),
             helpMeWriteTurnOn(.claudeCode),

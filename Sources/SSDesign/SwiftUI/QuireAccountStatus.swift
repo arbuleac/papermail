@@ -87,7 +87,7 @@ public struct QuireAccountStatus: Equatable, Sendable {
         tooltip: "Answer invitations: SuperSparrow needs permission to update your calendar.", actionTitle: "Reconnect"
     )
 
-    /// Mail is up to date, but a sender rule set on this Mac waits for permission to save it on the server (spec §5.40,
+    /// Mail is up to date, but sender rules kept on this Mac wait for permission to move to the server (spec §5.40,
     /// §5.52): Reconnect signs in again asking for it. `rules` names them as the server does (“Gmail filters”).
     public static func senderRulesPermission(rules: String) -> QuireAccountStatus {
         QuireAccountStatus(mark: .glyph(Quire.Icon.blockSender, .ink2), words: "Sender rules need permission", wordsColor: .ink2,

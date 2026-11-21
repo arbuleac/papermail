@@ -191,7 +191,16 @@ final class MainWindowPerformanceTests: XCTestCase {
         }
         // A conversation whose sender has no rule yet, each time: a later row for each run.
         let rulesBefore = try store.senderRules().count
-        medians["block"] = measure("block sender (context menu)", opening: { run in 10 + run * 3 }) { harness.controller.blockSender(nil) }
+        medians["block"] = measure("block sender (context menu)", opening: { run in 10 + run * 3 }) {
+            let before = (try? store.senderRules().count) ?? 0
+            harness.controller.blockSender(nil)
+            // The rule is set once the account's grant answers (read from its token, no request): the step ends when the
+            // rule is stored and its mail has moved.
+            let deadline = Date().addingTimeInterval(1)
+            while ((try? store.senderRules().count) ?? 0) == before, Date() < deadline {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.000_5))
+            }
+        }
         XCTAssertEqual(try store.senderRules().count, rulesBefore + 7, "each run blocked a sender")
         for (label, median) in medians {
             XCTAssertLessThan(median, 16, "local action budget: \(label)")

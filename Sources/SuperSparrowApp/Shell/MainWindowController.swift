@@ -61,8 +61,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// whether it was granted; wired by the app delegate.
     var onConnectCalendar: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Asks `account` for the permission to save sender rules on the server through the app's sign-in (`AppDelegate`,
-    /// `MailClient.connectRules`), after the first rule's alert; wired by the app delegate.
-    var onConnectRules: ((Account) -> Void)?
+    /// `MailClient.connectRules`), which calls back with whether the sign-in went through; wired by the app delegate.
+    var onConnectRules: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Opens a calendar link (Join, Open in Google Calendar, the setup guide). Tests replace it, so no test opens a browser.
     var openCalendarURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// Asks the engine to read every account's calendar: the kept window (nil), or shown days outside it as well.
@@ -866,7 +866,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case .connectRules(let id):
             // The sign-in that asks for the rules permission; the waiting rules go out once it is granted.
             guard let account = accountsByID[id], pendingSignIn == nil else { return }
-            onConnectRules?(account)
+            onConnectRules?(account) { _ in }
         }
     }
 
@@ -2150,10 +2150,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     /// Sets the rule for `messageID`'s sender from a message's menu (spec §5.52). The rule lives on the server, as a Gmail
-    /// filter or an Outlook rule: on an account that has not let SuperSparrow save rules there yet (`RulesSyncState
-    /// .notConnected`, known without a request once the account's first live cycle ran) the alert asks first, and Continue
-    /// sets the rule and opens the browser to allow it, while Cancel sets nothing. With the permission, or before the
-    /// engine knows (the rule then waits, and Senders says so), it is set at once.
+    /// filter or an Outlook rule, and is never kept on this Mac alone: the account's grant is asked first (no request), and
+    /// with the permission the rule is set at once. Without it the alert asks; Continue runs the sign-in that asks for the
+    /// permission and sets the rule only once it is granted, while Cancel, an abandoned or failed sign-in, or a permission
+    /// declined in the browser set nothing and move no mail.
     @discardableResult
     func setSenderRule(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
         guard !showingWelcome, let account = accountsByID[messageID.accountID],
@@ -2163,27 +2163,64 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return false
         }
         guard senderRule(for: message) != action else { return true }
-        guard rulesState(of: account.id) == .notConnected else { return setSenderRuleNow(action, from: messageID) }
         let reader = actingReader?.window
-        presentAlert(AppAlert.saveSenderRules(account.kind, action: action), reader?.window ?? window) { [weak self, weak reader] choice in
-            guard choice == 0, let self else { return }
-            // The answer comes after the step that asked has returned: a reader window still open takes the rule as its own
-            // step again, so its toast and undo are that window's, as they would have been without the question.
-            var set = false
-            if let reader, self.readerWindows.contains(where: { $0 === reader }) {
-                self.act(in: reader, closing: false) { set = self.setSenderRuleNow(action, from: messageID) }
+        let grant = hasRulesPermission
+        Task { @MainActor [weak self, weak reader] in
+            let granted = await grant(account.id)
+            guard let self else { return }
+            if granted {
+                self.setSenderRuleNow(action, from: messageID, in: reader)
             } else {
-                set = self.setSenderRuleNow(action, from: messageID)
+                self.askToSaveSenderRules(action, from: messageID, account: account, in: reader)
             }
-            // Stored first, so a sign-in abandoned in the browser leaves the rule waiting for the permission.
-            if set { self.onConnectRules?(account) }
         }
         return true
     }
 
-    /// Where the account's server rules stand, as the engine last reported them.
-    private func rulesState(of id: AccountID) -> RulesSyncState {
-        statuses.first { $0.accountID == id }?.rules ?? .unknown
+    /// Whether the account has granted the permission to save sender rules on the server (`MailClient.hasRulesPermission`,
+    /// no request). Tests replace it.
+    lazy var hasRulesPermission: (AccountID) async -> Bool = { [engine = environment.engine] in await engine.hasRulesPermission($0) }
+
+    /// “Save sender rules in Gmail?” on the window the rule was chosen in; Continue asks for the permission, then sets it.
+    private func askToSaveSenderRules(_ action: SenderRule.Action, from messageID: MessageID, account: Account,
+                                      in reader: ReaderWindowController?) {
+        presentAlert(AppAlert.saveSenderRules(account.kind, action: action), reader?.window ?? window) { [weak self, weak reader] choice in
+            guard choice == 0 else { return }
+            self?.connectRulesThenSet(action, from: messageID, account: account, in: reader)
+        }
+    }
+
+    /// The sign-in asking for the rules permission (`onConnectRules`), then the rule, only once the grant holds it: a
+    /// consent screen that lets the user leave a scope unticked can return a sign-in without it, which the alert then says
+    /// before anything is set.
+    private func connectRulesThenSet(_ action: SenderRule.Action, from messageID: MessageID, account: Account,
+                                     in reader: ReaderWindowController?) {
+        guard let onConnectRules else { return }
+        onConnectRules(account) { [weak self, weak reader] signedIn in
+            guard signedIn, let self else { return }
+            let grant = self.hasRulesPermission
+            Task { @MainActor [weak self, weak reader] in
+                let granted = await grant(account.id)
+                guard let self else { return }
+                guard granted else {
+                    self.presentAlert(AppAlert.senderRulesNotAllowed(account.kind), reader?.window ?? self.window) { [weak self, weak reader] choice in
+                        if choice == 0 { self?.connectRulesThenSet(action, from: messageID, account: account, in: reader) }
+                    }
+                    return
+                }
+                self.setSenderRuleNow(action, from: messageID, in: reader)
+            }
+        }
+    }
+
+    /// Sets the rule as the step of the reader window it was chosen in while that window is open: the answer comes after
+    /// the step that asked has returned, so the window takes the rule as its own step again, its toast and undo there.
+    @discardableResult
+    private func setSenderRuleNow(_ action: SenderRule.Action, from messageID: MessageID, in reader: ReaderWindowController?) -> Bool {
+        guard let reader, readerWindows.contains(where: { $0 === reader }) else { return setSenderRuleNow(action, from: messageID) }
+        var set = false
+        act(in: reader, closing: false) { set = setSenderRuleNow(action, from: messageID) }
+        return set
     }
 
     /// Sets the rule in one store transaction with what the rule would have done to that sender's mail in the

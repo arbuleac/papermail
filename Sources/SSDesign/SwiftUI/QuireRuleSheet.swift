@@ -5,19 +5,20 @@ import SwiftUI
 /// caption under it in `meta` `ink3` 8 pt below, an optional notice banner (§5.38) 16 pt below that, the
 /// `QuireRemovableList` 16 pt below the caption or the notice, and 20 pt under the list one row holding the optional foot
 /// (`QuireRuleSheetFoot`, leading) and Done (small primary, trailing, the default button, so ↩ and Esc close it). Nothing
-/// to save: each − acts at once, as it says.
+/// to save: each − acts at once, as it says. With `rows` nil there is no list at all, not even its empty row: the
+/// notice says why (the Senders sheet before the rules may be read), and the foot's row follows it 20 pt below.
 public struct QuireRuleSheet: View {
     let title: String
     let caption: String
     let notice: QuireBanner?
-    let rows: [QuireRemovableList.Row]
+    let rows: [QuireRemovableList.Row]?
     let emptyTitle: String
     let emptyHint: String
     let foot: QuireRuleSheetFoot?
     let onRemove: (QuireRemovableList.Row) -> Void
     let onDone: () -> Void
 
-    public init(title: String, caption: String, notice: QuireBanner? = nil, rows: [QuireRemovableList.Row], emptyTitle: String,
+    public init(title: String, caption: String, notice: QuireBanner? = nil, rows: [QuireRemovableList.Row]?, emptyTitle: String,
                 emptyHint: String, foot: QuireRuleSheetFoot? = nil, onRemove: @escaping (QuireRemovableList.Row) -> Void,
                 onDone: @escaping () -> Void) {
         self.title = title
@@ -46,8 +47,10 @@ public struct QuireRuleSheet: View {
             if let notice {
                 notice.padding(.top, s.noticeGap)
             }
-            QuireRemovableList(rows: rows, emptyTitle: emptyTitle, emptyHint: emptyHint, onRemove: onRemove)
-                .padding(.top, s.noticeGap)
+            if let rows {
+                QuireRemovableList(rows: rows, emptyTitle: emptyTitle, emptyHint: emptyHint, onRemove: onRemove)
+                    .padding(.top, s.noticeGap)
+            }
             HStack(alignment: .center, spacing: 0) {
                 if let foot {
                     QuireRuleSheetFootLine(foot: foot)
