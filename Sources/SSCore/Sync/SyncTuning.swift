@@ -70,6 +70,16 @@ struct SyncTuning: Sendable {
     /// (`CalendarSyncState.current`), and the continuous clock its intervals and backoff run on, so setting the Mac's
     /// clock never holds a read back. It never sleeps: the live lane's cycles wake it. Tests replace it to move time by hand.
     var calendarClock = SendClock()
+    /// How old the server rules' last read may grow while the app is frontmost, and while it is not, before a live cycle
+    /// that caught up has the rules lane read them again (docs/ARCHITECTURE.md, "Rules"). Rules change when someone edits
+    /// them, on the web or another device, which is rare; what this Mac does is sent at once, and Settings › Senders asks
+    /// for a read when it opens.
+    var rulesActiveInterval: TimeInterval = 30 * 60
+    var rulesBackgroundInterval: TimeInterval = 2 * 60 * 60
+    /// The clocks the rules lane reads by: the wall clock its reads are dated by (`RulesSyncState.upToDate`), and the
+    /// continuous clock its interval and backoff run on. It never sleeps: the live lane's cycles wake it. Tests replace it
+    /// to move time by hand.
+    var rulesClock = SendClock()
     /// The reader's body fetches below `.opened` (the folded messages of the open conversation, then its pre-rendered
     /// neighbours) that go at once per account, once no opened body is on its way; the rest wait their turn, highest
     /// priority first. An opened body never waits. Two, with a poll and an inline image beside them, keep the account
