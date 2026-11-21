@@ -1146,7 +1146,10 @@ public enum ConversationShellAssets {
         var doc = frameDocument(card);
         if (!doc || !doc.body) { return 0; }
         var height = contentHeight(card, doc);
-        if (height > 0) {
+        // Before its own document loads a frame measures 0 and says nothing; once loaded, 0 is the body's height: a
+        // message whose own words are empty (all of it folded quote, or only attachments) has nothing to show above
+        // Show quoted text, and its skeleton must go rather than wait for a height that never comes.
+        if (height > 0 || card.frameLoaded) {
           if (!card.measured) {
             card.measured = true;
             card.frameWrap.style.minHeight = '';
@@ -1192,6 +1195,7 @@ public enum ConversationShellAssets {
           if (live !== card.liveRemote) { card.liveRemote = live; renderBanners(card); }
         }
         syncDocumentClasses(card);
+        card.frameLoaded = true;
         if (card.observer) { try { card.observer.disconnect(); } catch (e) {} card.observer = null; }
         // No listener runs inside a body document (see trackImageLoad), so images that change its size are caught
         // by a ResizeObserver, which reports to the shell, and by the timed measurements below. Link clicks are
@@ -1226,6 +1230,7 @@ public enum ConversationShellAssets {
         for (var f = 0; f < found.length; f++) { found[f].marks = []; }
         card.height = 0;
         card.measured = false;
+        card.frameLoaded = false;
         card.zoom = 1;
         card.wide = false;
       }
@@ -1289,9 +1294,11 @@ public enum ConversationShellAssets {
       // Animate to a provisional height, then snap (spec §4.10): the last measured height at this width with the inset's
       // padding, or the skeleton's 58 pt with the skeleton drawn in it. True when it is the skeleton's.
       function provisionalHeight(card) {
+        // A cached 0 is a measured empty body, not a missing measurement.
         var cached = heights[heightKey(card)];
-        card.frameWrap.style.minHeight = (cached ? cached + (card.inset ? 24 : 0) : SKELETON_HEIGHT) + 'px';
-        return !cached;
+        var known = typeof cached === 'number';
+        card.frameWrap.style.minHeight = (known ? cached + (card.inset ? 24 : 0) : SKELETON_HEIGHT) + 'px';
+        return !known;
       }
 
       // The colours a body shows (spec §5.14, §5.16): the frame document's classes, and the white inset as a class on the

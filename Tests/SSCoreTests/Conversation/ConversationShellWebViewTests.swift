@@ -105,6 +105,33 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertTrue(handler.received.contains { ($0["kind"] as? String) == "ready" }, "ready is also posted on the ss handler")
     }
 
+    /// A message whose own words are empty (all of it folded quote) measures 0 once its frame loads: the skeleton goes
+    /// and the card shows Show quoted text alone, rather than waiting forever for a height above 0.
+    func testABodyThatIsAllQuoteLosesItsSkeleton() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let message = F.message("m1", date: F.utc(2025, 1, 3, 14, 5))
+        let bodies: [MessageID: StoredBody] = [message.id: F.body(html: "<div class=\"ss-quote\"><p>Earlier</p></div>")]
+        let payload = F.builder.build(messages: [message], bodies: bodies, accounts: F.accounts, now: F.utc(2025, 3, 7, 15, 0))
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        var skeletons = -1
+        for _ in 0..<100 {
+            skeletons = try await count(".ss-card .ss-skels", in: webView) ?? -1
+            if skeletons == 0 { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(skeletons, 0, "the loaded empty body keeps no skeleton")
+        let minHeight = try await evaluate("document.querySelector('.ss-card .ss-frame').style.minHeight", in: webView) as? String
+        XCTAssertEqual(minHeight ?? "", "", "nor the skeleton's height")
+        let quoteButtons = try await count(".ss-toggle-quote", in: webView)
+        XCTAssertEqual(quoteButtons, 1, "Show quoted text still offers what was folded")
+
+        // Rendered again (the reader coming back to it), the cached 0 is a measurement: no skeleton comes back.
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString()))", in: webView)
+        let held = try await count(".ss-card .ss-skels.ss-held", in: webView)
+        XCTAssertEqual(held, 0, "a cached empty height draws no skeleton")
+    }
+
     /// Reading a thread marks it read half a second after it opens; the store change that follows must
     /// not fold the cards the user is looking at, jump to the top, or re-block the images they loaded.
     /// A message with attachments carries the list's paperclip on its collapsed row and in its open header, left of
