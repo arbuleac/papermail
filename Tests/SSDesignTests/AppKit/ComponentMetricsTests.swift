@@ -244,6 +244,22 @@ final class ComponentMetricsTests: XCTestCase {
         XCTAssertEqual(marked.intrinsicContentSize.width, ceil(9 + 14 + 8 + labelWidth("Persimmon", .body) + 8 + chevron + 6))
         XCTAssertEqual(QuirePopUpButton.InkMark.dot(slot: 2).diameter, 7)
 
+        // The borderless popup (the composer's From) hugs the chosen value, so its chevron follows the words; a host
+        // laying it out by hand is asked to place it again when the value changes.
+        let long = "Alex Morgan <alex.morgan@contoso-engineering.test>", short = "Alex <a@b.test>"
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 40))
+        let from = QuirePopUpButton(titles: [long, short], isBorderless: true)
+        host.addSubview(from)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(from.intrinsicContentSize.width, ceil(9 + labelWidth(long, .body) + 8 + chevron + 6))
+        from.selectedIndex = 1
+        XCTAssertEqual(from.intrinsicContentSize.width, ceil(9 + labelWidth(short, .body) + 8 + chevron + 6),
+                       "sized to the chosen value, not the widest")
+        XCTAssertTrue(host.needsLayout, "the host places it again")
+        let bordered = QuirePopUpButton(titles: [long, short], selectedIndex: 1)
+        XCTAssertEqual(bordered.intrinsicContentSize.width, ceil(9 + labelWidth(long, .body) + 8 + chevron + 6),
+                       "a bordered popup keeps its widest item's width")
+
         // The quick reply's mode tabs (§5.18), the only underline tabs since the filter tabs went (§5.5).
         let titles = ["Reply", "Reply all", "Forward"]
         let tabs = QuireUnderlineTabs(titles: titles)

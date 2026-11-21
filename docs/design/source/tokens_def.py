@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.14.1"
+VERSION = "1.14.2"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on

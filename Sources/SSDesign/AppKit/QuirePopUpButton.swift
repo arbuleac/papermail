@@ -6,7 +6,7 @@ import AppKit
 ///
 /// States: hover `raised + hover`; pressed while the menu is open, `raised + pressed`; focus rings it outside a
 /// 1 pt gap; disabled is `fill`, `inkDisabled`, no edge. The borderless variant (the composer's From) shows no
-/// face or edge until hovered. An account dot or swatch in the label sits on a 2 pt `raised` halo that the
+/// face or edge until hovered, and is as wide as its chosen value, so the chevron sits right after it. An account dot or swatch in the label sits on a 2 pt `raised` halo that the
 /// face's wash is clipped around, so the ink always meets `raised` (§4.2).
 @MainActor
 public final class QuirePopUpButton: QuireControl {
@@ -25,7 +25,7 @@ public final class QuirePopUpButton: QuireControl {
     }
 
     public var isBorderless = false {
-        didSet { needsDisplay = true }
+        didSet { if oldValue != isBorderless { invalidateIntrinsicContentSize(); needsDisplay = true } }
     }
 
     public var inkMark: InkMark? {
@@ -88,11 +88,22 @@ public final class QuirePopUpButton: QuireControl {
 
     private var markWidth: CGFloat { inkMark.map { $0.diameter + Quire.Layout.Popup.gap } ?? 0 }
 
+    /// A bordered popup is as wide as its widest item, so its face never changes size. The borderless one has no face
+    /// at rest, only its value and chevron, so it hugs the chosen value: the chevron follows the words, never left out
+    /// where a longer item would end.
     public override var intrinsicContentSize: NSSize {
         let p = Quire.Layout.Popup.self
-        let widest = itemMenu.items.map { QuireDraw.width(QuireDraw.line($0.title, .body, .black)) }.max() ?? 0
+        let measured = isBorderless ? [title] : itemMenu.items.map(\.title)
+        let widest = measured.map { QuireDraw.width(QuireDraw.line($0, .body, .black)) }.max() ?? 0
         let chevron = QuireDraw.symbolSize(Quire.Icon.popup, size: QuirePopUpButton.chevronSize).width
         return NSSize(width: ceil(p.padLeft + markWidth + widest + p.gap + chevron + p.padRight), height: p.height)
+    }
+
+    /// Hosts lay their rows out by hand from the intrinsic size: a borderless popup that changes width with its value asks
+    /// its row to place it again.
+    public override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        superview?.needsLayout = true
     }
 
     private func markRect(in face: NSRect) -> NSRect? {
