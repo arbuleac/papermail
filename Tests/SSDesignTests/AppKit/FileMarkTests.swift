@@ -22,6 +22,7 @@ final class QuireFileMarkTests: XCTestCase {
 
     func testGeometryIsTheTokens() throws {
         XCTAssertEqual(M.grid, Quire.Layout.AttachmentChip.tile, "the chip's tile is the grid, drawn 1:1")
+        XCTAssertEqual(M.grid, Quire.Layout.DragCard.mark, "the file card lifts the chip's mark at its own size")
         XCTAssertEqual(QuireFileMark.bandRect, CGRect(x: 3, y: 15, width: 22, height: 10))
         XCTAssertEqual(QuireFileMark.labelRoom, 21)
         // The outline runs on the edge's centre line, so the stroke's outer side is the sheet's box.

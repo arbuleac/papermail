@@ -110,19 +110,9 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
         OutgoingAttachment(filename: filename, mimeType: mimeType, data: try loadData(), contentID: contentID)
     }
 
-    /// The chip's type glyph (§5.17's set): document, rich text, image, spreadsheet, archive or video.
-    var symbolName: String {
-        let type = UTType(mimeType: mimeType) ?? UTType(filenameExtension: (filename as NSString).pathExtension) ?? .data
-        if type.conforms(to: .image) { return Quire.Icon.fileImage }
-        if type.conforms(to: .movie) || type.conforms(to: .video) { return Quire.Icon.fileVideo }
-        if type.conforms(to: .archive) || type.conforms(to: .zip) { return Quire.Icon.fileArchive }
-        if type.conforms(to: .spreadsheet) { return Quire.Icon.fileSheet }
-        if type.conforms(to: .rtf) || type.conforms(to: .presentation) || type.identifier.contains("wordprocessingml")
-            || type.identifier == "com.microsoft.word.doc" {
-            return Quire.Icon.fileText
-        }
-        return Quire.Icon.file
-    }
+    /// What the chip's mark and meta say about the file (spec §5.57): the reader's own mapping, so a file looks the same
+    /// on its way out as on its way in.
+    var fileMark: FileMark { FileMark(filename: filename, mimeType: mimeType) }
 
     static func mimeType(forExtension pathExtension: String) -> String {
         UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? "application/octet-stream"

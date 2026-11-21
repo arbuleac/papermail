@@ -680,6 +680,33 @@ final class AttachmentDragTests: XCTestCase {
         XCTAssertEqual(image.height, m.height + m.shadowMarginTop + m.shadowMarginBottom)
     }
 
+    /// The card lifts the chip's own file mark (spec §5.57): the same mark, 28 pt, at the chip's padding and centred on its
+    /// height, so it lands on the chip's mark; its band in the family's ink, its paper `raised`, at 1x and 2x.
+    func testTheCardLiftsTheChipsFileMark() throws {
+        let m = Quire.Layout.DragCard.self
+        XCTAssertEqual(m.mark, Quire.Layout.AttachmentChip.tile)
+        XCTAssertEqual(m.padLeft, Quire.Layout.AttachmentChip.padLeft)
+        XCTAssertEqual(m.gap, Quire.Layout.AttachmentChip.gap)
+        let content = AttachmentDragCard.content(for: Self.plan)
+        XCTAssertEqual(content.mark, FileMark(filename: "plan.pdf", mimeType: "application/pdf"))
+        XCTAssertEqual(AttachmentDragCard.content(for: Self.notes).mark.label, "TXT")
+        let size = AttachmentDragCard.imageSize(for: content)
+        let margin = AttachmentDragCard.margin
+        let mark = NSPoint(x: margin.left + m.padLeft, y: margin.top + (m.height - m.mark) / 2)
+        for mode in [QuireMode.light, .dark] {
+            let band = try XCTUnwrap(mode.performAsCurrent { Quire.FileInk.pdf.color.usingColorSpace(.sRGB) })
+            let paper = try XCTUnwrap(mode.performAsCurrent { NSColor.qRaised.usingColorSpace(.sRGB) })
+            for scale in [CGFloat(1), 2] {
+                let rep = try XCTUnwrap(AttachmentDragCard.bitmap(content, size: size, mode: mode, scale: scale))
+                let onBand = try XCTUnwrap(pixel(rep, NSPoint(x: mark.x + 4, y: mark.y + 20), scale: scale))
+                XCTAssertEqual(onBand.redComponent, band.redComponent, accuracy: 0.02, "\(mode) \(scale)x: the band")
+                XCTAssertEqual(onBand.greenComponent, band.greenComponent, accuracy: 0.02, "\(mode) \(scale)x: the band")
+                let onPaper = try XCTUnwrap(pixel(rep, NSPoint(x: mark.x + 6, y: mark.y + 5), scale: scale))
+                XCTAssertEqual(onPaper.redComponent, paper.redComponent, accuracy: 0.02, "\(mode) \(scale)x: the paper")
+            }
+        }
+    }
+
     /// The card at 1x and 2x, in Light and Dark: its pixels, `sheet` inside, clear far outside, its shadow below.
     func testTheCardDrawsAtOneAndTwoTimesInLightAndDark() throws {
         let content = AttachmentDragCard.content(for: Self.plan)

@@ -86,6 +86,7 @@ def _file_mark_paths(fm):
     return sheet, crease + ' Z', crease
 assert T.LAYOUT['fileMark']['bandTop'] + T.LAYOUT['fileMark']['bandHeight'] < T.LAYOUT['fileMark']['grid'], 'the band ends on the sheet'
 assert T.LAYOUT['fileMark']['fold'] < T.LAYOUT['fileMark']['bandTop'], 'the fold ends above the band'
+assert T.LAYOUT['attachmentChip']['tile'] == T.LAYOUT['fileMark']['grid'] == T.LAYOUT['dragCard']['mark'], 'chip, composer and card draw the mark 1:1'
 T.LAYOUT['fileMark']['sheetPath'], T.LAYOUT['fileMark']['foldPath'], T.LAYOUT['fileMark']['foldEdgePath'] = _file_mark_paths(T.LAYOUT['fileMark'])
 tokens['contrastPairs'] = None  # filled after ALL_PAIRS is built
 tokens['cheatSheetContent'] = [{'section': sec, 'rows': [{'keys': k, 'label': l} for k, l in rows]} for sec, rows in T.CHEAT_SHEET]

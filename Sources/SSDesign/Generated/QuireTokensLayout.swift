@@ -502,7 +502,7 @@ extension Quire {
             public static let radius: CGFloat = 8
             public static let padLeft: CGFloat = 8
             public static let padRight: CGFloat = 12
-            public static let icon: CGFloat = 32
+            public static let mark: CGFloat = 28
             public static let gap: CGFloat = 10
             public static let shadowMarginX: CGFloat = 24
             public static let shadowMarginTop: CGFloat = 16
@@ -552,7 +552,6 @@ extension Quire {
             public static let dropInset: CGFloat = 8
             public static let dropDash: [CGFloat] = [6, 4]
             public static let dropVeil: CGFloat = 0.9
-            public static let stripGlyph: CGFloat = 14
             public static let removeGlyph: CGFloat = 9
             public static let width: CGFloat = 640
             public static let height: CGFloat = 600
@@ -566,9 +565,9 @@ extension Quire {
             public static let bodyPadTop: CGFloat = 20
             public static let bodyPadRight: CGFloat = 24
             public static let bottomBar: CGFloat = 52
-            public static let strip: CGFloat = 48
-            public static let stripChip: CGFloat = 30
-            public static let stripChipRadius: CGFloat = 6
+            public static let strip: CGFloat = 60
+            public static let stripChip: CGFloat = 44
+            public static let stripChipRadius: CGFloat = 8
             public static let removeVisual: CGFloat = 16
             public static let fromDot: CGFloat = 7
             public static let fromDotGap: CGFloat = 8
@@ -586,10 +585,11 @@ extension Quire {
             public static let statusGlyphGap: CGFloat = 6
             public static let stripPadX: CGFloat = 16
             public static let stripChipPadLeft: CGFloat = 8
+            public static let stripChipMarkGap: CGFloat = 10
             public static let stripChipInnerGap: CGFloat = 6
             public static let stripChipPadRight: CGFloat = 4
             public static let stripChipSpacing: CGFloat = 8
-            public static let stripChipMaxWidth: CGFloat = 240
+            public static let stripChipMaxWidth: CGFloat = 264
             public static let formatRow: CGFloat = 36
             public static let formatToggle: CGFloat = 28
             public static let formatGap: CGFloat = 2
