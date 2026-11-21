@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 906 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 906, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 924 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 924, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -504,6 +504,27 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.AttachmentChip.head, "layout.attachmentChip.head")
         number(Quire.Layout.AttachmentChip.headGap, "layout.attachmentChip.headGap")
         number(Quire.Layout.AttachmentChip.draggingOpacity, "layout.attachmentChip.draggingOpacity")
+    }
+
+    func testLayoutFileMark() {
+        number(Quire.Layout.FileMark.grid, "layout.fileMark.grid")
+        number(Quire.Layout.FileMark.sheetX, "layout.fileMark.sheetX")
+        number(Quire.Layout.FileMark.sheetWidth, "layout.fileMark.sheetWidth")
+        number(Quire.Layout.FileMark.radius, "layout.fileMark.radius")
+        number(Quire.Layout.FileMark.fold, "layout.fileMark.fold")
+        number(Quire.Layout.FileMark.foldRadius, "layout.fileMark.foldRadius")
+        number(Quire.Layout.FileMark.edge, "layout.fileMark.edge")
+        number(Quire.Layout.FileMark.bandTop, "layout.fileMark.bandTop")
+        number(Quire.Layout.FileMark.bandHeight, "layout.fileMark.bandHeight")
+        number(Quire.Layout.FileMark.labelSize, "layout.fileMark.labelSize")
+        number(Quire.Layout.FileMark.labelWeight, "layout.fileMark.labelWeight")
+        number(Quire.Layout.FileMark.labelWidth, "layout.fileMark.labelWidth")
+        number(Quire.Layout.FileMark.labelBaseline, "layout.fileMark.labelBaseline")
+        number(Quire.Layout.FileMark.labelPad, "layout.fileMark.labelPad")
+        number(Quire.Layout.FileMark.labelMax, "layout.fileMark.labelMax")
+        string(Quire.Layout.FileMark.sheetPath, "layout.fileMark.sheetPath")
+        string(Quire.Layout.FileMark.foldPath, "layout.fileMark.foldPath")
+        string(Quire.Layout.FileMark.foldEdgePath, "layout.fileMark.foldEdgePath")
     }
 
     func testLayoutDragCard() {

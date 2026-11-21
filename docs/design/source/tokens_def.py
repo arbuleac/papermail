@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.14.2"
+VERSION = "1.15.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -140,6 +140,37 @@ PAPERS = [
  {"name": "cocoa",       "light": "#4F3022", "dark": "#3B251B"},
 ]
 
+# The file inks (§5.57): the band of a file mark, one per family of file types, so a file is scanned by its colour and
+# confirmed by the type in capitals on it. A categorical set in the paper-and-ink voice: muted, ink-like hues that are not
+# the account inks (identity), not a theme's ink and not the semantic colours. Each family is only a hue and a chroma (LCh);
+# every family shares one luminance per mode, FILE_INK_Y, so they read as one set, the white label keeps >= 4.5:1 on every
+# band and every band keeps >= 3:1 on the mark's paper (`raised`), in every theme (build.py asserts both as contrast pairs).
+# At night the chroma is FILE_INK_NIGHT_CHROMA of the day's, so the bands stay quiet on dark paper. Like the account inks
+# they are fixed across themes and Graphite: a file type means the same colour whatever the paper.
+# (name, LCh hue, chroma, what the family holds)
+FILE_INKS = [
+ ("PDF",          24, 48, "PDF"),
+ ("Document",    262, 40, "Word, Pages, rich text, OpenDocument text"),
+ ("Spreadsheet", 148, 36, "Excel, Numbers, CSV and TSV, OpenDocument spreadsheets"),
+ ("Presentation", 56, 50, "PowerPoint, Keynote, OpenDocument presentations"),
+ ("Archive",      80, 30, "zip, rar, 7z, gzip, bzip2, xz, tar, disk images and installer packages"),
+ ("Image",       306, 36, "photos and pictures"),
+ ("Video",       334, 32, "films and screen recordings"),
+ ("Audio",         2, 34, "sound"),
+ ("Text",        245,  9, "plain text, Markdown, logs and code: JSON, HTML, XML, scripts"),
+ ("Mail",        112, 30, "mail, calendar and contact files: eml, ics, vcf"),
+ ("Design",      284, 34, "Photoshop, Illustrator, Figma, Sketch, SVG"),
+ ("Other",        75,  2, "any other type, and a file whose type is unknown"),
+]
+FILE_INK_Y = {"light": 0.135, "dark": 0.1755, "lightHC": 0.088, "darkHC": 0.166}
+FILE_INK_NIGHT_CHROMA = 0.92
+# The label on every band: white in every mode (the bands are chosen for it).
+FILE_LABEL = {"light": "#FFFFFF", "dark": "#FFFFFF", "lightHC": "#FFFFFF", "darkHC": "#FFFFFF"}
+# What build.py holds the set to: no two families closer than this for normal vision in any mode (CIEDE2000; the label
+# carries the type, so colour is the second cue and no family rests on it), and none this close to `danger`, which the
+# mark gives way to when a download fails.
+FILE_INK_RULES = {"minPairNormal": 8.5, "minFromDanger": 8.5}
+
 # role: family, size, weight, lineHeight, tracking, extras
 TYPE = [
  ("display",        "serif",   34, 600, 40, -0.6, {"twin": "displaySans", "use": "Welcome title"}),
@@ -186,8 +217,9 @@ TYPE = [
 SPACE = {"s1": 2, "s2": 4, "s3": 6, "s4": 8, "s5": 12, "s6": 16, "s7": 20, "s8": 24, "s9": 32, "s10": 40, "s11": 48, "s12": 64}
 RADIUS = {"xs": 3, "sm": 5, "md": 6, "lg": 8, "xl": 12, "tile": 11, "pill": 999}
 # The only radii in layout that are not on this scale: the margin rule's 2 pt trailing corners, the 1.5 pt compact account square,
-# and the 2 pt ends of the 4 pt progress bar (a pill). build.py asserts every other *radius* metric is a scale value.
-RADIUS_EXCEPTIONS = {"rowCompact.accountSquareRadius": 1.5, "progress.barRadius": 2}
+# the 2 pt ends of the 4 pt progress bar (a pill), and the file mark's 2 pt paper corners and 1 pt fold crease (§5.57), a sheet of
+# paper being nearly square-cornered at 28 pt. build.py asserts every other *radius* metric is a scale value.
+RADIUS_EXCEPTIONS = {"rowCompact.accountSquareRadius": 1.5, "progress.barRadius": 2, "fileMark.radius": 2, "fileMark.foldRadius": 1}
 BORDER = {
  "hairline": {"width": "1px-device", "points2x": 0.5, "widthHC": 1, "color": "rule"},
  "strong": {"width": 1, "color": "ruleStrong"},
@@ -303,6 +335,18 @@ LAYOUT = {
                     "tileGlyph": 15, "progressWidth": 120, "progressHeight": 2, "chipGap": 8,
                     "download": 24, "downloadGlyph": 14, "downloadGap": 4, "downloadRadius": 5, "head": 24, "headGap": 8,
                     "draggingOpacity": 0.45},
+ # The file mark (§5.57), on a `grid` x `grid` design scaled to the size it is drawn at (the chip's 28 pt tile is the grid
+ # itself, so the reader, the composer and the file card draw it 1:1). The sheet: `sheetWidth` wide from `sheetX`, the
+ # grid's full height, `radius` corners, its top trailing corner turned down by `fold` (a dog-ear, its crease rounded by
+ # `foldRadius`), a 1 pt `edge` inside its outline. The band: from `bandTop`, `bandHeight` tall, across the sheet between
+ # the edges. The label: SF Pro at `labelSize`, weight `labelWeight` and width `labelWidth` (the variable font's own axes,
+ # so AppKit and WebKit draw the same glyphs), centred on the sheet with its baseline at `labelBaseline`, at most
+ # `labelMax` characters, squeezed to fit `labelPad` inside the band only when its natural width would not.
+ # `sheetPath`, `foldPath` and `foldEdgePath` are the outline, the fold's face and its two creases on the edge's centre
+ # line, which build.py derives from these numbers; both renderers draw exactly these paths.
+ "fileMark": {"grid": 28, "sheetX": 2, "sheetWidth": 24, "radius": 2, "fold": 7, "foldRadius": 1, "edge": 1,
+              "bandTop": 15, "bandHeight": 10, "labelSize": 8, "labelWeight": 700, "labelWidth": 60, "labelBaseline": 23,
+              "labelPad": 0.5, "labelMax": 4},
  "dragCard": {"height": 44, "minWidth": 196, "maxWidth": 264, "radius": 8, "padLeft": 8, "padRight": 12, "icon": 32, "gap": 10,
               "shadowMarginX": 24, "shadowMarginTop": 16, "shadowMarginBottom": 32, "threshold": 3},
  "quickReply": {"rest": 60, "barPadY": 11, "field": 38, "fieldRadius": 8, "fieldPadTop": 9, "fieldPadBottom": 8,

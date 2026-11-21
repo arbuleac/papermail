@@ -475,6 +475,26 @@ extension Quire {
             public static let headGap: CGFloat = 8
             public static let draggingOpacity: CGFloat = 0.45
         }
+        public enum FileMark {
+            public static let grid: CGFloat = 28
+            public static let sheetX: CGFloat = 2
+            public static let sheetWidth: CGFloat = 24
+            public static let radius: CGFloat = 2
+            public static let fold: CGFloat = 7
+            public static let foldRadius: CGFloat = 1
+            public static let edge: CGFloat = 1
+            public static let bandTop: CGFloat = 15
+            public static let bandHeight: CGFloat = 10
+            public static let labelSize: CGFloat = 8
+            public static let labelWeight: CGFloat = 700
+            public static let labelWidth: CGFloat = 60
+            public static let labelBaseline: CGFloat = 23
+            public static let labelPad: CGFloat = 0.5
+            public static let labelMax: CGFloat = 4
+            public static let sheetPath: String = "M4 0.5 H18.5 L25.5 7.5 V26 A1.5 1.5 0 0 1 24 27.5 H4 A1.5 1.5 0 0 1 2.5 26 V2 A1.5 1.5 0 0 1 4 0.5 Z"
+            public static let foldPath: String = "M18.5 0.5 V6.5 A1 1 0 0 0 19.5 7.5 H25.5 Z"
+            public static let foldEdgePath: String = "M18.5 0.5 V6.5 A1 1 0 0 0 19.5 7.5 H25.5"
+        }
         public enum DragCard {
             public static let height: CGFloat = 44
             public static let minWidth: CGFloat = 196

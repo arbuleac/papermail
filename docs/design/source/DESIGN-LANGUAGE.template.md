@@ -231,7 +231,7 @@ Layout constants that are not on the scale (row {{layout.row.height}}, avatar bo
 
 {{TABLE:radius}}
 
-Every `radius` metric under `layout` is one of these values; the build fails otherwise. The only exceptions are tied to a size: the margin rule's {{border.marginRule.radius}} corners, the {{layout.rowCompact.accountSquareRadius}} pt corners of the {{layout.rowCompact.accountSquare}} pt compact account square, and the {{layout.progress.barRadius}} pt ends of the {{layout.progress.barHeight}} pt progress bar (a pill). Window corners are the system's. AppKit uses `cornerCurve = .continuous` for rail tiles and panels and circular arcs for pills.
+Every `radius` metric under `layout` is one of these values; the build fails otherwise. The only exceptions are tied to a size: the margin rule's {{border.marginRule.radius}} corners, the {{layout.rowCompact.accountSquareRadius}} pt corners of the {{layout.rowCompact.accountSquare}} pt compact account square, the {{layout.progress.barRadius}} pt ends of the {{layout.progress.barHeight}} pt progress bar (a pill), and the file mark's {{layout.fileMark.radius}} pt paper corners and {{layout.fileMark.foldRadius}} pt fold crease (§5.57), drawn at {{layout.fileMark.grid}} pt, where a sheet of paper is nearly square-cornered. Window corners are the system's. AppKit uses `cornerCurve = .continuous` for rail tiles and panels and circular arcs for pills.
 
 ### 4.7 Borders and hairlines
 

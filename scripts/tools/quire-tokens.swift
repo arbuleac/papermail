@@ -304,6 +304,13 @@ struct AvatarTint {
     let ink: [String: String]
 }
 
+/// One family's file ink (spec §5.57): the band of its file marks, fixed across themes like the account inks.
+struct FileInk {
+    let name: String
+    let values: [String: String]
+    let use: String
+}
+
 /// One theme of `themes` (spec §4.16): its full colour table and Graphite values, its link flags and its page colours.
 struct Theme {
     let id: String
@@ -333,6 +340,9 @@ final class Tokens {
     let colorByName: [String: ColorToken]
     let accounts: [Account]
     let avatars: [AvatarTint]
+    let fileInks: [FileInk]
+    /// The label on every file ink (spec §5.57).
+    let fileLabel: [String: String]
     let graphite: [(String, [String])]
     let themes: [Theme]
     /// `linkOnPage`: a link its sender left uncoloured, outside Graphite, in every theme (spec §5.14).
@@ -365,6 +375,18 @@ final class Tokens {
             }
             return AvatarTint(name: a.require("name", "avatarPalette").string ?? fail("avatarPalette.name"), face: face, ink: ink)
         }
+        fileInks = (root.require("filePalette", "").array ?? []).map { f in
+            var values: [String: String] = [:]
+            for m in modes { values[m] = f.require(m, "filePalette").string ?? fail("filePalette.\(m)") }
+            return FileInk(name: f.require("name", "filePalette").string ?? fail("filePalette.name"), values: values,
+                           use: f["use"]?.string ?? "")
+        }
+        if fileInks.isEmpty { fail("filePalette must list the file inks") }
+        if Set(fileInks.map { $0.name.lowercased() }).count != fileInks.count { fail("filePalette names must be unique") }
+        let label = root.require("fileLabel", "")
+        var labelValues: [String: String] = [:]
+        for m in modes { labelValues[m] = label.require(m, "fileLabel").string ?? fail("fileLabel.\(m)") }
+        fileLabel = labelValues
         graphite = (root.require("graphite", "").object ?? []).map { key, v in
             let value = v.require("value", "graphite.\(key)")
             if let s = value.string { return (key, [s]) }
@@ -440,6 +462,12 @@ final class Tokens {
             guard let a = avatars.first(where: { $0.name == n }) else { fail("unknown avatar tint \(n)") }
             return a.face[mode]!
         }
+        if token.hasPrefix("fileInk:") {
+            let n = String(token.dropFirst(8))
+            guard let f = fileInks.first(where: { $0.name == n }) else { fail("unknown file ink \(n)") }
+            return f.values[mode]!
+        }
+        if token == "fileLabel" { return fileLabel[mode]! }
         guard let c = colorByName[token] else { fail("unknown colour token \(token)") }
         return c.values[mode]!
     }
@@ -739,7 +767,26 @@ func emitPalettes(_ t: Tokens) -> String {
     out += "    }\n\n"
     out += "    public static func avatarTint(forAddress address: String) -> AvatarTint {\n"
     out += "        AvatarTint(rawValue: avatarTintIndex(forAddress: address))!\n"
-    out += "    }\n"
+    out += "    }\n\n"
+    out += "    /// The file inks (spec §5.57): the band of a file mark, one per family of file types, by the family's name in\n"
+    out += "    /// lower case (SSCore's `FileFamily` raw values). Fixed across themes and Graphite, like the account inks.\n"
+    out += "    public enum FileInk: String, CaseIterable, Sendable {\n"
+    for f in t.fileInks {
+        out += docComment(upperFirst(f.use) + ".", indent: "        ")
+        out += "        case \(memberName(f.name.lowercased())) = \(swiftString(f.name.lowercased()))\n"
+    }
+    out += "\n        /// The family's name as the spec writes it.\n"
+    out += "        public var name: String {\n            switch self {\n"
+    for f in t.fileInks { out += "            case .\(memberName(f.name.lowercased())): return \(swiftString(f.name))\n" }
+    out += "            }\n        }\n"
+    out += "        public var color: NSColor { Quire.fileInkColors[Self.allCases.firstIndex(of: self)!] }\n"
+    out += "        public var values: QuireColorValues {\n            switch self {\n"
+    for f in t.fileInks { out += "            case .\(memberName(f.name.lowercased())): return \(colorValuesLiteral(f.values))\n" }
+    out += "            }\n        }\n    }\n\n"
+    out += "    static let fileInkColors: [NSColor] = FileInk.allCases.map { NSColor.quire(\"file.\" + $0.rawValue, $0.values) }\n\n"
+    out += "    /// The label on every file ink (spec §5.57).\n"
+    out += "    public static let fileLabelValues = \(colorValuesLiteral(t.fileLabel))\n"
+    out += "    static let fileLabelColor = NSColor.quire(\"file.label\", fileLabelValues)\n"
     out += "}\n\n"
     out += "extension NSColor {\n"
     out += "    /// The account ink for palette slot `slot`, wrapping so any stored slot draws.\n"
@@ -754,7 +801,9 @@ func emitPalettes(_ t: Tokens) -> String {
     out += "    public static func qAvatarInk(_ index: Int) -> NSColor {\n"
     out += "        let n = Quire.avatarInkColors.count\n"
     out += "        return Quire.avatarInkColors[((index % n) + n) % n]\n"
-    out += "    }\n"
+    out += "    }\n\n"
+    out += "    /// The label on a file mark's band (spec §5.57).\n"
+    out += "    public static var qFileLabel: NSColor { Quire.fileLabelColor }\n"
     out += "}\n\n"
     out += "extension Color {\n"
     out += "    public static func qAccount(_ slot: Int) -> Color { Color(nsColor: .qAccount(slot)) }\n"
@@ -1109,6 +1158,8 @@ func cssHead(_ t: Tokens) -> [String] {
             parts.append("--q-av-\(a.name.lowercased())-face:\(a.face[mode]!)")
             parts.append("--q-av-\(a.name.lowercased())-ink:\(a.ink[mode]!)")
         }
+        for f in t.fileInks { parts.append("--q-file-\(f.name.lowercased()):\(f.values[mode]!)") }
+        parts.append("--q-file-label:\(t.fileLabel[mode]!)")
         for (k, v) in shadowed {
             parts.append("--q-\(k):\(shadowCSS(v[mode.hasPrefix("dark") ? "dark" : "light"]?.array ?? []))")
         }
@@ -1220,6 +1271,19 @@ func cssThemeSheet(_ t: Tokens, _ theme: Theme) -> [String] {
     ]
 }
 
+/// `var SS_FILE_MARK = {…};`: `layout.fileMark` as a JSON object, keys in the file's order, plus `families`.
+func fileMarkScript(_ t: Tokens) -> String {
+    guard let mark = t.root["layout"]?["fileMark"]?.object else { fail("layout.fileMark must be an object") }
+    func json(_ v: JSON) -> String {
+        if let d = v.double { return pyG(d) }
+        if let s = v.string { return "\"" + s + "\"" }
+        fail("layout.fileMark holds numbers and path strings only")
+    }
+    let fields = mark.map { "\"\($0.0)\":\(json($0.1))" }
+    let families = "\"families\":[" + t.fileInks.map { "\"\($0.name.lowercased())\"" }.joined(separator: ",") + "]"
+    return "var SS_FILE_MARK = {" + (fields + [families]).joined(separator: ",") + "};"
+}
+
 func emitCSS(_ t: Tokens) -> String {
     var out = header + "\n"
     out += "/// The reader's Quire custom properties (spec §8.4): every colour as `--q-<token>` for Light, Dark and both\n"
@@ -1235,6 +1299,10 @@ func emitCSS(_ t: Tokens) -> String {
     out += "    public static let textSizes: String = [\n"
     for line in cssTextSizes(t) { out += "        \(swiftString(line)),\n" }
     out += "    ].joined(separator: \"\\n\")\n\n"
+    out += "    /// The file mark (spec §5.57) for the reader's script: `layout.fileMark` (its derived paths included) and the families\n"
+    out += "    /// in palette order, as `var SS_FILE_MARK = {…};`. The shell draws the mark as inline SVG from exactly these numbers,\n"
+    out += "    /// as `QuireFileMark` does in AppKit, and fills each band with `--q-file-<family>`.\n"
+    out += "    public static let fileMarkScript: String = \(swiftString(fileMarkScript(t)))\n\n"
     out += "    /// The theme ids (spec §4.16), in Settings order; the first is the default.\n"
     out += "    public static let themeIDs: [String] = [\(t.themes.map { swiftString($0.id) }.joined(separator: ", "))]\n\n"
     out += "    /// The sheet the reader puts in `<style id=\"ss-theme\">` for theme `id` (spec §4.16): the head's colour selectors,\n"
@@ -1452,7 +1520,8 @@ func emitThemeRuleTests(_ t: Tokens) -> String {
 /// Radii in `layout` that are deliberately off the scale (spec §4.6). tokens.json does not carry this list
 /// (docs/design/source/tokens_def.py keeps it as RADIUS_EXCEPTIONS for build.py), so it lives here, pinned
 /// to its values: an exception only holds while the metric keeps the listed value.
-let radiusExceptions: [(String, Double)] = [("rowCompact.accountSquareRadius", 1.5), ("progress.barRadius", 2)]
+let radiusExceptions: [(String, Double)] = [("rowCompact.accountSquareRadius", 1.5), ("progress.barRadius", 2), ("fileMark.radius", 2),
+                                            ("fileMark.foldRadius", 1)]
 
 func emitRadiusTests(_ t: Tokens) -> String {
     guard let layout = t.root.require("layout", "").object else { fail("layout must be an object") }

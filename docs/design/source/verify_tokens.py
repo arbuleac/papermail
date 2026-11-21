@@ -10,6 +10,7 @@ MODES = ['light', 'dark', 'lightHC', 'darkHC']
 IC = ('lightHC', 'darkHC')
 acc = {a['name']: a for a in t['accountPalette']}
 av = {a['name']: a for a in t['avatarPalette']}
+fi = {f['name']: f for f in t['filePalette']}
 study = t['color']
 R = t['themeRules']
 
@@ -29,6 +30,8 @@ def checker(colors):
         if tok.startswith('account:'): return acc[tok[8:]][m]
         if tok.startswith('avatarInk:'): return av[tok[10:]][m]['ink']
         if tok.startswith('avatarFace:'): return av[tok[11:]][m]['face']
+        if tok.startswith('fileInk:'): return fi[tok[8:]][m]
+        if tok == 'fileLabel': return t['fileLabel'][m]
         return colors[tok][m]
 
     def bg(stack, m):
@@ -173,5 +176,25 @@ for f in t['paperFaces']:
         n += 1
         if l['paper'] not in papers or not 0 <= l['lift'] < lifts:
             fails += 1; print('FAIL paper face %s: %s, lift %s' % (f['id'], l['paper'], l['lift']))
+# File inks (§5.57): every family has its pairs (label on band, band on the paper), the set stays apart for normal vision
+# and apart from `danger`, and the inks are fixed across themes (the pairs above run them against every theme's paper).
+fr = t['fileInkRules']
+names = {p['use'] for p in t['contrastPairs']}
+for f in t['filePalette']:
+    for use in ('File mark: the label on the %s band' % f['name'], 'File mark: the %s band on the mark\'s paper' % f['name']):
+        n += 1
+        if use not in names:
+            fails += 1; print('FAIL no pair:', use)
+for m in MODES:
+    for a, b in itertools.combinations(t['filePalette'], 2):
+        n += 1
+        if de(a[m], b[m]) < fr['minPairNormal']:
+            fails += 1; print('FAIL file inks %s / %s %s %.1f' % (a['name'], b['name'], m, de(a[m], b[m])))
+    for f in t['filePalette']:
+        n += 1
+        if de(f[m], study['danger'][m]) < fr['minFromDanger']:
+            fails += 1; print('FAIL file ink %s near danger %s' % (f['name'], m))
+        if abs(lum(f[m]) - fr['luminance'][m]) > 0.004:
+            fails += 1; print('FAIL file ink %s %s off the set\'s luminance' % (f['name'], m))
 print('%d themes, %d checks, %d failures' % (len(themes), n, fails))
 sys.exit(1 if fails else 0)
