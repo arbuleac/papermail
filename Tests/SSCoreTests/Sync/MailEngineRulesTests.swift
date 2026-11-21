@@ -37,6 +37,18 @@ final class MailEngineRulesTests: XCTestCase {
         recorder.latest.first { $0.accountID == account }?.rules
     }
 
+    /// Waits for the turn the first live cycle starts to have ended, its read written and its status said: a read counted
+    /// as sent may still be on its way, and a test that changes the server or the rules meanwhile would race it.
+    private func waitForTheFirstTurn(_ harness: EngineHarness, _ provider: ScriptedRuleProvider) async throws {
+        let recorder = PhaseRecorder()
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        try await waitUntil("the first turn") {
+            guard case .upToDate? = self.rulesState(recorder) else { return false }
+            return provider.reads >= 1
+        }
+    }
+
     /// Waits for `count` more live polls, so a turn that was due would have had its chance.
     private func waitForPolls(_ count: Int, of provider: ScriptedProvider) async throws {
         let target = provider.changesCalls.count + count
@@ -55,7 +67,7 @@ final class MailEngineRulesTests: XCTestCase {
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
 
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
         try await waitUntil("mirrored") { try self.rows(harness) == ["\(self.deals) trash saved \(seeded)"] }
         try await waitUntil("up to date") { self.rulesState(recorder) == .upToDate(otherCount: 12, readAt: clock.now) }
 
@@ -75,7 +87,7 @@ final class MailEngineRulesTests: XCTestCase {
         let clock = HandClock()
         let provider = ScriptedRuleProvider(accountID: account)
         let harness = try await started(provider, clock: clock)
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
         harness.engine.setAppActive(false)
 
         clock.advance(30 * 60)
@@ -94,7 +106,7 @@ final class MailEngineRulesTests: XCTestCase {
         let clock = HandClock()
         let provider = ScriptedRuleProvider(accountID: account)
         let harness = try await started(provider, clock: clock)
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         let seeded = provider.seedRule(news, .archive)
         harness.engine.refreshServerRules(accountID: account)
@@ -174,9 +186,9 @@ final class MailEngineRulesTests: XCTestCase {
         XCTAssertTrue(harness.engine.permissionsToAsk(for: Fixtures.account()).contains(.rules), "a reconnect now asks for it")
 
         // A plain reconnect asks for it while the rule waits, and once granted the next live cycle sends the rule.
-        provider.grantsRules = true
         _ = try await harness.engine.reconnect(Fixtures.account())
         XCTAssertEqual(harness.authenticator.permissions.last, [.rules])
+        provider.grantsRules = true
         try await waitUntil("created") { provider.createCalls == ["create \(self.deals) trash"] }
         try await waitUntil("saved") { try self.rows(harness) == ["\(self.deals) trash saved rule-1"] }
         try await waitUntil("up to date") { self.rulesState(recorder) == .upToDate(otherCount: 0, readAt: clock.now) }
@@ -213,7 +225,7 @@ final class MailEngineRulesTests: XCTestCase {
         let harness = try await started(provider, clock: clock)
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         provider.enqueueChanges(.failure(ProviderError.unauthorized))
         harness.engine.syncNow(accountID: account)
@@ -238,7 +250,7 @@ final class MailEngineRulesTests: XCTestCase {
         let clock = HandClock()
         let provider = ScriptedRuleProvider(accountID: account)
         let harness = try await started(provider, clock: clock)
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         try harness.engine.setSenderRule(.trash, for: "  Deals@Shop.Example", accountID: account, performing: [])
         XCTAssertEqual(try rows(harness), ["\(deals) trash creating "], "shown before any request")
@@ -256,7 +268,7 @@ final class MailEngineRulesTests: XCTestCase {
         let clock = HandClock()
         let provider = ScriptedRuleProvider(accountID: account)
         let harness = try await started(provider, clock: clock)
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         let elsewhere = provider.seedRule(deals, .trash)
         try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
@@ -275,7 +287,7 @@ final class MailEngineRulesTests: XCTestCase {
         let harness = try await started(provider, clock: clock)
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         try harness.engine.setSenderRule(.archive, for: news, accountID: account, performing: [])
         try await waitUntil("the reply lost") { self.rulesState(recorder) == .failed(.unreachable, otherCount: 0) }
@@ -297,6 +309,7 @@ final class MailEngineRulesTests: XCTestCase {
         let old = provider.seedRule(deals, .archive)
         let harness = try await started(provider, clock: clock)
         try await waitUntil("mirrored") { try self.rows(harness) == ["\(self.deals) archive saved \(old)"] }
+        try await waitForTheFirstTurn(harness, provider)
 
         try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
         XCTAssertEqual(try rows(harness), ["\(deals) trash replacing \(old)"])
@@ -337,6 +350,7 @@ final class MailEngineRulesTests: XCTestCase {
         try await waitUntil("mirrored") {
             try self.rows(harness) == ["\(self.deals) trash saved \(archive),\(trash)", "\(self.news) archive saved \(gone)"]
         }
+        try await waitForTheFirstTurn(harness, provider)
         provider.grantsRules = false
         try harness.engine.setSenderRule(nil, for: deals, accountID: account, performing: [])
         try harness.engine.setSenderRule(nil, for: news, accountID: account, performing: [])
@@ -387,6 +401,7 @@ final class MailEngineRulesTests: XCTestCase {
         let deletedElsewhere = provider.seedRule(news, .trash)
         let harness = try await started(provider, clock: clock)
         try await waitUntil("mirrored") { try self.rows(harness).count == 2 }
+        try await waitForTheFirstTurn(harness, provider)
 
         provider.removeRule(deletedElsewhere)
         let added = provider.seedRule("new@x.example", .trash)
@@ -406,7 +421,7 @@ final class MailEngineRulesTests: XCTestCase {
         let clock = HandClock()
         let provider = ScriptedRuleProvider(accountID: account)
         let harness = try await started(provider, clock: clock)
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
         provider.holdCreates = true
 
         try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
@@ -435,7 +450,7 @@ final class MailEngineRulesTests: XCTestCase {
         let harness = try await started(provider, clock: clock)
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
         try await waitUntil("said") { self.rulesState(recorder) == .failed(.limitReached, otherCount: 1_000) }
@@ -467,6 +482,7 @@ final class MailEngineRulesTests: XCTestCase {
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
         try await waitUntil("mirrored") { try self.rows(harness) == ["\(self.news) archive saved \(kept)"] }
+        try await waitForTheFirstTurn(harness, provider)
 
         provider.grantsRules = false
         try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
@@ -490,7 +506,7 @@ final class MailEngineRulesTests: XCTestCase {
         let harness = try await started(provider, clock: clock)
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         try harness.engine.setSenderRule(.archive, for: news, accountID: account, performing: [])
         try await waitUntil("not connected") { self.rulesState(recorder) == .notConnected }
@@ -514,7 +530,7 @@ final class MailEngineRulesTests: XCTestCase {
         let harness = try await started(provider, clock: clock)
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         provider.createScripts = [.fail(ProviderError.network("offline"))]
             + Array(repeating: .fail(ProviderError.server(status: 500, message: "boom")), count: 5)
@@ -550,13 +566,16 @@ final class MailEngineRulesTests: XCTestCase {
             .failed(.refused, otherCount: nil), .notConnected,
         ]
         for (index, state) in steps.enumerated() {
-            try await waitUntil("read \(index + 1)") { provider.reads == index + 1 }
+            // Each read after the first waits out the last one's backoff on the hand clock, moved on until it goes.
+            try await waitUntil("read \(index + 1)") {
+                if provider.reads < index + 1 { clock.advance(2) }
+                return provider.reads == index + 1
+            }
             try await waitUntil("state after read \(index + 1)") { self.rulesState(recorder) == state }
             let status = try XCTUnwrap(recorder.latest.first { $0.accountID == account })
             XCTAssertTrue(status.permissionsNeeded.isEmpty, "read \(index + 1)")
             XCTAssertNil(status.message, "read \(index + 1): the sync line says nothing")
             XCTAssertNil(status.retryAt, "read \(index + 1)")
-            clock.advance(2)
         }
         try await waitForPolls(3, of: provider)
         XCTAssertEqual(provider.reads, 5, "without the scope, no read")
@@ -576,7 +595,7 @@ final class MailEngineRulesTests: XCTestCase {
         let harness = try await started(provider, clock: clock)
         let observation = harness.engine.observeStatus { recorder.record($0) }
         defer { observation.cancel() }
-        try await waitUntil("the first read") { provider.reads == 1 }
+        try await waitForTheFirstTurn(harness, provider)
 
         try await harness.engine.removeAccount(account)
         try await waitUntil("its status gone") { !recorder.latest.contains { $0.accountID == self.account } }
