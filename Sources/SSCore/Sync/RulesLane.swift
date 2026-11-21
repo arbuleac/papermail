@@ -5,8 +5,9 @@ import Foundation
 /// Outlook's inbox rules act on mail as it arrives, whether or not this Mac is on, and the store keeps only their mirror
 /// and the user's changes on their way there.
 ///
-/// A turn reads the server's rules into the store (`replaceServerSenderRules`), which also serves as the read before a
-/// create, then sends what the user changed on this Mac, oldest first: a rule set (`creating`) or changed (`replacing`) is
+/// A turn first deletes the rules nobody wants (made for a row removed while their create was on its way), then reads the
+/// server's rules into the store (`replaceServerSenderRules`), which also serves as the read before a create, then sends
+/// what the user changed on this Mac, oldest first: a rule set (`creating`) or changed (`replacing`) is
 /// made to be the one rule the server holds for its sender (an identical rule there is adopted rather than made twice,
 /// a new one created and recorded at once, then the old and any conflicting rules for the address deleted), and a rule
 /// removed (`deleting`) is deleted. It then says where the rules stand as `AccountSyncStatus.rules`. Only the sender's
@@ -69,8 +70,14 @@ actor RulesLane {
     /// times is given up as refused, so one rule the provider keeps failing never holds the others back.
     private var writeTries: [String: Int] = [:]
     /// Rules made or adopted for a row that went while the request was on its way (removed before it reached the server,
-    /// or its account removed), whose delete has not gone through yet.
+    /// or its account removed), or found by a read for a row removed after its create's reply was lost, whose delete has
+    /// not gone through yet. A read never writes them into the store.
     private var strays: [String] = []
+    /// Creates that failed in a way that may have reached the server (the network or the service failing with the
+    /// request sent), by address: the server may hold the rule though the store never heard. If the user removes the row
+    /// before the next read, the rule that read finds for the address with that action is nobody's: a stray, deleted,
+    /// rather than shown as the server's rule (which would undo the removal).
+    private var unansweredCreates: [String: SenderRule.Action] = [:]
 
     init(
         accountID: AccountID,
@@ -149,8 +156,14 @@ actor RulesLane {
             if hold.isActive { await hold.waitUntilIdle(limit: tuning.backgroundYieldLimit) }
             if Task.isCancelled { return }
         }
+        // Before the read, which would otherwise find them and could give them to a row (one set again since).
+        if let (failure, error) = await deleteStrays() {
+            await record(failure, error: error, what: "the delete of a rule nobody wants")
+            return
+        }
         guard let (listing, readAt) = await read() else { return }
         var server = listing.senderRules
+        // Those the read found for rows removed after a lost reply.
         if let (failure, error) = await deleteStrays() {
             await record(failure, error: error, what: "the delete of a rule nobody wants")
             return
@@ -221,16 +234,28 @@ actor RulesLane {
 
     // MARK: Read
 
-    /// Reads the server's rules into the store. Nil when it failed, which ends the turn.
+    /// Reads the server's rules into the store, leaving out the strays (`strays`), which nobody wants: the rules a create
+    /// whose reply was lost may have made for a row the user removed since are strays from here. Nil when it failed, which
+    /// ends the turn.
     private func read() async -> (ServerRuleListing, Date)? {
         let readAt = clock.now()
         let signposter = SyncLog.signposter
         let interval = signposter.beginInterval("sync.rules", id: signposter.makeSignpostID())
         defer { signposter.endInterval("sync.rules", interval) }
         do {
-            let listing = try await provider.serverRules()
+            var listing = try await provider.serverRules()
             await charge(budget.quota.ruleReadCost * Double(listing.requestCount))
+            if !unansweredCreates.isEmpty {
+                let rows = Set(try store.senderRules().filter { $0.accountID == accountID }.map(\.address))
+                let unwanted = listing.senderRules.filter { rule in
+                    !rows.contains(rule.address) && unansweredCreates[rule.address] == rule.action
+                }
+                strays += unwanted.map(\.serverID).filter { !strays.contains($0) }
+            }
+            listing.senderRules.removeAll { strays.contains($0.serverID) }
             try store.replaceServerSenderRules(accountID: accountID, with: listing.senderRules, readAt: readAt)
+            // Every create unanswered before this read is settled by it: adopted by its row, or a stray.
+            unansweredCreates = [:]
             lastOtherCount = listing.otherCount
             SyncLog.logger.debug("rules read for \(self.accountID.rawValue, privacy: .public): \(listing.senderRules.count, privacy: .public) sender rules, \(listing.otherCount, privacy: .public) others, \(listing.requestCount, privacy: .public) requests")
             return (listing, readAt)
@@ -252,7 +277,13 @@ actor RulesLane {
         let others = SenderRuleMirror.unique(row.serverIDs + entries.filter { $0.action != row.action }.map(\.serverID))
             .filter { !ids.contains($0) }
         if ids.isEmpty {
-            let id = try await provider.createSenderRule(address: row.address, action: row.action)
+            let id: String
+            do {
+                id = try await provider.createSenderRule(address: row.address, action: row.action)
+            } catch {
+                if Self.mayHaveCreated(error) { unansweredCreates[row.address] = row.action }
+                throw error
+            }
             await charge(budget.quota.ruleCreateCost)
             ids = [id]
             server.append(ServerSenderRule(serverID: id, address: row.address, action: row.action))
@@ -391,6 +422,21 @@ actor RulesLane {
             // The network, the service, a reply that did not read (the next read finds a rule a create made), the token
             // (the live lane parks the account if it is refused for mail too), the keychain, the store.
             return .transient(retryAfter: nil, throttled: false)
+        }
+    }
+
+    /// Whether a create that failed may have made its rule all the same: its request may have reached the server and the
+    /// answer been lost (the network, the service, a reply that did not read, the engine stopping meanwhile). Not when the
+    /// server answered no (a refusal, a throttle, the token) or nothing was sent (the keychain).
+    private static func mayHaveCreated(_ error: Error) -> Bool {
+        if error is RuleProviderError || error is AuthError { return false }
+        switch error as? ProviderError {
+        case .throttled?, .unauthorized?, .notFound?:
+            return false
+        case .server(let status, _)? where (400..<500).contains(status) && status != 408:
+            return false
+        default:
+            return true
         }
     }
 

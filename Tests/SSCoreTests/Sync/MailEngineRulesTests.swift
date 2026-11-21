@@ -302,6 +302,58 @@ final class MailEngineRulesTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// A create whose reply was lost, for a rule the user removed before the next turn: the rule the server made is one
+    /// nobody wants, deleted at that turn rather than shown as the server's (which would undo the removal, the sender's
+    /// mail archived on every device).
+    func testARuleRemovedAfterItsCreatesReplyWasLostIsDeletedThere() async throws {
+        let clock = HandClock()
+        let provider = ScriptedRuleProvider(accountID: account)
+        provider.createScripts = [.loseReply(ProviderError.network("connection lost"))]
+        let recorder = PhaseRecorder()
+        let harness = try await started(provider, clock: clock)
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        try await waitForTheFirstTurn(harness, provider)
+
+        try harness.engine.setSenderRule(.archive, for: news, accountID: account, performing: [])
+        try await waitUntil("the reply lost") { self.rulesState(recorder) == .failed(.unreachable, otherCount: 0) }
+        XCTAssertEqual(provider.rulesOnServer.count, 1, "the server made it")
+        try harness.engine.setSenderRule(nil, for: news, accountID: account, performing: [])
+        XCTAssertTrue(try rows(harness).isEmpty, "gone from Senders at once")
+
+        clock.advance(1)
+        try await waitUntil("deleted on the next turn") { provider.deleteCalls == ["rule-1"] }
+        XCTAssertTrue(provider.rulesOnServer.isEmpty)
+        try await waitUntil("up to date") { self.rulesState(recorder) == .upToDate(otherCount: 0, readAt: clock.now) }
+        try await waitForPolls(3, of: provider)
+        XCTAssertTrue(try rows(harness).isEmpty, "never shown as the server's")
+        XCTAssertEqual(provider.createCalls.count, 1)
+        await harness.shutdown()
+    }
+
+    /// The same lost reply for a rule still wanted at the next turn is adopted, as ever, and one set again with the other
+    /// action replaces it.
+    func testALostCreateForARuleChangedMeanwhileIsReplaced() async throws {
+        let clock = HandClock()
+        let provider = ScriptedRuleProvider(accountID: account)
+        provider.createScripts = [.loseReply(ProviderError.network("connection lost"))]
+        let recorder = PhaseRecorder()
+        let harness = try await started(provider, clock: clock)
+        let observation = harness.engine.observeStatus { recorder.record($0) }
+        defer { observation.cancel() }
+        try await waitForTheFirstTurn(harness, provider)
+
+        try harness.engine.setSenderRule(.archive, for: news, accountID: account, performing: [])
+        try await waitUntil("the reply lost") { self.rulesState(recorder) == .failed(.unreachable, otherCount: 0) }
+        try harness.engine.setSenderRule(.trash, for: news, accountID: account, performing: [])
+
+        clock.advance(1)
+        try await waitUntil("replaced") { try self.rows(harness) == ["\(self.news) trash saved rule-2"] }
+        XCTAssertEqual(provider.writeLog, ["create \(news) archive", "create \(news) trash", "delete rule-1"])
+        XCTAssertEqual(provider.rulesOnServer, [ServerSenderRule(serverID: "rule-2", address: news, action: .trash)])
+        await harness.shutdown()
+    }
+
     /// The other action for a rule the server has: the new rule is created, then the old deleted.
     func testChangingARuleCreatesTheNewThenDeletesTheOld() async throws {
         let clock = HandClock()
@@ -434,6 +486,53 @@ final class MailEngineRulesTests: XCTestCase {
         XCTAssertTrue(provider.rulesOnServer.isEmpty)
         try await waitForPolls(3, of: provider)
         XCTAssertTrue(try rows(harness).isEmpty)
+        await harness.shutdown()
+    }
+
+    /// The rule made for a row removed while its create was on its way, whose delete then failed, is deleted at the next
+    /// turn before the read: the read never shows it as the server's rule in the meantime (a rule in Senders that the lane
+    /// deletes a moment later, shown until the read after).
+    func testARuleNobodyWantsIsDeletedBeforeTheNextReadShowsIt() async throws {
+        let clock = HandClock()
+        let provider = ScriptedRuleProvider(accountID: account)
+        let harness = try await started(provider, clock: clock)
+        try await waitForTheFirstTurn(harness, provider)
+        provider.holdCreates = true
+
+        try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
+        try await waitUntil("create under way") { provider.createCalls.count == 1 }
+        try harness.engine.setSenderRule(nil, for: deals, accountID: account, performing: [])
+        provider.deleteResults = [ProviderError.server(status: 500, message: "boom")]
+        provider.holdCreates = false
+        try await waitUntil("deleted at the next turn") { provider.deleteCalls == ["rule-1", "rule-1"] }
+        XCTAssertTrue(provider.rulesOnServer.isEmpty)
+        try await waitForPolls(3, of: provider)
+        XCTAssertTrue(try rows(harness).isEmpty, "never shown")
+        await harness.shutdown()
+    }
+
+    /// Nor is the sender's rule set again meanwhile adopted onto it (and left saved under an id the lane then deletes, the
+    /// server holding nothing): it is created anew.
+    func testARuleNobodyWantsIsNeverAdoptedForTheRuleSetAgain() async throws {
+        let clock = HandClock()
+        let provider = ScriptedRuleProvider(accountID: account)
+        let harness = try await started(provider, clock: clock)
+        try await waitForTheFirstTurn(harness, provider)
+        provider.holdCreates = true
+
+        try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
+        try await waitUntil("create under way") { provider.createCalls.count == 1 }
+        // Through the store, so the removal wakes no turn of its own before the rule is set again.
+        try harness.store.setSenderRule(nil, for: deals, accountID: account, enqueueing: [], at: Date())
+        provider.deleteResults = [ProviderError.server(status: 500, message: "boom")]
+        provider.holdCreates = false
+        try await waitUntil("the delete of the rule made meanwhile failed") { provider.deleteCalls == ["rule-1"] }
+
+        try harness.engine.setSenderRule(.trash, for: deals, accountID: account, performing: [])
+        try await waitUntil("saved") { try self.rows(harness) == ["\(self.deals) trash saved rule-2"] }
+        XCTAssertEqual(provider.rulesOnServer, [ServerSenderRule(serverID: "rule-2", address: deals, action: .trash)],
+                       "the rule the store says, and only it")
+        XCTAssertEqual(provider.writeLog, ["create \(deals) trash", "delete rule-1", "delete rule-1", "create \(deals) trash"])
         await harness.shutdown()
     }
 
