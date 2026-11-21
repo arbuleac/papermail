@@ -122,6 +122,8 @@ final class WriteSession {
         layer.prompt.onFocusChange = { [weak self] in self?.layer.prompt.needsDisplay = true }
         layer.onReservedSpaceChange = { [weak field] in field?.reservedSpaceDidChange() }
         layer.onScroll = { [weak self] in self?.textDidScroll() }
+        // A new text size: the ghost, the pencil and the prompt line set their words in the text's new style at once.
+        layer.onEnvironmentChange = { [weak self] in self?.render() }
         availabilityObserver = NotificationCenter.default.addObserver(forName: HelpMeWrite.availabilityDidChange, object: center,
                                                                       queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }

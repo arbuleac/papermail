@@ -90,6 +90,9 @@ final class WriteInlineLayer {
     var onReservedSpaceChange: (() -> Void)?
     /// The text scrolled: the session takes the ghost away.
     var onScroll: (() -> Void)?
+    /// Text size changed (§4.15): the session gives the marks the text's new writing style before the block is measured
+    /// again under its anchor.
+    var onEnvironmentChange: (() -> Void)?
 
     private(set) var state = State()
 
@@ -138,8 +141,11 @@ final class WriteInlineLayer {
             MainActor.assumeIsolated { self?.textFrameDidChange() }
         })
         observers.append(center.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            // Text size moves every line: a block is measured again under its anchor.
-            MainActor.assumeIsolated { self?.relayout(remeasure: true) }
+            // Text size moves every line: the marks take the new style, and a block is measured again under its anchor.
+            MainActor.assumeIsolated {
+                self?.onEnvironmentChange?()
+                self?.relayout(remeasure: true)
+            }
         })
         if let clip = textView.enclosingScrollView?.contentView {
             clip.postsBoundsChangedNotifications = true
@@ -183,7 +189,7 @@ final class WriteInlineLayer {
 
     /// Everything placed again, as the text moved (a stream, a new width); `remeasure` measures a block's anchor again.
     func relayout(remeasure: Bool = false) {
-        if remeasure, state.block != nil { setBlock(state.block) }
+        if remeasure, state.block != nil { setBlock(state.block, remeasured: true) }
         place()
     }
 
@@ -203,14 +209,17 @@ final class WriteInlineLayer {
         let width = textView.textContainer?.size.width ?? 0
         if abs(width - containerWidth) > 0.5, state.block != nil {
             // A new width wraps the text again: the block is measured again under its anchor's line.
-            setBlock(state.block)
+            setBlock(state.block, remeasured: true)
         }
         place()
     }
 
     // MARK: Blocks
 
-    private func setBlock(_ block: Block?) {
+    /// Makes `block`'s room in the text, or gives it back. `remeasured`: the text moved under a block that stays (a new
+    /// width, a new text size), and its host may have measured its height against the room where it was: it is told
+    /// again, even when the block's height and overflow come out the same.
+    private func setBlock(_ block: Block?, remeasured: Bool = false) {
         guard let container = textView.textContainer, let manager = textView.layoutManager else { return }
         let before = (reservedHeight, overflow)
         containerWidth = container.size.width
@@ -239,7 +248,7 @@ final class WriteInlineLayer {
         blockRect = rect
         reservedHeight = rect.height
         overflow = max(0, rect.maxY - max(used.maxY, manager.extraLineFragmentRect.maxY))
-        if before != (reservedHeight, overflow) { onReservedSpaceChange?() }
+        if remeasured || before != (reservedHeight, overflow) { onReservedSpaceChange?() }
     }
 
     // MARK: Placing

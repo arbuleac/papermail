@@ -431,6 +431,42 @@ final class HelpMeWriteCaretTests: XCTestCase {
         XCTAssertEqual(editor.frame.height, height, accuracy: 0.5)
     }
 
+    /// A new text size moves every line: the block is measured again under its anchor and the quick reply takes the height
+    /// it needs with it (never the room it had at the old size), and the ghost sets its words in the new size at once.
+    func testABlockAndTheGhostFollowTheTextSize() throws {
+        let (harness, _) = try harness(reply: "Tuesday at ten works for me. I\u{2019}ll bring the draft budget, and we can go through the open questions.")
+        defer {
+            harness.settings.textSize = .default
+            harness.close()
+        }
+        let (field, session) = try type("tue 10 ok", harness)
+        let bar = harness.reader.quickReplyBar
+        harness.reader.helpMeWrite(nil)
+        until({ session.phase == .written })
+        let block = WriteInlineLayer.Block.afterline(.end(0), .failed(reason: "", offersSettings: false)).height
+        for size in [QuireFont.TextSize.larger, .default] {
+            harness.settings.textSize = size
+            bar.layoutSubtreeIfNeeded()
+            let used = field.layoutManager!.usedRect(for: field.textContainer!)
+            XCTAssertEqual(session.layer.afterline.frame.minY, field.textContainerOrigin.y + used.maxY + Quire.Layout.WriteCaret.blockGapTop,
+                           accuracy: 0.5, "\(size): under the draft's last line")
+            let withBlock = bar.barHeight
+            XCTAssertTrue(session.escape())
+            bar.layoutSubtreeIfNeeded()
+            XCTAssertEqual(withBlock - bar.barHeight, block, accuracy: 0.5, "\(size): the field held the afterline's room and no more")
+            session.layer.afterline.actions[.tryAgain]?.performClick(nil)
+            until({ session.phase == .written })
+        }
+
+        field.insertText("", replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
+        session.selectionDidChange()
+        XCTAssertFalse(session.layer.ghost.isHidden)
+        harness.settings.textSize = .larger
+        let typed = try XCTUnwrap(field.typingAttributes[.font] as? NSFont)
+        let ghost = try XCTUnwrap(session.layer.ghost.textAttributes[.font] as? NSFont)
+        XCTAssertEqual(ghost.pointSize, typed.pointSize, "the ghost in the text's new size")
+    }
+
     // MARK: The pencil
 
     func testThePencilFollowsTheLastWordAndAClickStops() throws {
