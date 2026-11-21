@@ -177,6 +177,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Every snooze the store holds, from its observation; the Later tile, G L and the title menu go by those in scope.
     private(set) var snoozes: [Snooze] = []
     private var snoozeObservation: StoreObservation?
+    /// The accounts with sender rules on their way to the server, from the store's observation: while one of them lacks
+    /// the rules permission, the sync line asks for it (§5.11, §5.52).
+    private var rulesWaiting: Set<AccountID> = []
+    private var senderRuleObservation: StoreObservation?
     /// Shows the Later menu at a point in a view. A popped menu tracks until it is dismissed, so tests replace it.
     lazy var popUpLaterMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
         menu.popUp(positioning: nil, at: point, in: view)
@@ -206,6 +210,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     #if DEBUG
     /// `--snapshot-state=…` (debug builds): states to put the window in before a snapshot.
     private var debugStatuses: [AccountSyncStatus]?
+    private var debugRulesWaiting: Set<AccountID>?
     private var debugKeyStealer: NSWindow?
     #endif
 
@@ -292,6 +297,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
         inboxMonitor.start(accounts: accounts.map(\.id))
         activity.start()
+        senderRuleObservation = environment.store.observeSenderRules { [weak self] rules in
+            MainActor.assumeIsolated { self?.senderRulesChanged(rules) }
+        }
         snoozeObservation = environment.store.observeSnoozes { [weak self] snoozes in
             MainActor.assumeIsolated { self?.snoozesChanged(snoozes) }
         }
@@ -394,6 +402,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         statusObservation = nil
         snoozeObservation?.cancel()
         snoozeObservation = nil
+        senderRuleObservation?.cancel()
+        senderRuleObservation = nil
         calendarState.tearDown()
         sendLaterOutbox.stop()
         stripCollapseObservation?.invalidate()
@@ -739,6 +749,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return statuses
     }
 
+    private var effectiveRulesWaiting: Set<AccountID> {
+        #if DEBUG
+        if let debugRulesWaiting { return debugRulesWaiting }
+        #endif
+        return rulesWaiting
+    }
+
+    /// The rules changed: only which accounts have some on their way matters to the line.
+    private func senderRulesChanged(_ rules: [SenderRule]) {
+        let waiting = Set(rules.filter(\.isPending).map(\.accountID))
+        guard waiting != rulesWaiting else { return }
+        rulesWaiting = waiting
+        refreshSyncLine()
+    }
+
     @objc private func signInProgressChanged(_ note: Notification) {
         applySignIn(note.object as? SignInProgress)
     }
@@ -798,7 +823,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let now = Date()
         let summary = SyncLineSummary.make(SyncLineSummary.Input(
             statuses: effective, accounts: accounts, isDemo: environment.isDemo, isNetworkReachable: activity.isNetworkReachable,
-            signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning, now: now
+            signIn: signIn, sendingCount: activity.sendingCount, isChecking: isCheckRunning, now: now, rulesWaiting: effectiveRulesWaiting
         ))
         listPane.statusBar.apply(summary)
         // “retrying in 30 s” counts down: the line is chosen again each second while it shows one on screen. Under
@@ -838,6 +863,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             for id in ids { environment.engine.syncNow(accountID: id) }
         case .cancelSignIn:
             onCancelSignIn?()
+        case .connectRules(let id):
+            // The sign-in that asks for the rules permission; the waiting rules go out once it is granted.
+            guard let account = accountsByID[id], pendingSignIn == nil else { return }
+            onConnectRules?(account)
         }
     }
 
@@ -3465,6 +3494,16 @@ extension MainWindowController {
         }
         if states.contains("adding") {
             applySignIn(SignInProgress(kind: .gmail, reconnecting: nil, subject: "Gmail"))
+        }
+        if states.contains("rules-permission"), let first = accounts.first {
+            // The first account's sender rules waiting for the rules permission (§5.11, §5.52), in this window only, with
+            // every account's mail current, as the line would read once a fresh demo's download is done.
+            let now = Date()
+            debugStatuses = accounts.map { account in
+                AccountSyncStatus(accountID: account.id, phase: .idle, lastSuccessfulSyncAt: now,
+                                  rules: account.id == first.id ? .notConnected : .upToDate(otherCount: 2, readAt: now))
+            }
+            debugRulesWaiting = [first.id]
         }
         if states.contains("reconnect"), let second {
             applySignIn(SignInProgress(kind: second.kind, reconnecting: second.id, subject: AccountLabels.name(for: second)))

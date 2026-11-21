@@ -169,6 +169,41 @@ final class ServerSenderRulesTests: XCTestCase {
         XCTAssertEqual(harness.reader.senderRule(for: target), .trash)
     }
 
+    // MARK: The sync line
+
+    /// Rules waiting for the permission (an existing user's, uploaded once, among them) act nowhere until it is granted:
+    /// the main window's sync line says so, and its Reconnect runs the rules' sign-in; once the rules are on their way no
+    /// more, the line is Up to date again.
+    func testTheSyncLineAsksForTheRulesPermission() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let line = { harness.controller.listPane.statusBar.summary }
+        let checked = Date()
+        harness.controller.statusesChanged([
+            AccountSyncStatus(accountID: gmail.id, phase: .idle, lastSuccessfulSyncAt: checked, rules: .notConnected),
+            AccountSyncStatus(accountID: outlook.id, phase: .idle, lastSuccessfulSyncAt: checked, rules: .upToDate(otherCount: 0, readAt: checked)),
+        ])
+        XCTAssertEqual(line().state, .upToDate, "no rule waits yet")
+
+        try store(harness).setSenderRule(.trash, for: "deals@shop.example", accountID: gmail.id, enqueueing: [], at: Date())
+        harness.spin { line().state == .rulesPermission }
+        XCTAssertEqual(line().lead, "Sender rules need permission")
+        XCTAssertEqual(line().detail, AccountLabels.name(for: gmail))
+        XCTAssertEqual(line().action, .connectRules(gmail.id))
+        let button = harness.controller.listPane.statusBar.actionButton
+        XCTAssertFalse(button.isHidden)
+        XCTAssertEqual(button.title, "Reconnect")
+        var connected: [AccountID] = []
+        harness.controller.onConnectRules = { connected.append($0.id) }
+        button.performClick(nil)
+        XCTAssertEqual(connected, [gmail.id])
+
+        // The rule removed before it reached the server: nothing waits.
+        try store(harness).setSenderRule(nil, for: "deals@shop.example", accountID: gmail.id, enqueueing: [], at: Date())
+        harness.spin { line().state == .upToDate }
+        XCTAssertEqual(line().state, .upToDate)
+    }
+
     // MARK: The Senders sheet
 
     private func model(isDemo: Bool = false) -> SettingsModel {

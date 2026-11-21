@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the sync status line under the list says (spec §5.11), reduced from every account's status by the
-/// ten-step precedence: the first rule that matches wins, and the tooltip lists every account's own state in
+/// eleven-step precedence: the first rule that matches wins, and the tooltip lists every account's own state in
 /// the words Settings › Accounts uses.
 ///
 /// One account in the winning state is named; two or more are counted, never listed (“Sign in required ·
@@ -21,6 +21,9 @@ public struct SyncLineSummary: Equatable, Sendable {
         case sending
         case downloading
         case checking
+        /// Mail is current, but sender rules set or removed on this Mac wait for the permission to save them on the
+        /// server (spec §5.52): they act nowhere until it is granted, so the line asks rather than leave it to Settings.
+        case rulesPermission
         case demo
         case upToDate
     }
@@ -45,10 +48,13 @@ public struct SyncLineSummary: Equatable, Sendable {
         case retry([AccountID])
         /// “Cancel”: stops waiting for the browser.
         case cancelSignIn
+        /// “Reconnect”: one account's sender rules wait for the rules permission; the sign-in asks for it
+        /// (`MailClient.connectRules`).
+        case connectRules(AccountID)
 
         public var title: String {
             switch self {
-            case .reconnect: return "Reconnect"
+            case .reconnect, .connectRules: return "Reconnect"
             case .reconnectSeveral: return "Reconnect…"
             case .retry: return "Retry"
             case .cancelSignIn: return "Cancel"
@@ -77,9 +83,13 @@ public struct SyncLineSummary: Equatable, Sendable {
         public var isChecking: Bool
         /// The moment “retrying in 30 s” counts from.
         public var now: Date
+        /// The accounts with sender rules set or removed on this Mac and not yet on the server (`MailStoring
+        /// .pendingSenderRules`); with `AccountSyncStatus.rules == .notConnected` they wait for the permission.
+        public var rulesWaiting: Set<AccountID>
 
         public init(statuses: [AccountSyncStatus], accounts: [Account], isDemo: Bool = false, isNetworkReachable: Bool = true,
-                    signIn: SignIn? = nil, sendingCount: Int = 0, isChecking: Bool = false, now: Date = Date()) {
+                    signIn: SignIn? = nil, sendingCount: Int = 0, isChecking: Bool = false, now: Date = Date(),
+                    rulesWaiting: Set<AccountID> = []) {
             self.statuses = statuses
             self.accounts = accounts
             self.isDemo = isDemo
@@ -88,6 +98,7 @@ public struct SyncLineSummary: Equatable, Sendable {
             self.sendingCount = sendingCount
             self.isChecking = isChecking
             self.now = now
+            self.rulesWaiting = rulesWaiting
         }
     }
 
@@ -142,7 +153,7 @@ public struct SyncLineSummary: Equatable, Sendable {
         let isOffline = !input.isNetworkReachable || (!busy.isEmpty && busy.allSatisfy { $0.phase == .error && isNetworkFailure($0) })
         let tooltip = tooltipText(statuses: statuses, accounts: byID, signIn: input.signIn, isOffline: isOffline, isDemo: input.isDemo,
                                   isChecking: input.isChecking, now: input.now, numberFormatter: numberFormatter,
-                                  timeFormatter: checkedFormatter)
+                                  timeFormatter: checkedFormatter, rulesWaiting: input.rulesWaiting)
         func name(_ id: AccountID) -> String {
             byID[id].map(AccountLabels.name(for:)) ?? "an account"
         }
@@ -221,11 +232,18 @@ public struct SyncLineSummary: Equatable, Sendable {
         if input.isChecking {
             return SyncLineSummary(state: .checking, glyph: .spinner, lead: "Checking for mail…", tooltip: tooltip)
         }
-        // 9. Demo mode replaces Up to date.
+        // 9. Sender rules waiting for the permission to save them on the server: they act nowhere until then (an
+        // existing user's rules, uploaded once, among them), so the line asks, with the sign-in that grants it.
+        let rulesBlocked = statuses.filter { $0.rules == .notConnected && input.rulesWaiting.contains($0.accountID) }.map(\.accountID)
+        if !rulesBlocked.isEmpty {
+            return SyncLineSummary(state: .rulesPermission, glyph: .info, lead: "Sender rules need permission", detail: named(rulesBlocked),
+                                   action: rulesBlocked.count == 1 ? .connectRules(rulesBlocked[0]) : .reconnectSeveral, tooltip: tooltip)
+        }
+        // 10. Demo mode replaces Up to date.
         if input.isDemo {
             return SyncLineSummary(state: .demo, glyph: .info, lead: "Demo", detail: "made-up mail, nothing syncs", tooltip: tooltip)
         }
-        // 10. Up to date, and how far older mail has come while any account downloads it.
+        // 11. Up to date, and how far older mail has come while any account downloads it.
         let ids = input.accounts.map(\.id)
         var parts: [String] = []
         if !ids.isEmpty { parts.append(named(ids)) }
@@ -313,7 +331,7 @@ public struct SyncLineSummary: Equatable, Sendable {
     /// “Up to date” with every poll while the line, rightly, stays put.
     static func tooltipText(statuses: [AccountSyncStatus], accounts: [AccountID: Account], signIn: SignIn?, isOffline: Bool,
                             isDemo: Bool, isChecking: Bool = false, now: Date = Date(), numberFormatter: (Int) -> String,
-                            timeFormatter: (Date) -> String = timeOfDay) -> String? {
+                            timeFormatter: (Date) -> String = timeOfDay, rulesWaiting: Set<AccountID> = []) -> String? {
         let parts = statuses.compactMap { original -> String? in
             guard let account = accounts[original.accountID] else { return nil }
             var status = original
@@ -326,7 +344,8 @@ public struct SyncLineSummary: Equatable, Sendable {
             } else if isDemo, status.phase == .idle || (status.phase == .paused && !isRateLimited(status)) {
                 words = "Made up, nothing syncs"
             } else {
-                words = accountWords(status, now: now, numberFormatter: numberFormatter, timeFormatter: timeFormatter)
+                words = accountWords(status, now: now, numberFormatter: numberFormatter, timeFormatter: timeFormatter,
+                                     rulesWaiting: rulesWaiting.contains(status.accountID))
             }
             return "\(AccountLabels.name(for: account)): \(words)"
         }
@@ -335,15 +354,19 @@ public struct SyncLineSummary: Equatable, Sendable {
 
     /// The per-account words Settings › Accounts uses (§5.40). Up to date carries the older-mail download behind
     /// it: “Up to date · older mail 3,412 of 8,120”, “Up to date · older mail paused until 10:42”, and once that
-    /// mail is listed, “Up to date · downloading messages…” while its bodies arrive.
+    /// mail is listed, “Up to date · downloading messages…” while its bodies arrive. `rulesWaiting`: the account has
+    /// sender rules on their way to the server, which wait while it lacks the rules permission.
     public static func accountWords(_ status: AccountSyncStatus, now: Date = Date(), numberFormatter: (Int) -> String = grouped,
-                                    timeFormatter: (Date) -> String = timeOfDay) -> String {
+                                    timeFormatter: (Date) -> String = timeOfDay, rulesWaiting: Bool = false) -> String {
         let retrying = retrySeconds(until: status.retryAt, now: now).map { "Retrying in \($0) s" } ?? "Retrying shortly"
         let upToDate = olderMailWords(status, now: now, numberFormatter: numberFormatter, timeFormatter: timeFormatter)
             .map { "Up to date · \($0)" } ?? (status.backfillDownloadingBodies ? "Up to date · downloading messages…" : "Up to date")
         switch status.phase {
-        // Mail is current, but an answered invitation waits for the user (spec §5.40): Settings asks to reconnect.
-        case .idle: return status.permissionsNeeded.isEmpty ? upToDate : "Calendar permission needed"
+        // Mail is current, but an answered invitation, or a sender rule, waits for a permission (spec §5.40): Settings
+        // asks to reconnect. The invitation's first, as Settings shows it.
+        case .idle:
+            if !status.permissionsNeeded.isEmpty { return "Calendar permission needed" }
+            return rulesWaiting && status.rules == .notConnected ? "Sender rules need permission" : upToDate
         case .bootstrapping:
             let count = status.bootstrapProgress ?? 0
             if let total = status.bootstrapTotal, total > 0 {
