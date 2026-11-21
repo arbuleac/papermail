@@ -419,7 +419,8 @@ final class WriteInlineLayer {
                 holes.append(view.frame)
             }
         }
-        if !pill.isHidden, pill.superview === textView { holes.append(pill.convert(pill.hitRect, to: textView)) }
+        // The pill floats on its host (the quick reply's bar), over the text all the same: the I-beam leaves it its own.
+        if !pill.isHidden, pill.superview != nil { holes.append(pill.convert(pill.hitRect, to: textView)) }
         return holes
     }
 

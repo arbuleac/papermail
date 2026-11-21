@@ -467,6 +467,21 @@ final class HelpMeWriteCaretTests: XCTestCase {
         XCTAssertEqual(ghost.pointSize, typed.pointSize, "the ghost in the text's new size")
     }
 
+    /// The pill floats on the quick reply's bar, over the text: the text's I-beam is cut out of it, so it keeps its own
+    /// pointer (§4.17), as the marks laid in the text do.
+    func testThePillKeepsItsOwnPointerOverTheQuickReplysText() throws {
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        let (field, session) = try type("tue 10 works, I\u{2019}ll bring the budget", harness)
+        field.setSelectedRange(NSRange(location: 14, length: 21))
+        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
+        let pill = session.layer.pill
+        XCTAssertFalse(pill.isHidden)
+        XCTAssertFalse(pill.superview === field, "it floats on the bar")
+        let area = pill.convert(pill.hitRect, to: field)
+        XCTAssertTrue(session.pointerHoles.contains { $0.contains(area.insetBy(dx: 0.5, dy: 0.5)) }, "cut out of the I-beam")
+    }
+
     // MARK: The pencil
 
     func testThePencilFollowsTheLastWordAndAClickStops() throws {
