@@ -1294,6 +1294,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         sendActionMenu.menu(current: SendActionPreference.current)
     }
 
+    #if DEBUG
+    /// The drop-down's builder, for a render of the menu with either choice (`SendSnapshotStates`).
+    var debugSendActionMenu: SendActionMenu { sendActionMenu }
+    #endif
+
     // MARK: Send Later
 
     /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's face as its drop-down would be.

@@ -264,6 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let composer = ComposeWindowRegistry.shared.openControllers.first
         #if DEBUG
         if composer?.stageDebugWriteState() != true { composer?.writeDemoSample() }
+        composer?.stageDebugSendStates()
         #else
         composer?.writeDemoSample()
         #endif
@@ -278,6 +279,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 view.cacheDisplay(in: view.bounds, to: bitmap)
                 SnapshotRenderer.writePNG(bitmap, to: path)
+                #if DEBUG
+                // Send's drop-down is a system menu no window snapshot holds: captured alone, afterwards (§5.23).
+                let states = SendSnapshotStates.requested
+                if states.contains("send-menu") || states.contains("send-menu-send"),
+                   let composer = ComposeWindowRegistry.shared.openControllers.first {
+                    let menu = composer.debugSendOptionsMenu(current: states.contains("send-menu-send") ? .send : .sendAndArchive)
+                    SendSnapshotStates.showMenuForCapture(menu, path: (path as NSString).deletingPathExtension + "-menu.png")
+                }
+                #endif
             }
         }
     }
