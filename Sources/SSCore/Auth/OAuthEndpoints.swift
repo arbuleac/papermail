@@ -9,6 +9,10 @@ public enum OAuthEndpoints {
     /// `events.patch`; Graph accepts, tentatively accepts or declines the event.
     public static let googleCalendarScope = "https://www.googleapis.com/auth/calendar.events"
     public static let microsoftCalendarScope = "https://graph.microsoft.com/Calendars.ReadWrite"
+    /// Sender rules kept on the server (`AccountPermission.rules`): Gmail's filters need the basic settings scope, which
+    /// `gmail.modify` does not include; Outlook's inbox rules are mailbox settings.
+    public static let googleRulesScope = "https://www.googleapis.com/auth/gmail.settings.basic"
+    public static let microsoftRulesScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
 
     /// Entra's multi-tenant endpoint; accepts personal and work accounts.
     public static let defaultMicrosoftTenant = "common"
@@ -36,6 +40,8 @@ public enum OAuthEndpoints {
         switch (permission, kind) {
         case (.calendar, .gmail): return googleCalendarScope
         case (.calendar, .microsoft): return microsoftCalendarScope
+        case (.rules, .gmail): return googleRulesScope
+        case (.rules, .microsoft): return microsoftRulesScope
         }
     }
 

@@ -24,67 +24,23 @@ enum MuteTable {
     }
 }
 
-/// SQL for `sender_rules` (v17).
-enum SenderRuleTable {
-    /// Every rule, by account and then address, as Settings lists them.
-    static func all(_ db: Database) throws -> [SenderRule] {
-        try Row.fetchAll(db.cachedStatement(sql: """
-            SELECT account_id, address, action, created_at FROM sender_rules ORDER BY account_id, address
-            """)).compactMap { row in
-            // A rule a later build wrote with an action this one does not know is left out rather than guessed at.
-            guard let action = SenderRule.Action(rawValue: row[2]) else { return nil }
-            return SenderRule(accountID: AccountID(row[0]), address: row[1], action: action, createdAt: MailStoreCodec.date(row[3]))
-        }
-    }
-
-    /// Sets the rule for the address (replacing another action and its time), or removes it when `action` is nil.
-    static func set(_ action: SenderRule.Action?, for address: String, accountID: AccountID, now: Date, in db: Database) throws {
-        let address = SenderRule.normalizedAddress(address)
-        guard !address.isEmpty else { return }
-        guard let action else {
-            try db.cachedStatement(sql: "DELETE FROM sender_rules WHERE account_id = ? AND address = ?")
-                .execute(arguments: [accountID.rawValue, address])
-            return
-        }
-        try db.cachedStatement(sql: """
-            INSERT INTO sender_rules (account_id, address, action, created_at) VALUES (?, ?, ?, ?)
-            ON CONFLICT(account_id, address) DO UPDATE SET action = excluded.action, created_at = excluded.created_at
-            """).execute(arguments: [accountID.rawValue, address, action.rawValue, MailStoreCodec.milliseconds(now)])
-    }
-
-    /// The accounts with any rule: the table is a few rows, read once per write.
-    static func accounts(_ db: Database) throws -> Set<String> {
-        Set(try String.fetchAll(db.cachedStatement(sql: "SELECT DISTINCT account_id FROM sender_rules")))
-    }
-
-    /// One primary-key probe; `address` already normalized.
-    static func action(accountID: String, address: String, in db: Database) throws -> SenderRule.Action? {
-        try String.fetchOne(db.cachedStatement(sql: "SELECT action FROM sender_rules WHERE account_id = ? AND address = ?"),
-                            arguments: [accountID, address]).flatMap(SenderRule.Action.init(rawValue:))
-    }
-}
-
-/// The arrival rules of one upsert (docs/DATA-MODEL.md, "Arrival rules"): mail new to the store in a muted conversation,
-/// or from a sender with a rule, is archived or trashed in the transaction that stores it, through the ordinary
-/// operation, so the row never reaches the Inbox, its observers never see it there, and the outbox replays the change.
+/// The arrival rules of one upsert (docs/DATA-MODEL.md, "Arrival rules"): mail new to the store in a muted conversation
+/// is archived in the transaction that stores it, through the ordinary operation, so the row never reaches the Inbox, its
+/// observers never see it there, and the outbox replays the change. Sender rules take no part: they live on the server,
+/// which archives or trashes the sender's mail before this Mac sees it. Their mirror is read only to leave a snooze alone
+/// (`ArrivalRule.keepsSnooze`).
 ///
 /// The cost is per write, not per message, wherever nothing is muted and no rule is set: two reads of a few index entries.
 /// Otherwise each message new to the store in an account that has some costs a primary-key probe for each kind.
 struct ArrivalRules {
     private let mutedAccounts: Set<String>
     private let ruledAccounts: Set<String>
-    private var hits: [Hit] = []
+    /// The muted conversations mail arrived in, in the order met.
+    private var hits: [ConversationID] = []
 
-    private struct Hit {
-        var message: MessageID
-        var conversation: ConversationID
-        var change: MetadataChange
-        var muted: Bool
-    }
-
-    /// `senderRules` false for the backfill and a search of the server, whose mail is old, not arriving: a rule set
-    /// today is not a reason to move mail on every device that came years ago. The mute applies on every path, since a
-    /// muted conversation's older mail still in the provider's Inbox would otherwise bring it back.
+    /// `senderRules` false for the backfill and a search of the server, whose mail is old, not arriving: a snooze set
+    /// since is the summary refresh's to judge. The mute applies on every path, since a muted conversation's older mail
+    /// still in the provider's Inbox would otherwise bring it back.
     init(in db: Database, senderRules: Bool) throws {
         mutedAccounts = try MuteTable.accounts(db)
         ruledAccounts = senderRules ? try SenderRuleTable.accounts(db) : []
@@ -103,52 +59,29 @@ struct ArrivalRules {
         if checksSender, let from = message.from {
             senderRule = try SenderRuleTable.action(accountID: account, address: SenderRule.normalizedAddress(from.address), in: db)
         }
-        if let change = ArrivalRule.change(for: message, inMutedConversation: muted, senderRule: senderRule) {
-            hits.append(Hit(message: message.id, conversation: message.conversationID, change: change, muted: muted && change == .archive))
+        if ArrivalRule.change(for: message, inMutedConversation: muted) != nil, !hits.contains(message.conversationID) {
+            hits.append(message.conversationID)
         }
         return ArrivalRule.keepsSnooze(inMutedConversation: muted, senderRule: senderRule)
     }
 
-    /// Queues what the rules found, before the upsert's summary refresh: per account one Move to Trash and one Archive.
-    /// A muted conversation's archive takes every message of it in the Inbox, older ones too (one moved back with ⇧I, or
-    /// one the backfill lists), so the conversation stays out of the Inbox whoever wrote; a sender's archive takes only
-    /// that sender's message. Enqueued as a user action is, so each target keeps what the provider reported as the
-    /// change's prior, and a given-up operation puts the message back where the provider has it.
+    /// Queues what the mute found, before the upsert's summary refresh: per account one Archive of every message of the
+    /// muted conversations still in the Inbox, older ones too (one moved back with ⇧I, or one the backfill lists), so the
+    /// conversation stays out of the Inbox whoever wrote. Enqueued as a user action is, so each target keeps what the
+    /// provider reported as the change's prior, and a given-up operation puts the message back where the provider has it.
     func enqueue(at now: Date, in db: Database) throws {
         guard !hits.isEmpty else { return }
         var order: [AccountID] = []
-        var trashed: [AccountID: [MessageID]] = [:]
         var archived: [AccountID: [MessageID]] = [:]
-        var mutedConversations: [AccountID: [ConversationID]] = [:]
-        for hit in hits {
-            let account = hit.message.accountID
+        for conversation in hits {
+            let account = conversation.accountID
             if !order.contains(account) { order.append(account) }
-            if hit.change == .trash {
-                trashed[account, default: []].append(hit.message)
-            } else if hit.muted {
-                if !(mutedConversations[account] ?? []).contains(hit.conversation) {
-                    mutedConversations[account, default: []].append(hit.conversation)
-                }
-            } else {
-                archived[account, default: []].append(hit.message)
-            }
+            archived[account, default: []] += try Self.inboxMessages(of: conversation, in: db)
         }
         for account in order {
-            let toTrash = Self.unique(trashed[account] ?? [])
-            var toArchive = archived[account] ?? []
-            for conversation in mutedConversations[account] ?? [] {
-                toArchive += try Self.inboxMessages(of: conversation, in: db)
-            }
-            let skipped = Set(toTrash)
-            toArchive = Self.unique(toArchive).filter { !skipped.contains($0) }
-            if !toArchive.isEmpty {
-                try OperationTable.enqueue(Operation(accountID: account, change: .archive, targets: toArchive, createdAt: now), in: db)
-            }
-            if !toTrash.isEmpty {
-                // A millisecond after, so the outbox lists them in a fixed order.
-                try OperationTable.enqueue(Operation(accountID: account, change: .trash, targets: toTrash,
-                                                     createdAt: now.addingTimeInterval(0.001)), in: db)
-            }
+            let toArchive = Self.unique(archived[account] ?? [])
+            guard !toArchive.isEmpty else { continue }
+            try OperationTable.enqueue(Operation(accountID: account, change: .archive, targets: toArchive, createdAt: now), in: db)
         }
     }
 

@@ -115,6 +115,13 @@ final class MailTimeRecordingStore: MailStoring, @unchecked Sendable {
                        enqueueing operations: [Operation], at now: Date) throws {
         try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
     }
+    func pendingSenderRules(accountID: AccountID) throws -> [SenderRule] { try base.pendingSenderRules(accountID: accountID) }
+    func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws {
+        try base.replaceServerSenderRules(accountID: accountID, with: rules, readAt: readAt)
+    }
+    func settleSenderRule(for address: String, accountID: AccountID, _ outcome: SenderRuleOutcome) throws -> Bool {
+        try base.settleSenderRule(for: address, accountID: accountID, outcome)
+    }
     func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
         base.observeSenderRules(onChange: onChange)
     }

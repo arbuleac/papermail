@@ -431,6 +431,19 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         }
     }
 
+    public func pendingSenderRules(accountID: AccountID) throws -> [SenderRule] {
+        try read { try SenderRuleTable.pending(accountID: accountID, in: $0) }
+    }
+
+    public func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws {
+        try write { try SenderRuleTable.replace(accountID: accountID, with: rules, readAt: readAt, in: $0) }
+    }
+
+    @discardableResult
+    public func settleSenderRule(for address: String, accountID: AccountID, _ outcome: SenderRuleOutcome) throws -> Bool {
+        try write { try SenderRuleTable.settle(outcome, address: address, accountID: accountID, in: $0) }
+    }
+
     public func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
         // Tracks `sender_rules` alone, so mail arriving never wakes Settings' list.
         let observation = ValueObservation.tracking { db in try SenderRuleTable.all(db) }.removeDuplicates()

@@ -18,6 +18,9 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         /// A calendar read's write.
         case replaceCalendarEvents
         case settleCalendarEvent
+        /// A read of the server rules' write, and the settle of a rule's write.
+        case replaceServerSenderRules
+        case settleSenderRule
     }
 
     let base: InMemoryMailStore
@@ -247,6 +250,15 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                        enqueueing operations: [Operation], at now: Date) throws {
         try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
+    }
+    func pendingSenderRules(accountID: AccountID) throws -> [SenderRule] { try base.pendingSenderRules(accountID: accountID) }
+    func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws {
+        try check(.replaceServerSenderRules)
+        try base.replaceServerSenderRules(accountID: accountID, with: rules, readAt: readAt)
+    }
+    func settleSenderRule(for address: String, accountID: AccountID, _ outcome: SenderRuleOutcome) throws -> Bool {
+        try check(.settleSenderRule)
+        return try base.settleSenderRule(for: address, accountID: accountID, outcome)
     }
     func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation {
         base.observeSenderRules(onChange: onChange)

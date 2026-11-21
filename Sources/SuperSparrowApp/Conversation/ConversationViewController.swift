@@ -1709,7 +1709,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     func senderRule(for message: MessageMetadata) -> SenderRule.Action? {
         guard let from = message.from?.address else { return nil }
         let address = SenderRule.normalizedAddress(from)
-        return (try? client.store.senderRules())?.first { $0.accountID == message.id.accountID && $0.address == address }?.action
+        // A rule being deleted on the server is no longer the sender's: the menus offer both rules again.
+        return (try? client.store.senderRules())?
+            .first { $0.accountID == message.id.accountID && $0.address == address && $0.isActive }?.action
     }
 
     // MARK: Header actions

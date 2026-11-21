@@ -196,11 +196,12 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     /// `snoozes()` after every change to it, delivered on the main thread, the current value first.
     func observeSnoozes(onChange: @escaping @Sendable ([Snooze]) -> Void) -> StoreObservation
 
-    // MARK: Mute and sender rules (docs/DATA-MODEL.md, "Arrival rules")
-    // Mail new to the store in a muted conversation, or from a sender with a rule, is archived or moved to the Trash in
-    // the write that stores it, through the ordinary operation queued in that transaction: `upsertMessages` applies
-    // both; `writeBackfillMessages`, which writes old mail, applies only the mute. The mute and the rules themselves
-    // live on this Mac; what they do round-trips.
+    // MARK: Mute and sender rules (docs/DATA-MODEL.md, "Arrival rules" and "Sender rules")
+    // Mail new to the store in a muted conversation is archived in the write that stores it, through the ordinary
+    // operation queued in that transaction, on every write path (`upsertMessages` and `writeBackfillMessages`). The mute
+    // lives on this Mac; what it does round-trips. Sender rules live on the server (Gmail filters, Outlook inbox rules),
+    // which acts on the sender's mail before this Mac sees it: the store keeps their mirror and the user's changes on
+    // their way there, which the engine's rules lane sends.
 
     /// In one transaction: applies and queues `operations` as `enqueue` does (muting archives what is in the Inbox, an
     /// undo passes the inverse steps), then marks the conversations muted, or not, and puts back each of `returnMarks`
@@ -212,13 +213,38 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     /// Whether `conversation` is muted (`conversations.muted`): a reader window asks for its one conversation, which the
     /// list may no longer hold (spec, Reader window (Q3.5)). False for a conversation the store holds no summary of.
     func isMuted(_ conversation: ConversationID) throws -> Bool
-    /// Every sender rule, by account and then address.
+    /// Every sender rule row, by account and then address, whatever its `sync`: the server's rules as last read
+    /// (`saved`) and the user's changes on their way there (`creating`, `replacing`, `deleting`, which the UI shows as
+    /// such; a `deleting` row is no longer the user's rule, `SenderRule.isActive`).
     func senderRules() throws -> [SenderRule]
     /// In one transaction: applies and queues `operations` as `enqueue` does (the rule's change on the sender's mail in
     /// the conversation it was set from, or an undo's inverse steps), then sets the account's rule for `address` to
-    /// `action`, replacing the other, or removes it when `action` is nil. `now` is its `createdAt`.
+    /// `action`, or removes it when `action` is nil, as a change on its way to the server: a new rule is `creating`; the
+    /// other action for a rule the server has is `replacing`; removing a rule the server has makes it `deleting`, and one
+    /// the server never had goes at once; setting a rule on a `deleting` row makes it `replacing` (the engine adopts what
+    /// the server has when it is the same). The same action again changes nothing. `now` is the row's `createdAt`, the
+    /// order the engine sends pending rows in.
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                        enqueueing operations: [Operation], at now: Date) throws
+    /// The account's rows waiting for the server (`creating`, `replacing`, `deleting`), oldest `createdAt` first, then by
+    /// address: what the engine sends.
+    func pendingSenderRules(accountID: AccountID) throws -> [SenderRule]
+    /// Writes what one read of the account's server rules found, in one transaction: the `saved` rows become `rules`,
+    /// several for one address folded into one row (the block winning, every id kept), each new address `saved` at
+    /// `readAt`; rows on their way stay as they are, except that a `creating` row whose identical rule (same address and
+    /// action) the server now has becomes `saved` with its ids, and a `deleting` row none of whose ids the server still
+    /// has goes (or becomes the rule the server has for the address now). Nothing is written for an account the store no
+    /// longer has.
+    func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws
+    /// Records what the engine's write did on the server (`SenderRuleOutcome`) on the row for `address` as it stands now,
+    /// in one transaction: a rule written is `saved` under its ids when the row still wants that action and holds no
+    /// other ids, and otherwise stays pending with the ids it now has to deal with (`replacing`, or `deleting` when the
+    /// user removed it meanwhile); ids deleted leave the row (a `deleting` row with none left goes; a `replacing` or
+    /// `saved` one with none left is `creating` again); a refusal gives a create up (the row goes) and puts a delete or a
+    /// replacement back as the server has it. Returns false, changing nothing, when there is no row: the engine then
+    /// deletes what it just wrote.
+    @discardableResult
+    func settleSenderRule(for address: String, accountID: AccountID, _ outcome: SenderRuleOutcome) throws -> Bool
     /// `senderRules()` after every change to them, delivered on the main thread, the current value first.
     func observeSenderRules(onChange: @escaping @Sendable ([SenderRule]) -> Void) -> StoreObservation
 

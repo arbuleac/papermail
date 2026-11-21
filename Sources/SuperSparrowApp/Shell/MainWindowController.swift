@@ -2133,7 +2133,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let sender = SenderRule.normalizedAddress(address)
         let theirs = ((try? environment.store.messages(in: message.conversationID)) ?? []).filter { other in
             other.from.map { SenderRule.normalizedAddress($0.address) == sender } ?? false
-                && ArrivalRule.change(for: other, inMutedConversation: false, senderRule: action) == action.change
+                && action.change(for: other) == action.change
         }
         let record = MailActionRecord.make(action.change, on: theirs, conversation: message.conversationID)
         let engine = environment.engine

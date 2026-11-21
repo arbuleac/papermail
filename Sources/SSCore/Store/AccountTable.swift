@@ -22,6 +22,11 @@ enum AccountTable {
         }
     }
 
+    /// One primary-key probe: whether the account is still stored (a write that waited on the network may find it removed).
+    static func exists(_ id: AccountID, in db: Database) throws -> Bool {
+        try Bool.fetchOne(db.cachedStatement(sql: "SELECT EXISTS(SELECT 1 FROM accounts WHERE id = ?)"), arguments: [id.rawValue]) ?? false
+    }
+
     /// Sync columns are deliberately left alone: re-saving an account after a profile refresh must not drop
     /// its cursor. The local settings (ink slot, monogram, signature, face) are written from the account as given, so a
     /// caller re-saving an account it read keeps them.

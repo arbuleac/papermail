@@ -1,8 +1,9 @@
 import XCTest
 @testable import SSCore
 
-/// The pure halves of mute (roadmap Q3.7) and sender rules (Q4.2): what an arriving message is given, how a rule's
-/// address is kept, the words feedback uses, and the muted row's mark and VoiceOver word.
+/// The pure halves of mute (roadmap Q3.7) and sender rules (Q4.2, kept on the server since v23): what an arriving message
+/// is given, what setting a rule does to stored mail, how a rule's address is kept and recognized on the server, the words
+/// feedback uses, and the muted row's mark and VoiceOver word.
 final class ArrivalRuleTests: XCTestCase {
     private let account = AccountID("acct-1")
 
@@ -15,31 +16,32 @@ final class ArrivalRuleTests: XCTestCase {
     // MARK: ArrivalRule
 
     func testTheMuteArchivesWhateverArrivesInTheInbox() {
-        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: true, senderRule: nil), .archive)
-        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox, .sent]), inMutedConversation: true, senderRule: nil), .archive,
+        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: true), .archive)
+        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox, .sent]), inMutedConversation: true), .archive,
                        "the user's own copy sent to themselves stays out too")
-        XCTAssertNil(ArrivalRule.change(for: message(roles: []), inMutedConversation: true, senderRule: nil), "already out of the Inbox")
-        XCTAssertNil(ArrivalRule.change(for: message(roles: [.sent]), inMutedConversation: true, senderRule: nil), "a reply in Sent")
-        XCTAssertNil(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: false, senderRule: nil), "nothing set")
+        XCTAssertNil(ArrivalRule.change(for: message(roles: []), inMutedConversation: true), "already out of the Inbox")
+        XCTAssertNil(ArrivalRule.change(for: message(roles: [.sent]), inMutedConversation: true), "a reply in Sent")
+        XCTAssertNil(ArrivalRule.change(for: message(roles: [.spam, .inbox]), inMutedConversation: true), "spam stays")
+        XCTAssertNil(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: false), "nothing set")
     }
 
-    func testSenderRulesNeverTakeTheUsersOwnMailOrSpam() {
-        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: false, senderRule: .archive), .archive)
-        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: false, senderRule: .trash), .trash)
-        XCTAssertEqual(ArrivalRule.change(for: message(roles: []), inMutedConversation: false, senderRule: .trash), .trash,
-                       "Block takes archived mail too: it goes to the Trash wherever it arrives")
-        XCTAssertNil(ArrivalRule.change(for: message(roles: []), inMutedConversation: false, senderRule: .archive))
+    // MARK: What setting a rule does to stored mail
+
+    /// A server rule acts only on mail that arrives after it exists, so the app applies the rule once to the sender's mail
+    /// where it was set: the same test the arrival rule made before rules moved to the server.
+    func testSettingARuleTakesTheSendersStoredMailButNeverTheUsersOwnOrSpam() {
+        XCTAssertEqual(SenderRule.Action.archive.change(for: message(roles: [.inbox])), .archive)
+        XCTAssertEqual(SenderRule.Action.trash.change(for: message(roles: [.inbox])), .trash)
+        XCTAssertEqual(SenderRule.Action.trash.change(for: message(roles: [])), .trash,
+                       "Block takes archived mail too: it goes to the Trash wherever it is")
+        XCTAssertNil(SenderRule.Action.archive.change(for: message(roles: [])), "archived already")
         for own: Set<MailboxRole> in [[.sent], [.drafts], [.inbox, .sent]] {
-            XCTAssertNil(ArrivalRule.change(for: message(roles: own), inMutedConversation: false, senderRule: .trash), "\(own)")
-            XCTAssertNil(ArrivalRule.change(for: message(roles: own), inMutedConversation: false, senderRule: .archive), "\(own)")
+            XCTAssertNil(SenderRule.Action.trash.change(for: message(roles: own)), "\(own)")
+            XCTAssertNil(SenderRule.Action.archive.change(for: message(roles: own)), "\(own)")
         }
-        XCTAssertNil(ArrivalRule.change(for: message(roles: [.spam, .inbox]), inMutedConversation: true, senderRule: .trash), "spam stays")
-        XCTAssertNil(ArrivalRule.change(for: message(roles: [.trash]), inMutedConversation: false, senderRule: .trash), "in the Trash already")
-    }
-
-    func testBlockWinsOverTheMute() {
-        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: true, senderRule: .trash), .trash)
-        XCTAssertEqual(ArrivalRule.change(for: message(roles: [.inbox]), inMutedConversation: true, senderRule: .archive), .archive)
+        XCTAssertNil(SenderRule.Action.trash.change(for: message(roles: [.spam, .inbox])), "spam stays")
+        XCTAssertNil(SenderRule.Action.trash.change(for: message(roles: [.trash])), "in the Trash already")
+        XCTAssertNil(SenderRule.Action.archive.change(for: message(roles: [.inbox, .trash])), "in the Trash, not the Inbox")
     }
 
     // MARK: SenderRule
@@ -52,9 +54,50 @@ final class ArrivalRuleTests: XCTestCase {
         XCTAssertEqual(SenderRule.Action.archive.change, .archive)
         XCTAssertEqual(SenderRule.Action.trash.change, .trash)
         XCTAssertEqual(SenderRule.Action.allCases.map(\.rawValue), ["archive", "trash"], "stored raw values")
+        XCTAssertEqual(SenderRule.Sync.allCases.map(\.rawValue), ["saved", "creating", "replacing", "deleting"], "stored raw values")
+        XCTAssertEqual(rule.sync, .saved, "a row is as the server has it unless said otherwise")
+        XCTAssertEqual(rule.serverIDs, [])
     }
 
-    /// Mail a mute or a sender rule covers is not news, whatever the rule does to it: it never ends a snooze.
+    /// A rule removed on this Mac is no longer the user's while its delete is on its way; every other state is.
+    func testOnlyARuleBeingDeletedIsNoLongerTheUsers() {
+        for sync in SenderRule.Sync.allCases {
+            let rule = SenderRule(accountID: account, address: "a@b.example", action: .archive, createdAt: Date(), sync: sync)
+            XCTAssertEqual(rule.isActive, sync != .deleting, "\(sync)")
+            XCTAssertEqual(rule.isPending, sync != .saved, "\(sync)")
+        }
+    }
+
+    // MARK: Server rules
+
+    /// A server rule is shown as a sender rule only when its condition names one plain address: anything Gmail's search
+    /// grammar or a header would read as more is some other rule.
+    func testOnlyOnePlainAddressIsASenderRulesAddress() {
+        XCTAssertEqual(ServerSenderRule.singleAddress(" Deals@Shop.Example "), "deals@shop.example")
+        XCTAssertEqual(ServerSenderRule.singleAddress("o'brien+news@mail.example.co.uk"), "o'brien+news@mail.example.co.uk")
+        for other in ["", "   ", "a@b.example OR c@d.example", "a@b.example c@d.example", "{a@b.example c@d.example}",
+                      "(a@b.example)", "\"a@b.example\"", "*@b.example", "a@*.example", "-a@b.example", "Ann <a@b.example>",
+                      "b.example", "@b.example", "a@", "a@b@c.example", "a@b.example,c@d.example", "a@.example", "a@example.",
+                      "a@b.example;", "a|b@c.example", "[a@b.example]", "from:a@b.example"] {
+            XCTAssertNil(ServerSenderRule.singleAddress(other), other)
+        }
+        XCTAssertEqual(ServerSenderRule(serverID: "f1", address: "  A@B.Example", action: .trash).address, "a@b.example")
+    }
+
+    func testTheRulesFailuresWordsNameTheProvidersRules() {
+        XCTAssertEqual(RulesSyncFailure.limitReached.words(for: .gmail), "Gmail has too many filters to save this one.")
+        XCTAssertEqual(RulesSyncFailure.limitReached.words(for: .microsoft), "Outlook has too many rules to save this one.")
+        XCTAssertEqual(RulesSyncFailure.refused.words(for: .gmail), "Gmail didn’t accept this filter.")
+        XCTAssertEqual(RulesSyncFailure.refused.words(for: .microsoft), "Outlook didn’t accept this rule.")
+        XCTAssertEqual(RulesSyncFailure.unreachable.words(for: .gmail), "Couldn’t reach Gmail. Trying again soon.")
+        XCTAssertEqual(RulesSyncFailure.unreachable.words(for: .microsoft), "Couldn’t reach Outlook. Trying again soon.")
+        XCTAssertEqual(RulesSyncState.upToDate(otherCount: 12, readAt: Date()).otherCount, 12)
+        XCTAssertEqual(RulesSyncState.failed(.refused, otherCount: 3).otherCount, 3)
+        XCTAssertNil(RulesSyncState.notConnected.otherCount)
+        XCTAssertNil(RulesSyncState.unknown.otherCount)
+    }
+
+    /// Mail a mute or a sender rule covers is not news, whatever became of it: it never ends a snooze.
     func testOnlyMailNoMuteOrRuleCoversCanEndASnooze() {
         XCTAssertFalse(ArrivalRule.keepsSnooze(inMutedConversation: false, senderRule: nil))
         XCTAssertTrue(ArrivalRule.keepsSnooze(inMutedConversation: true, senderRule: nil))

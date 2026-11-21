@@ -99,6 +99,14 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v22-account-face';
         """
 
+    /// Takes v23 back out of a migrated file: a file from before it keeps its sender rules on this Mac alone, with no
+    /// server ids and no state against the server.
+    private let withoutV23 = """
+        ALTER TABLE sender_rules DROP COLUMN server_ids;
+        ALTER TABLE sender_rules DROP COLUMN sync;
+        DELETE FROM grdb_migrations WHERE identifier = 'v23-server-rules';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -350,7 +358,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -422,7 +430,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -464,7 +472,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: a)
             try store.close()
         }
-        try execute(withoutV22, at: path)
+        try execute(withoutV23 + withoutV22, at: path)
         XCTAssertFalse(try query("SELECT name FROM pragma_table_info('accounts')", at: path).compactMap(\.first).contains("face"))
 
         let store = try SQLiteMailStore(path: path)
@@ -500,7 +508,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -851,7 +859,8 @@ final class MailSchemaMigrationTests: XCTestCase {
 
         XCTAssertEqual(try query("SELECT name, type, \"notnull\", pk FROM pragma_table_info('sender_rules') ORDER BY cid", at: path), [
             ["account_id", "TEXT", "1", "1"], ["address", "TEXT", "1", "2"], ["action", "TEXT", "1", "0"], ["created_at", "INTEGER", "1", "0"],
-        ])
+            ["server_ids", "TEXT", "0", "0"], ["sync", "TEXT", "1", "0"],
+        ], "v17's columns, then v23's")
         XCTAssertEqual(try query("""
             SELECT identifier FROM grdb_migrations WHERE identifier IN ('v16-conversation-mute', 'v17-sender-rules')
             ORDER BY rowid
@@ -876,7 +885,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), ["m1": 0])
         try store.close()
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v22-account-face")
+                       "v23-server-rules")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM queued_lookups", at: path), [["0"]], "an account's lookups go with it")
     }
@@ -937,8 +946,8 @@ final class MailSchemaMigrationTests: XCTestCase {
             ORDER BY name
             """, at: path).compactMap(\.first),
                        ["calendar_events_by_client_key", "calendar_events_by_sync", "calendar_events_by_time", "mail_times_by_conversation"])
-        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(3),
-                       ["v20-calendar", "v21-search-walk", "v22-account-face"])
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(4),
+                       ["v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules"])
 
         let reopened = try SQLiteMailStore(path: path)
         try reopened.wipeMailData(for: account)
@@ -990,15 +999,71 @@ final class MailSchemaMigrationTests: XCTestCase {
             .contains("v18-scheduled-sends"))
     }
 
-    /// The seven migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
+    /// v23 makes `sender_rules` the mirror of the server's rules: `server_ids` (NULL) and `sync` (NOT NULL, 'saved' by
+    /// default) and nothing else. The file is a real v22 one whose rules the previous build kept on this Mac alone. Opened
+    /// by the current build every one of them is `creating`, with no server id, so the engine uploads each once (oldest
+    /// first); a read that finds an identical rule on the server adopts it, a rule set from then on is `creating` too, and
+    /// the rows still go with their account.
+    func testVersion22DatabaseUploadsItsSenderRulesOnce() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v22-account-face")
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('sender_rules')", at: path).compactMap(\.first).contains("sync"))
+        try execute("""
+            INSERT INTO sender_rules (account_id, address, action, created_at) VALUES
+                ('acct-a', 'news@letter.example', 'archive', \(base + 2_000)),
+                ('acct-a', 'deals@shop.example', 'trash', \(base + 1_000)),
+                ('acct-b', 'deals@shop.example', 'archive', \(base + 3_000));
+            """, at: path)
+
+        let a = AccountID("acct-a")
+        let b = AccountID("acct-b")
+        let store = try SQLiteMailStore(path: path)
+        XCTAssertEqual(try store.senderRules(), [
+            SenderRule(accountID: a, address: "deals@shop.example", action: .trash, createdAt: MailStoreCodec.date(base + 1_000),
+                       sync: .creating),
+            SenderRule(accountID: a, address: "news@letter.example", action: .archive, createdAt: MailStoreCodec.date(base + 2_000),
+                       sync: .creating),
+            SenderRule(accountID: b, address: "deals@shop.example", action: .archive, createdAt: MailStoreCodec.date(base + 3_000),
+                       sync: .creating),
+        ], "every rule this Mac kept is on its way to the server, with no server id")
+        XCTAssertEqual(try store.pendingSenderRules(accountID: a).map(\.address), ["deals@shop.example", "news@letter.example"],
+                       "oldest first")
+
+        // The server already has one of them (set on another Mac running an earlier build, say): adopted, not made twice.
+        try store.replaceServerSenderRules(accountID: a, with: [ServerSenderRule(serverID: "f1", address: "deals@shop.example",
+                                                                                 action: .trash)],
+                                           readAt: MailStoreCodec.date(base + 9_000))
+        XCTAssertEqual(try store.senderRules().filter { $0.accountID == a }.map { "\($0.address) \($0.sync.rawValue) \($0.serverIDs)" },
+                       ["deals@shop.example saved [\"f1\"]", "news@letter.example creating []"])
+        try store.setSenderRule(.trash, for: "promo@shop.example", accountID: b, enqueueing: [], at: MailStoreCodec.date(base + 10_000))
+        XCTAssertEqual(try store.pendingSenderRules(accountID: b).map(\.address), ["deals@shop.example", "promo@shop.example"])
+        try store.close()
+
+        XCTAssertEqual(try query("""
+            SELECT name, type, "notnull", dflt_value FROM pragma_table_info('sender_rules') WHERE name IN ('server_ids', 'sync')
+            ORDER BY cid
+            """, at: path), [["server_ids", "TEXT", "0", nil], ["sync", "TEXT", "1", "'saved'"]])
+        XCTAssertEqual(try query("SELECT account_id, address, server_ids, sync FROM sender_rules ORDER BY account_id, address", at: path), [
+            ["acct-a", "deals@shop.example", "[\"f1\"]", "saved"], ["acct-a", "news@letter.example", nil, "creating"],
+            ["acct-b", "deals@shop.example", nil, "creating"], ["acct-b", "promo@shop.example", nil, "creating"],
+        ], "ids as a JSON array, NULL while the rule is not on the server")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v23-server-rules")
+        try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM sender_rules WHERE account_id = 'acct-a'", at: path), [["0"]],
+                       "a rule still goes with its account")
+    }
+
+    /// The eight migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
     /// to v15) holding mail, a muted-to-be conversation and a send in its undo window. Opened by the current build it runs
-    /// v16-conversation-mute, v17-sender-rules, v18-scheduled-sends, v19-sync-robustness, v20-calendar, v21-search-walk
-    /// and v22-account-face, in that order and nothing else; everything it held reads as before, each new table or column
-    /// starts empty, the date index carries the flags a search tests, and reopening it runs nothing.
-    func testVersion15DatabaseTakesTheSevenNewMigrationsInOrder() throws {
+    /// v16-conversation-mute, v17-sender-rules, v18-scheduled-sends, v19-sync-robustness, v20-calendar, v21-search-walk,
+    /// v22-account-face and v23-server-rules, in that order and nothing else; everything it held reads as before, each new
+    /// table or column starts empty, the date index carries the flags a search tests, and reopening it runs nothing.
+    func testVersion15DatabaseTakesTheEightNewMigrationsInOrder() throws {
         let newMigrations = ["v16-conversation-mute", "v17-sender-rules", "v18-scheduled-sends", "v19-sync-robustness",
-                             "v20-calendar", "v21-search-walk", "v22-account-face"]
-        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(7)), newMigrations, "registered in this order, last")
+                             "v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules"]
+        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(8)), newMigrations, "registered in this order, last")
         let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
         try writeVersion1Database(at: path)
         try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
@@ -1018,7 +1083,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.body(for: MessageID(accountID: account, providerID: "m1"))?.plainText, "Hello there")
         XCTAssertEqual(try store.conversations(ConversationQuery(view: .inbox)).map(\.id), [c1], "the mail reads as before")
         XCTAssertFalse(try store.isMuted(c1), "v16: nothing muted")
-        XCTAssertTrue(try store.senderRules().isEmpty, "v17: no rules")
+        XCTAssertTrue(try store.senderRules().isEmpty, "v17 and v23: no rules")
         let sends = try store.pendingSends()
         XCTAssertEqual(sends.map(\.id), ["s1"], "v18: the outbox kept")
         XCTAssertEqual(sends.first?.status, .scheduled)
@@ -1035,7 +1100,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         try store.close()
 
         let after = try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
-        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the seven, in order, and nothing else")
+        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the eight, in order, and nothing else")
         XCTAssertEqual(try query("SELECT name FROM pragma_index_info('conversations_latest') ORDER BY seqno", at: path).compactMap(\.first), [
             "latest_date_ms", "in_inbox", "in_sent", "in_drafts", "in_trash", "is_starred", "has_attachments", "unread_count",
             "message_count", "inbox_section", "account_id", "provider_id",
