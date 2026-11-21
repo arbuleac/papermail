@@ -110,6 +110,9 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var linkPopover: ComposeLinkPopover?
     /// Help me write on the body of a reply (§5.56), made the first time it is reached (`bodyWriteSession`).
     var writeSession: WriteSession?
+    /// Help me write's marks in the body's text (§5.56), made with the session; the pill floats on the body's page, which
+    /// holds it where it hangs under the body's last line.
+    private(set) lazy var bodyWriteLayer = WriteInlineLayer(textView: textView, floatHost: bodyDocument)
     /// While Help me write streams a reply into the body, the user's own edits wait (`textView(_:shouldChangeTextIn:…)`),
     /// and so does everything else that would take the half-written reply or edit around it: Send, ⌘↩, Send and Archive
     /// and Send Later, which would send it; From, whose signature swap the body would refuse; and the other fields,
@@ -128,9 +131,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     private var signaturePlaced = false
     /// Set while a From change replaces the signature, so that edit is not taken for the user's own (§5.20 Status).
     private var isReplacingSignature = false
-    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default; a Send Later time schedules this
-    /// message for it.
+    /// Send's drop-down (§5.23): choosing an action makes it every Send button's default; a row's key pressed while it is
+    /// open sends as ⌘↩ or ⇧⌘↩ would; a Send Later time schedules this message for it.
     private lazy var sendActionMenu = SendActionMenu(choose: { SendActionPreference.choose($0) },
+                                                     send: { [weak self] action in self?.send(fromMenu: action) },
                                                      sendLater: { [weak self] date in self?.sendLater(at: date) })
 
     // MARK: Presenting
@@ -443,7 +447,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         loop.append(subjectField)
         loop.append(textView)
         loop.append(content.strip)
-        loop += [bar.sendButton, bar.sendOptionsButton, bar.attachButton, bar.formatButton, bar.writeControl.writeButton]
+        loop += [bar.sendButton, bar.sendOptionsButton, bar.attachButton, bar.formatButton]
         if content.showsFormatRow { loop += content.formatRow.buttons.map(\.button) }
         for (index, view) in loop.enumerated() {
             view.nextKeyView = loop[(index + 1) % loop.count]
@@ -489,7 +493,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         for row in [fromRow, toRow, ccRow, bccRow, subjectRow] { row.needsDisplay = true }
         for field in [toField, ccField, bccField] { field.windowKeyDidChange() }
         content.strip.windowKeyDidChange()
-        // The Write control's state is read from this Mac as the window comes forward (spec §3b: no provider is asked).
+        // Help me write's availability is read from this Mac as the window comes forward (spec §3b: no provider is asked).
         if note.name == NSWindow.didBecomeKeyNotification { bodyWriteSession?.refresh() }
         if note.name == NSWindow.didResignKeyNotification {
             for field in [toField, ccField, bccField] { field.closeAutocomplete() }
@@ -697,6 +701,14 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// the toggles follow the caret all the same (§5.20, Format row).
     func textViewDidChangeTypingAttributes(_ notification: Notification) {
         updateFormatState()
+    }
+
+    /// The body's right-click menu opens with Help Me Write's group on a reply (§5.56): the mouse's way to it, now that the
+    /// bar has no Write button. Showing it sends nothing.
+    func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        guard view === textView, let session = bodyWriteSession else { return menu }
+        for (index, item) in session.contextMenuItems().enumerated() { menu.insertItem(item, at: index) }
+        return menu
     }
 
     // MARK: Format row
@@ -1251,6 +1263,16 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         send(as: .sendAndArchive)
     }
 
+    /// A row's key pressed while the drop-down is open: the checked row's ⌘↩ does what Send does, Send and Archive's ⇧⌘↩
+    /// always archives, as the keys do with the menu closed.
+    private func send(fromMenu action: SendAction) {
+        if action == SendActionPreference.current {
+            send(nil)
+        } else {
+            sendAndArchive(nil)
+        }
+    }
+
     private func send(as action: SendAction) {
         guard !isSending, !isPrefilling, !refusesBodyEdits, validateRecipients() else {
             NSSound.beep()
@@ -1270,11 +1292,12 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         performSend(action)
     }
 
-    /// Send's drop-down (§5.23): the two actions, the default checked; choosing one makes it the default for every Send
-    /// button and ⌘↩. It never sends. Hung from the chevron; tracks until dismissed.
+    /// Send's drop-down (§5.23): the two actions, the default checked, each with the key that does it now; choosing one
+    /// makes it the default for every Send button and ⌘↩, and a click never sends. Hung from Send's face; tracks until
+    /// dismissed.
     @objc func showSendOptions(_ sender: Any?) {
         guard !isSending, !refusesBodyEdits else { return }
-        SendActionMenu.popUp(sendOptionsMenu(), from: bar.sendOptionsButton)
+        SendActionMenu.popUp(sendOptionsMenu(), from: bar.send)
     }
 
     /// The drop-down's menu as it opens now (the app's tests choose from it).
@@ -1282,15 +1305,20 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         sendActionMenu.menu(current: SendActionPreference.current)
     }
 
+    #if DEBUG
+    /// The drop-down's builder, for a render of the menu with either choice (`SendSnapshotStates`).
+    var debugSendActionMenu: SendActionMenu { sendActionMenu }
+    #endif
+
     // MARK: Send Later
 
-    /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's drop-down as its menu would be.
+    /// ⇧⌘L and Message › Send Later… (§5.23): Send Later's times, hung from Send's face as its drop-down would be.
     @objc func sendLater(_ sender: Any?) {
         guard !isSending, !refusesBodyEdits, bar.sendButton.isEnabled else {
             NSSound.beep()
             return
         }
-        SendActionMenu.popUp(sendLaterMenu(), from: bar.sendOptionsButton)
+        SendActionMenu.popUp(sendLaterMenu(), from: bar.send)
     }
 
     /// The menu ⇧⌘L pops (the app's tests choose from it).

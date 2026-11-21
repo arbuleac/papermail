@@ -2,8 +2,8 @@ import AppKit
 import SSCore
 import SSDesign
 
-/// Help me write in a reply composer (spec §5.56): ⌘J writes in place in the body, ⇧⌘J opens the strip above it; the
-/// Write control sits in the bottom bar.
+/// Help me write in a reply composer (spec §5.56): ⌘J writes in place in the body, ⇧⌘J opens the prompt line under the
+/// caret's line; everything it shows is in the body's text, at the caret, none of it in the bottom bar.
 extension ComposeWindowController {
     @objc func helpMeWrite(_ sender: Any?) {
         guard canHelpMeWrite, let session = bodyWriteSession else {
@@ -18,7 +18,7 @@ extension ComposeWindowController {
             NSSound.beep()
             return
         }
-        session.showStrip()
+        session.showPrompt()
     }
 
     /// The body's session, for a reply or reply all: new messages and forwards answer no one, so they have none.
@@ -27,16 +27,17 @@ extension ComposeWindowController {
         guard repliesTo != nil, let center = HelpMeWrite.current else { return nil }
         let session = WriteSession(center: center, field: ComposerWriteField(composer: self))
         writeSession = session
+        bodyEditor.markAreas = { [weak session] in session?.layer.pointerHoles ?? [] }
         return session
     }
 
-    /// ⌘J and ⇧⌘J apply while the keyboard is in the body (or its strip) of a reply that can be written in, and no write
-    /// runs there. New messages and forwards answer no one, so they never apply there.
+    /// ⌘J and ⇧⌘J apply while the keyboard is in the body (or its prompt line) of a reply that can be written in, and no
+    /// write runs there. New messages and forwards answer no one, so they never apply there.
     var canHelpMeWrite: Bool {
         guard repliesTo != nil, HelpMeWrite.current != nil, writeSession?.isWriting != true, !isSending, let window else {
             return false
         }
-        let inBody = window.firstResponder === bodyEditor || content.writeStrip.holdsFocus
+        let inBody = window.firstResponder === bodyEditor || (writeSession?.layer.promptHoldsFocus ?? false)
         return inBody && bodyEditor.isEditable
     }
 
@@ -52,15 +53,16 @@ extension ComposeWindowController {
         return true
     }
 
-    /// Ends Help me write on the body: a reply streaming in is put back first, the strip closes, Try again is forgotten.
+    /// Ends Help me write on the body: a reply streaming in is put back first, the prompt line closes, Try again is
+    /// forgotten.
     func endHelpMeWrite() {
         writeSession?.end()
     }
 }
 
 /// A reply composer's body as Help me write's field: the user's own text is the body above the signature (the quoted
-/// original is never in the text), the Write control sits in the bottom bar, the strip docks above the body, and the reply
-/// answers the message the composer replies to.
+/// original is never in the text), its marks are the body's own (the pill floats on the body's page, under the
+/// selection), and the reply answers the message the composer replies to.
 @MainActor
 final class ComposerWriteField: WriteField {
     private weak var composer: ComposeWindowController?
@@ -104,12 +106,20 @@ final class ComposerWriteField: WriteField {
         editor?.textDidChangeByWriting()
     }
 
-    var writeControl: WriteToolControl { composer?.content.bottomBar.writeControl ?? WriteToolControl() }
+    var writeLayer: WriteInlineLayer {
+        composer?.bodyWriteLayer ?? WriteInlineLayer(textView: NSTextView())
+    }
 
-    var instructionStrip: WriteInstructionStrip { composer?.content.writeStrip ?? WriteInstructionStrip() }
+    var placeholderWidth: CGFloat? { nil }
 
-    func setStripShown(_ shown: Bool) {
-        composer?.content.showsWriteStrip = shown
+    /// A block under the body's last line hangs below its text: the body grows by it, and the quoted original moves down.
+    /// A block inside the text (under a line the signature or more notes follow) moves those lines down without hanging
+    /// below anything: the body grows by it all the same, or they would run past the editor, over the quoted original and
+    /// out of reach of a click.
+    func reservedSpaceDidChange() {
+        guard let composer, let editor else { return }
+        editor.reservedBottom = composer.bodyWriteLayer.overflow
+        editor.invalidateIntrinsicContentSize()
     }
 
     func setHeldOpen(_ held: Bool) {}

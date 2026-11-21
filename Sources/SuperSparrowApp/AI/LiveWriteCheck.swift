@@ -6,9 +6,9 @@ import SSCore
 /// `--ai-provider` and `--ai-model` choose (with `--live-ai-clis`, the user's real Claude Code or Codex), over the demo's
 /// made-up mail. It opens the demo's longest conversation (the thirteen-message offsite thread), types short notes into
 /// its quick reply and presses ⌘J, as the user would; the provider is held turned on for the run (the demo's own
-/// permission, never the user's). It reports the Write control's state before, when the first words reached the field,
-/// when the reply landed, what landed and its undo step, or the failure's words, and the exact context the provider was
-/// given (the request's transcript and task), to show the thread newest first with older messages shortened.
+/// permission, never the user's). It reports the availability and the notes' ghost before, when the first words reached
+/// the field, when the reply landed, what landed and its undo step, or the failure's words, and the exact context the
+/// provider was given (the request's transcript and task), to show the thread newest first with older messages shortened.
 ///
 /// The report holds the demo's reply and context in full: a debug aid's output, on made-up mail, written only where its
 /// caller asked, never logged.
@@ -117,8 +117,9 @@ final class LiveWriteCheck {
         field.insertText(Self.notes, replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
         session.refresh()
         report["fieldBefore"] = field.string
-        report["availability"] = Self.describe(session.field.writeControl.availability)
-        report["hintShown"] = session.field.writeControl.showsHint
+        report["availability"] = Self.describe(session.availability)
+        session.showNotesGhostNow()
+        report["hintShown"] = !session.layer.ghost.isHidden
         report["menuTitle"] = session.menuTitle(withInstructions: false)
         pressed = clock.now
         watch(field: field)
@@ -133,7 +134,7 @@ final class LiveWriteCheck {
         return threads.max { $0.messageCount < $1.messageCount }.map { ($0.id, $0.messageCount) }
     }
 
-    /// Every 2 ms: when the line says Writing, when the field first changes from the notes, and how the write ends.
+    /// Every 2 ms: when the session is writing, when the field first changes from the notes, and how the write ends.
     private func watch(field: NSTextView) {
         let monitor = Timer(timeInterval: 0.002, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick(field: field) }
@@ -167,7 +168,7 @@ final class LiveWriteCheck {
         case .written:
             report["outcome"] = "inserted"
             report["inserted"] = field.string
-            report["line"] = session.field.writeControl.lineWords
+            report["line"] = session.layer.afterline.lineWords
             report["undoActionName"] = field.undoManager?.undoActionName ?? NSNull()
             report["menuTitleAfter"] = session.menuTitle(withInstructions: false)
             end()
@@ -203,7 +204,7 @@ final class LiveWriteCheck {
         return Int(seconds) * 1000 + Int(attoseconds / 1_000_000_000_000_000)
     }
 
-    private static func describe(_ availability: WriteToolControl.Availability) -> String {
+    private static func describe(_ availability: WriteAvailability) -> String {
         switch availability {
         case .off: return "off"
         case .unavailable(let reason): return "unavailable: " + reason

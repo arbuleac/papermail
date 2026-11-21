@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 884 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 884, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 909 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 909, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -550,7 +550,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.QuickReply.toolIcon, "layout.quickReply.toolIcon")
         number(Quire.Layout.QuickReply.toolIconGlyph, "layout.quickReply.toolIconGlyph")
         number(Quire.Layout.QuickReply.sendInset, "layout.quickReply.sendInset")
-        number(Quire.Layout.QuickReply.sendKeycapGap, "layout.quickReply.sendKeycapGap")
         number(Quire.Layout.QuickReply.maxLines, "layout.quickReply.maxLines")
         number(Quire.Layout.QuickReply.fieldMax, "layout.quickReply.fieldMax")
         number(Quire.Layout.QuickReply.max, "layout.quickReply.max")
@@ -595,7 +594,6 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Composer.bannerInsetX, "layout.composer.bannerInsetX")
         number(Quire.Layout.Composer.bannerInsetY, "layout.composer.bannerInsetY")
         number(Quire.Layout.Composer.barPadX, "layout.composer.barPadX")
-        number(Quire.Layout.Composer.barKeycapGap, "layout.composer.barKeycapGap")
         number(Quire.Layout.Composer.barGroupGap, "layout.composer.barGroupGap")
         number(Quire.Layout.Composer.barIconGap, "layout.composer.barIconGap")
         number(Quire.Layout.Composer.statusGlyphGap, "layout.composer.statusGlyphGap")
@@ -619,23 +617,39 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Composer.pictureSelectedWash, "layout.composer.pictureSelectedWash")
     }
 
-    func testLayoutWriteTool() {
-        number(Quire.Layout.WriteTool.gap, "layout.writeTool.gap")
-        number(Quire.Layout.WriteTool.hintGap, "layout.writeTool.hintGap")
-        number(Quire.Layout.WriteTool.statusGlyph, "layout.writeTool.statusGlyph")
-        number(Quire.Layout.WriteTool.statusGlyphGap, "layout.writeTool.statusGlyphGap")
-        number(Quire.Layout.WriteTool.keycapGap, "layout.writeTool.keycapGap")
-        number(Quire.Layout.WriteTool.linkGap, "layout.writeTool.linkGap")
-        number(Quire.Layout.WriteTool.hintMinWords, "layout.writeTool.hintMinWords")
-        string(Quire.Layout.WriteTool.pencilInk, "layout.writeTool.pencilInk")
-    }
-
-    func testLayoutWriteStrip() {
-        number(Quire.Layout.WriteStrip.gap, "layout.writeStrip.gap")
-        number(Quire.Layout.WriteStrip.chipsGap, "layout.writeStrip.chipsGap")
-        number(Quire.Layout.WriteStrip.chipGap, "layout.writeStrip.chipGap")
-        number(Quire.Layout.WriteStrip.fieldMinWidth, "layout.writeStrip.fieldMinWidth")
-        number(Quire.Layout.WriteStrip.composerPadTop, "layout.writeStrip.composerPadTop")
+    func testLayoutWriteCaret() {
+        number(Quire.Layout.WriteCaret.ghostGap, "layout.writeCaret.ghostGap")
+        number(Quire.Layout.WriteCaret.keycapHeight, "layout.writeCaret.keycapHeight")
+        number(Quire.Layout.WriteCaret.keycapPadX, "layout.writeCaret.keycapPadX")
+        number(Quire.Layout.WriteCaret.keycapGap, "layout.writeCaret.keycapGap")
+        string(Quire.Layout.WriteCaret.ghostPause, "layout.writeCaret.ghostPause")
+        string(Quire.Layout.WriteCaret.selectionSettle, "layout.writeCaret.selectionSettle")
+        number(Quire.Layout.WriteCaret.pillGap, "layout.writeCaret.pillGap")
+        number(Quire.Layout.WriteCaret.pillHeight, "layout.writeCaret.pillHeight")
+        number(Quire.Layout.WriteCaret.pillPadX, "layout.writeCaret.pillPadX")
+        number(Quire.Layout.WriteCaret.pillGlyph, "layout.writeCaret.pillGlyph")
+        number(Quire.Layout.WriteCaret.pillGlyphGap, "layout.writeCaret.pillGlyphGap")
+        number(Quire.Layout.WriteCaret.blockGapTop, "layout.writeCaret.blockGapTop")
+        number(Quire.Layout.WriteCaret.blockGapBottom, "layout.writeCaret.blockGapBottom")
+        number(Quire.Layout.WriteCaret.promptHeight, "layout.writeCaret.promptHeight")
+        number(Quire.Layout.WriteCaret.promptMaxWidth, "layout.writeCaret.promptMaxWidth")
+        number(Quire.Layout.WriteCaret.promptPadX, "layout.writeCaret.promptPadX")
+        number(Quire.Layout.WriteCaret.promptGlyph, "layout.writeCaret.promptGlyph")
+        number(Quire.Layout.WriteCaret.promptGlyphGap, "layout.writeCaret.promptGlyphGap")
+        number(Quire.Layout.WriteCaret.chipsGap, "layout.writeCaret.chipsGap")
+        number(Quire.Layout.WriteCaret.chipHeight, "layout.writeCaret.chipHeight")
+        number(Quire.Layout.WriteCaret.chipPadX, "layout.writeCaret.chipPadX")
+        number(Quire.Layout.WriteCaret.chipGap, "layout.writeCaret.chipGap")
+        number(Quire.Layout.WriteCaret.afterlineHeight, "layout.writeCaret.afterlineHeight")
+        number(Quire.Layout.WriteCaret.afterGlyph, "layout.writeCaret.afterGlyph")
+        number(Quire.Layout.WriteCaret.afterGlyphGap, "layout.writeCaret.afterGlyphGap")
+        number(Quire.Layout.WriteCaret.afterGap, "layout.writeCaret.afterGap")
+        number(Quire.Layout.WriteCaret.pencilGlyph, "layout.writeCaret.pencilGlyph")
+        number(Quire.Layout.WriteCaret.pencilGap, "layout.writeCaret.pencilGap")
+        number(Quire.Layout.WriteCaret.pencilBob, "layout.writeCaret.pencilBob")
+        string(Quire.Layout.WriteCaret.pencilBobPeriod, "layout.writeCaret.pencilBobPeriod")
+        number(Quire.Layout.WriteCaret.hintMinWords, "layout.writeCaret.hintMinWords")
+        string(Quire.Layout.WriteCaret.pencilInk, "layout.writeCaret.pencilInk")
     }
 
     func testLayoutToken() {
@@ -690,6 +704,15 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Button.minHit, "layout.button.minHit")
         number(Quire.Layout.Button.glyphGap, "layout.button.glyphGap")
         number(Quire.Layout.Button.linkPadX, "layout.button.linkPadX")
+        number(Quire.Layout.Button.keycapGap, "layout.button.keycapGap")
+    }
+
+    func testLayoutSplitButton() {
+        numbers(Quire.Layout.SplitButton.menuWidth.map { Double($0) }, "layout.splitButton.menuWidth")
+        number(Quire.Layout.SplitButton.keycapGap, "layout.splitButton.keycapGap")
+        number(Quire.Layout.SplitButton.divider, "layout.splitButton.divider")
+        number(Quire.Layout.SplitButton.dividerAlpha, "layout.splitButton.dividerAlpha")
+        number(Quire.Layout.SplitButton.dimAlpha, "layout.splitButton.dimAlpha")
     }
 
     func testLayoutTextField() {
@@ -865,6 +888,8 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.Kbd.radius, "layout.kbd.radius")
         number(Quire.Layout.Kbd.largeRadius, "layout.kbd.largeRadius")
         number(Quire.Layout.Kbd.inField, "layout.kbd.inField")
+        number(Quire.Layout.Kbd.onFill, "layout.kbd.onFill")
+        number(Quire.Layout.Kbd.onFillEdgeAlpha, "layout.kbd.onFillEdgeAlpha")
     }
 
     func testLayoutProgress() {

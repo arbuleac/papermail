@@ -212,7 +212,8 @@ MOTION = {
               "spinnerDelay": 150, "skeletonDelay": 300, "gHudDelay": 500, "gSequenceWindow": 2000,
               "toastLife": 5000, "undoSendChoices": [5000, 10000, 20000], "toastCoalesce": 1000, "undoKeyGrace": 10000, "undoSendDefault": 5000,
               "sentConfirm": 1500, "copiedConfirm": 1500, "toastConfirm": 2000, "stripNotice": 3000, "spinnerTurn": 900, "contrailSweep": 1200,
-              "printImageWait": 3000, "nowTick": 60000},
+              "printImageWait": 3000, "nowTick": 60000,
+              "writeGhostPause": 700, "writeSelectionSettle": 250, "writePencilBob": 1600},
  "curve": {"settle": [0.2, 0.8, 0.2, 1.0], "leave": [0.4, 0.0, 1.0, 1.0], "glide": [0.4, 0.0, 0.2, 1.0], "linear": [0.0, 0.0, 1.0, 1.0]},
 }
 LAYOUT = {
@@ -307,39 +308,56 @@ LAYOUT = {
  "quickReply": {"rest": 60, "barPadY": 11, "field": 38, "fieldRadius": 8, "fieldPadTop": 9, "fieldPadBottom": 8,
                 "face": 24, "faceX": 12, "faceTop": 7, "faceMonogram": 11, "faceMonogramTwoLetter": 10, "textX": 48, "restTrailing": 67, "focusedTrailing": 12,
                 "restSend": 28, "restSendGlyph": 15, "restSendInset": 5, "restKeycapGap": 8,
-                "toolRowGap": 4, "toolRow": 28, "toolRowBottom": 4, "modeGap": 16, "modeHitPad": 6, "toolGroupGap": 12, "toolIconGap": 2, "toolIcon": 22, "toolIconGlyph": 14, "sendInset": 8, "sendKeycapGap": 8,
+                "toolRowGap": 4, "toolRow": 28, "toolRowBottom": 4, "modeGap": 16, "modeHitPad": 6, "toolGroupGap": 12, "toolIconGap": 2, "toolIcon": 22, "toolIconGlyph": 14, "sendInset": 8,
                 "maxLines": 5, "fieldMax": 150, "max": 172, "stripGlyph": 14, "stripGap": 8, "stripKeycapGap": 8, "modeUnderlineY": 24,
                 "dropInset": 0},
  "composer": {"dropOutline": 2, "dropInset": 8, "dropDash": [6, 4], "dropVeil": 0.9, "stripGlyph": 14, "removeGlyph": 9, "width": 640, "height": 600, "minWidth": 520, "minHeight": 420, "fieldRow": 36, "subjectRow": 42, "labelX": 16, "labelColumn": 56,
               "valueX": 84, "bodyPadTop": 20, "bodyPadRight": 24, "bottomBar": 52, "strip": 48, "stripChip": 30, "stripChipRadius": 6,
               "removeVisual": 16, "fromDot": 7, "fromDotGap": 8, "fieldTrailing": 16, "ccBccGap": 4,
               "focusRingX": 78, "focusRingInsetY": 3, "focusRingRadius": 5, "focusRingButtonGap": 6, "bannerInsetX": 16, "bannerInsetY": 8,
-              "barPadX": 16, "barKeycapGap": 8, "barGroupGap": 12, "barIconGap": 2, "statusGlyphGap": 6,
+              "barPadX": 16, "barGroupGap": 12, "barIconGap": 2, "statusGlyphGap": 6,
               "stripPadX": 16, "stripChipPadLeft": 8, "stripChipInnerGap": 6, "stripChipPadRight": 4, "stripChipSpacing": 8, "stripChipMaxWidth": 240,
               "formatRow": 36, "formatToggle": 28, "formatGap": 2, "formatGroupGap": 12,
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
               "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8, "pictureSelectedWash": 0.45},
- # Help me write in place (§5.56, 1.12): the Write control in the quick reply's tool row and the composer's bar, a small
- # ghost button, `gap` before the status line that follows it; the hint's keycap only `hintGap` after Write's face, whose
- # own padding makes the rest of the space; the line's glyph or spinner is `statusGlyph`, `statusGlyphGap` before its
- # words; a keycap sits `keycapGap` before its words, a link `linkGap` after a dot. The hint shows once the user's own
- # text holds `hintMinWords` words, or with text selected. Text streaming in is drawn in `pencilInk` (ink2) and turns to
- # ink when the reply lands. Where the row is tight the hint gives way first (its short words, its keycap alone, none),
- # and only then Write its label; nothing is ever drawn past the room the row gives.
- "writeTool": {"gap": 8, "hintGap": 2, "statusGlyph": 12, "statusGlyphGap": 6, "keycapGap": 4, "linkGap": 3,
-               "hintMinWords": 2, "pencilInk": "ink2"},
- # The instruction strip (⇧⌘J), docked inside the reply above its text: a 28 pt field (`textField.height`), then
- # `chipsGap` and the three preset chips (small secondary buttons) `chipGap` apart; `gap` below it to the text. In the
- # composer it sits `composerPadTop` under the header rows, at the body's text inset. Chips leave from the last while
- # the field would be narrower than `fieldMinWidth`.
- "writeStrip": {"gap": 6, "chipsGap": 8, "chipGap": 4, "fieldMinWidth": 160, "composerPadTop": 12},
+ # Help me write at the caret (§5.56, 1.13): every affordance is drawn in the reply's own text, at or after the caret,
+ # the selection or the draft, never in a bar. The ghost (“⌘J to write a reply”, “⌘J to write from your notes”) starts
+ # `ghostGap` after the caret (or the quick reply's placeholder) on the caret's baseline, in the field's writing font; its
+ # quiet keycap (no fill, a hairline, `keycapHeight` tall, `keycapPadX` each side of its legend) sits `keycapGap` from its
+ # words. The notes ghost waits `ghostPause` after the last key; a selection settles `selectionSettle` after the last
+ # keyboard change. The selection pill hangs `pillGap` under the selection's last line: a capsule `pillHeight` tall,
+ # `pillPadX` in, its glyph `pillGlyph`, `pillGlyphGap` before “Rewrite”. A reserved block (the prompt line, the
+ # afterline) is a gap in the text's flow under its anchor line, `blockGapTop` above its content and `blockGapBottom`
+ # below. The prompt line is a `promptHeight` capsule, at most `promptMaxWidth` wide, `promptPadX` in, its glyph
+ # `promptGlyph` and `promptGlyphGap` before the field; `chipsGap` under it the preset chips, `chipHeight` tall, their
+ # words `chipPadX` in, `chipGap` apart. The afterline is one row `afterlineHeight` tall, its glyph `afterGlyph` and
+ # `afterGlyphGap` before its words, `afterGap` between its parts. While a reply streams, the pencil (`pencilGlyph`)
+ # sits `pencilGap` after the last letter and bobs `pencilBob` pt each way once every `pencilBobPeriod`, its esc keycap
+ # `keycapGap` on. Text streaming in is drawn in `pencilInk` (ink2) and turns to ink as the reply lands. The notes ghost
+ # shows once the user's own text holds `hintMinWords` words.
+ "writeCaret": {"ghostGap": 6, "keycapHeight": 16, "keycapPadX": 4, "keycapGap": 5,
+                "ghostPause": "motion.duration.writeGhostPause", "selectionSettle": "motion.duration.writeSelectionSettle",
+                "pillGap": 4, "pillHeight": 24, "pillPadX": 9, "pillGlyph": 12, "pillGlyphGap": 5,
+                "blockGapTop": 6, "blockGapBottom": 8,
+                "promptHeight": 32, "promptMaxWidth": 560, "promptPadX": 12, "promptGlyph": 14, "promptGlyphGap": 8,
+                "chipsGap": 6, "chipHeight": 20, "chipPadX": 7, "chipGap": 2,
+                "afterlineHeight": 20, "afterGlyph": 12, "afterGlyphGap": 5, "afterGap": 6,
+                "pencilGlyph": 13, "pencilGap": 2, "pencilBob": 1, "pencilBobPeriod": "motion.duration.writePencilBob",
+                "hintMinWords": 2, "pencilInk": "ink2"},
  "token": {"invalidGlyph": 10, "height": 22, "padX": 9, "gap": 4, "lineGrow": 26, "maxLines": 3, "rowMax": 88, "moreGap": 6},
  "autocomplete": {"width": 320, "row": 40, "avatar": 24, "maxRows": 6, "radius": 8, "pad": 4, "rowRadius": 5, "rowPadX": 8, "avatarGap": 10, "keycapTrailing": 8, "highlightRule": 3,
                   "anchor": "tokenStart", "offsetX": -46, "offsetY": 4},
  "button": {"small": {"height": 22, "padX": 9, "radius": 5, "font": "label", "fontStrong": "labelStrong", "glyph": 12},
             "regular": {"height": 28, "padX": 12, "radius": 6, "font": "bodyMedium", "fontStrong": "bodyStrong", "glyph": 14},
             "large": {"height": 36, "padX": 16, "radius": 8, "font": "buttonLarge", "fontStrong": "buttonLargeStrong", "glyph": 18},
-            "icon": [22, 24, 28], "iconRadius": [5, 5, 6], "minHit": 24, "glyphGap": 6, "linkPadX": 4},
+            "icon": [22, 24, 28], "iconRadius": [5, 5, 6], "minHit": 24, "glyphGap": 6, "linkPadX": 4, "keycapGap": 8},
+ # Send's split button (§5.23, 1.13): one face in the button's size, the action segment (glyph, label, then its keycap
+ # inside the face, kbd.onFill high, centred on the face, `keycapGap` after the label) and the menu segment (the chevron,
+ # `menuWidth` per size: small / regular / large) behind a `divider` pt line in the label's ink at `dividerAlpha`, as
+ # tall as the keycap. The keycap stands as far from the divider as the chevron does, and never nearer than it stands
+ # from the face's top. A segment that cannot act on a face that can draws its ink at `dimAlpha` (the chevron while Send
+ # is sending).
+ "splitButton": {"menuWidth": [20, 24, 30], "keycapGap": 6, "divider": 1, "dividerAlpha": 0.3, "dimAlpha": 0.5},
  "textField": {"helpGap": 5, "helpGlyph": 10, "helpGlyphGap": 4, "secureTracking": 2, "height": 28, "radius": 6, "padX": 8, "settingsHeight": 24},
  "search": {"radius": 6, "glyph": 12, "glyphX": 8, "textX": 26, "trailingInset": 5, "resultsGap": 6, "clearVisual": 16, "clearGlyph": 9, "clearHit": 24},
  "checkbox": {"mixedBar": [8, 2], "disabledOpacity": 0.45, "size": 14, "radius": 3, "glyph": 10, "labelGap": 8},
@@ -358,7 +376,8 @@ LAYOUT = {
  "cheatSheet": {"width": 816, "radius": 12, "pad": 24, "titleRow": 28, "headerGap": 16, "columns": 3, "bands": 2, "columnWidth": 240, "columnGap": 24,
                 "sectionGap": 20, "sectionTitle": 22, "row": 28, "keyColumn": 96, "keycap": 24, "keycapGap": 4, "close": 24, "closeInset": 16, "top": 92, "minMargin": 24,
                 "searchTermGap": 8},
- "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16},
+ "kbd": {"largeHeight": 24, "largeFont": 12, "height": 18, "minWidth": 18, "padX": 4, "radius": 3, "largeRadius": 5, "inField": 16,
+         "onFill": 16, "onFillEdgeAlpha": 0.5},
  "progress": {"indeterminateSegment": 0.36, "reducedSegment": 0.4, "barHeight": 4, "barRadius": 2, "contrail": 2, "contrailHead": 4, "contrailTail": 32,
               "spinner": [12, 16, 32], "spinnerStroke": [1.5, 2, 3], "spinnerArc": 0.75},
  "welcome": {"blockWidth": 360, "blockCenterY": 0.45, "mark": 64, "titleGap": 8, "wordmarkCap": 24, "taglineGap": 6, "actionsGap": 28, "buttonWidth": 328, "buttonGap": 10, "demoGap": 12, "footGap": 20, "footWidth": 330, "linkGap": 10, "bannerGap": 16, "spinner": 16},
@@ -504,10 +523,10 @@ CHEAT_SHEET = [
          ("G then O", "Outbox"), ("G then #", "Trash"), ("G then A", "All Mail"), ("⌘0 … ⌘9", "All Inboxes · one account"),
          ("[ ] T", "Day before · after · today")]),
  # R and A share a row, as J K and N P do, so Send later fits the band without making the sheet taller (§5.32). Help me
- # write (1.11, §5.56) makes Write nine rows, as long as View, so band 2 keeps its height.
+ # write (1.11, §5.56; at the caret since 1.13) makes Write nine rows, as long as View, so band 2 keeps its height.
  ("Write", [("C", "New message"), ("R A", "Reply · reply all"), ("F", "Forward"), ("⇧⌘R", "Open in composer"), ("⌘↩", "Send"),
            ("⇧⌘↩", "Send and archive"), ("⇧⌘L", "Send later"), ("⇧⌘A", "Attach files"),
-           ("⌘J ⇧⌘J", "Write · say how")]),
+           ("⌘J ⇧⌘J", "Write at caret · say how")]),
  ("Format", [("⇧⌘T", "Format row"), ("⌘B ⌘I ⌘U", "Bold · italic · underline"), ("⇧⌘8 ⇧⌘7", "Bulleted · numbered list"), ("⌘'", "Quote"),
              ("⌘K", "Add link"), ("⌥⌘I", "Insert picture"), ("⇧⌘C ⇧⌘B", "Cc · Bcc field")]),
  ("View", [("⇧⌘I ⇧⌘O", "Images · original colors"), (".", "Show · hide quoted text"), ("⌥⌘F", "Find in conversation"),

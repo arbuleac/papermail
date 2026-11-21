@@ -7,8 +7,9 @@ import XCTest
 /// The hard rule (spec §3b): nothing reaches Anthropic or OpenAI, and none of the user's CLIs starts, unless the user acts.
 /// The app runs here with the real providers (`AIProviderFactory`), their HTTP routed to a recording `URLProtocol` and
 /// their CLI a fake `claude` that logs each launch, so every contact is seen three ways: the stub, the fake's log and
-/// `AIEgress`. Launch, opening Settings › AI, choosing a provider (its sheet and Turn On), typing notes, the hint,
-/// switching conversations, opening a composer and quitting make none; each allowed action exactly its own.
+/// `AIEgress`. Launch, opening Settings › AI, choosing a provider (its sheet and Turn On), typing notes, the ghost, the
+/// pill, opening the prompt line, the text's menu showing, switching conversations, opening a composer and quitting make
+/// none; each allowed action exactly its own.
 @MainActor
 final class HelpMeWriteEgressTests: XCTestCase {
     private var folder: URL!
@@ -186,14 +187,30 @@ final class HelpMeWriteEgressTests: XCTestCase {
         XCTAssertEqual(settings.ai.status, .ready("Claude Code found"), "from this Mac: the file, not its answer")
         settings.tearDown()
 
-        // Typing notes, the hint, switching conversations, a composer opened and typed in.
+        // An empty reply's ghost, typing notes, the notes ghost, a selection's pill, the prompt line opened and closed, the
+        // text's menu shown, switching conversations, a composer opened and typed in, its ghost and its prompt line.
         try select("thread-2", harness)
         XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let session = try XCTUnwrap(harness.reader.quickReplyWriteSession)
+        session.assumesKeyWindow = true
+        XCTAssertNotNil(session.layer.state.ghost, "the empty reply's ghost is local")
         let field = harness.reader.quickReplyBar.writingTextView
         field.insertText("tue 10 ok", replacementRange: NSRange(location: 0, length: 0))
-        let control = harness.reader.quickReplyBar.writeControl
-        XCTAssertEqual(control.availability, .ready(writer: "Claude", source: "Claude Code \u{00b7} Anthropic"))
-        XCTAssertTrue(control.showsHint, "the hint is local")
+        XCTAssertEqual(session.availability, .ready(writer: "Claude", source: "Claude Code \u{00b7} Anthropic"))
+        XCTAssertTrue(ListTestSupport.spin(until: { session.layer.state.ghost?.words == WriteWords.ghostNotes }, timeout: 3),
+                      "the notes ghost, after its pause, is local")
+        field.setSelectedRange(NSRange(location: 0, length: 3))
+        XCTAssertNotNil(session.layer.state.pill, "the pill is local")
+        let menu = NSMenu()
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: field.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                                     clickCount: 1, pressure: 1))
+        let shown = harness.reader.quickReplyBar.textView(field, menu: menu, for: event, at: 0)
+        XCTAssertEqual(shown?.items.first?.title, "Rewrite Selection", "the text's menu shows Help me write's group, locally")
+        harness.reader.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(session.isPromptShown, "opening the prompt line is local")
+        session.layer.prompt.instruction = "Warmer"
+        session.closePrompt(focusText: true)
         let validate = NSMenuItem(title: "", action: #selector(ConversationViewController.helpMeWrite(_:)), keyEquivalent: "j")
         XCTAssertTrue(harness.reader.validateMenuItem(validate), "menu validation reaches nothing either")
         try select("thread-4", harness)
@@ -203,12 +220,18 @@ final class HelpMeWriteEgressTests: XCTestCase {
                                                        mode: .reply(MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2"),
                                                                     all: false))
         composer.window?.makeFirstResponder(composer.bodyEditor)
+        let composed = try XCTUnwrap(composer.bodyWriteSession)
+        composed.assumesKeyWindow = true
+        composer.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertNotNil(composed.layer.state.ghost, "the composer's ghost is local")
         composer.bodyEditor.insertText("will read tonight", replacementRange: NSRange(location: 0, length: 0))
         XCTAssertTrue(composer.validateMenuItem(validate))
-        ListTestSupport.spin(for: 0.5)
+        composer.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(composed.isPromptShown)
+        ListTestSupport.spin(for: 0.9)
         composer.closeWithoutSaving()
 
-        assertNoContact(log, "typing, the hint, switching, a composer")
+        assertNoContact(log, "typing, the ghost, the pill, the prompt line, the text's menu, switching, a composer")
 
         // Quitting as the app does, with Settings › AI open again.
         let reopened = openSettings(harness)
@@ -242,8 +265,8 @@ final class HelpMeWriteEgressTests: XCTestCase {
             try select("thread-2", harness)
             XCTAssertTrue(harness.reader.focusQuickReply(all: false))
             harness.reader.quickReplyBar.writingTextView.insertText("tue 10 ok", replacementRange: NSRange(location: 0, length: 0))
-            let control = harness.reader.quickReplyBar.writeControl
-            XCTAssertEqual(control.availability, .ready(writer: "Claude", source: kind == .claudeCode
+            let session = try XCTUnwrap(harness.reader.quickReplyWriteSession)
+            XCTAssertEqual(session.availability, .ready(writer: "Claude", source: kind == .claudeCode
                 ? "Claude Code \u{00b7} Anthropic" : "Claude Opus 5.5 \u{00b7} Anthropic"))
             assertNoContact(log, "\(kind) typing")
 

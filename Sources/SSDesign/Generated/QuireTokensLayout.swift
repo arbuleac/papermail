@@ -518,7 +518,6 @@ extension Quire {
             public static let toolIcon: CGFloat = 22
             public static let toolIconGlyph: CGFloat = 14
             public static let sendInset: CGFloat = 8
-            public static let sendKeycapGap: CGFloat = 8
             public static let maxLines: CGFloat = 5
             public static let fieldMax: CGFloat = 150
             public static let max: CGFloat = 172
@@ -562,7 +561,6 @@ extension Quire {
             public static let bannerInsetX: CGFloat = 16
             public static let bannerInsetY: CGFloat = 8
             public static let barPadX: CGFloat = 16
-            public static let barKeycapGap: CGFloat = 8
             public static let barGroupGap: CGFloat = 12
             public static let barIconGap: CGFloat = 2
             public static let statusGlyphGap: CGFloat = 6
@@ -585,22 +583,39 @@ extension Quire {
             public static let popoverEdgeMin: CGFloat = 8
             public static let pictureSelectedWash: CGFloat = 0.45
         }
-        public enum WriteTool {
-            public static let gap: CGFloat = 8
-            public static let hintGap: CGFloat = 2
-            public static let statusGlyph: CGFloat = 12
-            public static let statusGlyphGap: CGFloat = 6
-            public static let keycapGap: CGFloat = 4
-            public static let linkGap: CGFloat = 3
+        public enum WriteCaret {
+            public static let ghostGap: CGFloat = 6
+            public static let keycapHeight: CGFloat = 16
+            public static let keycapPadX: CGFloat = 4
+            public static let keycapGap: CGFloat = 5
+            public static let ghostPause: String = "motion.duration.writeGhostPause"
+            public static let selectionSettle: String = "motion.duration.writeSelectionSettle"
+            public static let pillGap: CGFloat = 4
+            public static let pillHeight: CGFloat = 24
+            public static let pillPadX: CGFloat = 9
+            public static let pillGlyph: CGFloat = 12
+            public static let pillGlyphGap: CGFloat = 5
+            public static let blockGapTop: CGFloat = 6
+            public static let blockGapBottom: CGFloat = 8
+            public static let promptHeight: CGFloat = 32
+            public static let promptMaxWidth: CGFloat = 560
+            public static let promptPadX: CGFloat = 12
+            public static let promptGlyph: CGFloat = 14
+            public static let promptGlyphGap: CGFloat = 8
+            public static let chipsGap: CGFloat = 6
+            public static let chipHeight: CGFloat = 20
+            public static let chipPadX: CGFloat = 7
+            public static let chipGap: CGFloat = 2
+            public static let afterlineHeight: CGFloat = 20
+            public static let afterGlyph: CGFloat = 12
+            public static let afterGlyphGap: CGFloat = 5
+            public static let afterGap: CGFloat = 6
+            public static let pencilGlyph: CGFloat = 13
+            public static let pencilGap: CGFloat = 2
+            public static let pencilBob: CGFloat = 1
+            public static let pencilBobPeriod: String = "motion.duration.writePencilBob"
             public static let hintMinWords: CGFloat = 2
             public static let pencilInk: String = "ink2"
-        }
-        public enum WriteStrip {
-            public static let gap: CGFloat = 6
-            public static let chipsGap: CGFloat = 8
-            public static let chipGap: CGFloat = 4
-            public static let fieldMinWidth: CGFloat = 160
-            public static let composerPadTop: CGFloat = 12
         }
         public enum Token {
             public static let invalidGlyph: CGFloat = 10
@@ -658,6 +673,14 @@ extension Quire {
             public static let minHit: CGFloat = 24
             public static let glyphGap: CGFloat = 6
             public static let linkPadX: CGFloat = 4
+            public static let keycapGap: CGFloat = 8
+        }
+        public enum SplitButton {
+            public static let menuWidth: [CGFloat] = [20, 24, 30]
+            public static let keycapGap: CGFloat = 6
+            public static let divider: CGFloat = 1
+            public static let dividerAlpha: CGFloat = 0.3
+            public static let dimAlpha: CGFloat = 0.5
         }
         public enum TextField {
             public static let helpGap: CGFloat = 5
@@ -821,6 +844,8 @@ extension Quire {
             public static let radius: CGFloat = 3
             public static let largeRadius: CGFloat = 5
             public static let inField: CGFloat = 16
+            public static let onFill: CGFloat = 16
+            public static let onFillEdgeAlpha: CGFloat = 0.5
         }
         public enum Progress {
             public static let indeterminateSegment: CGFloat = 0.36

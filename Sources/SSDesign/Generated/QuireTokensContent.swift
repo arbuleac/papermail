@@ -262,7 +262,7 @@ extension Quire {
             QuireCheatSheetRow(keys: "⇧⌘↩", label: "Send and archive"),
             QuireCheatSheetRow(keys: "⇧⌘L", label: "Send later"),
             QuireCheatSheetRow(keys: "⇧⌘A", label: "Attach files"),
-            QuireCheatSheetRow(keys: "⌘J ⇧⌘J", label: "Write · say how"),
+            QuireCheatSheetRow(keys: "⌘J ⇧⌘J", label: "Write at caret · say how"),
         ]),
         QuireCheatSheetSection(title: "Format", rows: [
             QuireCheatSheetRow(keys: "⇧⌘T", label: "Format row"),

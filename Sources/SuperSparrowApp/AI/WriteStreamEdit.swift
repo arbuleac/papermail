@@ -2,7 +2,7 @@ import AppKit
 import SSDesign
 
 /// Text from Help Me Write going into a text view (spec §5.56, Writing): it replaces `range` (the selection, or the
-/// user's own text) as it streams, drawn in pencil (`layout.writeTool.pencilInk`, `ink2`), with undo registration off and
+/// user's own text) as it streams, drawn in pencil (`layout.writeCaret.pencilInk`, `ink2`), with undo registration off and
 /// no edit reported, so typing, the draft and the undo stack never see the stream; then either one undoable change,
 /// “Help Me Write”, from what was there to the reply in the field's own ink, or the text exactly as it was.
 ///
@@ -34,7 +34,9 @@ final class WriteStreamEdit {
     private var silencedUndo: UndoManager?
 
     /// `previous`, when given, is shown in pencil in place of `range` until the first words arrive: Try again keeps the
-    /// draft it replaces in sight rather than flashing the notes back.
+    /// draft it replaces in sight rather than flashing the notes back. Without it, what `range` holds (the notes, the
+    /// selection) turns to pencil where it is until then, its own style kept: it is what the reply will take the place of,
+    /// and the pencil mark waits after it (§5.56).
     init(textView: NSTextView, range: NSRange, attributes: [NSAttributedString.Key: Any], showing previous: String? = nil) {
         self.textView = textView
         let length = textView.textStorage?.length ?? 0
@@ -57,24 +59,40 @@ final class WriteStreamEdit {
             self.range = NSRange(location: safe.location, length: (previous as NSString).length)
             holdsPrevious = true
             wroteStorage = true
+        } else if safe.length > 0, let manager = textView.layoutManager {
+            // Drawn in pencil, not written: the storage and the undo stack stay as they are until the first words come
+            // (undo registration turned off now, in the same event as the user's typing, would leave that typing's undo
+            // group open for good).
+            manager.addTemporaryAttribute(.foregroundColor, value: WriteStreamEdit.pencilInk, forCharacterRange: safe)
+            penciledInPlace = true
         }
     }
 
-    /// Pencil: the colour token `layout.writeTool.pencilInk` names (`ink2`).
+    /// Pencil: the colour token `layout.writeCaret.pencilInk` names (`ink2`).
     static var pencilInk: NSColor {
-        (QuireColorToken(rawValue: Quire.Layout.WriteTool.pencilInk) ?? .ink2).color
+        (QuireColorToken(rawValue: Quire.Layout.WriteCaret.pencilInk) ?? .ink2).color
     }
 
     /// The previous draft is in the field, in pencil, until the first words replace it.
     private var holdsPrevious = false
     /// The storage holds something of the stream's (or the previous draft), so a rollback has text to put back.
     private var wroteStorage = false
+    /// What the reply will replace is drawn in pencil where it is (a layout manager's temporary colour), until the first
+    /// words take its place or the edit ends.
+    private var penciledInPlace = false
+
+    private func clearPencilInPlace() {
+        guard penciledInPlace else { return }
+        penciledInPlace = false
+        textView.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: originalRange)
+    }
 
     /// Puts `text`, the whole reply so far, in the field: only what was added since the last call when the reply grew,
     /// all of it when it was replaced (a CLI's authoritative whole text).
     func show(_ text: String) {
         guard !isFinished, text != shown || holdsPrevious, let storage = textView.textStorage else { return }
         guard holdsItsRange(in: storage) else { return }
+        clearPencilInPlace()
         silenceUndo()
         let now = text as NSString
         let before = shown as NSString
@@ -163,6 +181,7 @@ final class WriteStreamEdit {
     }
 
     private func restoreOriginal() {
+        clearPencilInPlace()
         if let storage = textView.textStorage, wroteStorage || shown != "" || range != originalRange, holdsItsRange(in: storage) {
             silenceUndo()
             storage.beginEditing()

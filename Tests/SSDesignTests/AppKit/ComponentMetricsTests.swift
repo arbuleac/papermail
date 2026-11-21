@@ -60,7 +60,7 @@ final class ComponentMetricsTests: XCTestCase {
         keyed.keycap = "⌘↩"
         keyed.sizeToFit()
         let cap = QuireKeycap.size(for: "⌘↩", style: .standard).width
-        XCTAssertEqual(keyed.intrinsicContentSize.width, plain.intrinsicContentSize.width + Quire.Layout.Composer.barKeycapGap + cap)
+        XCTAssertEqual(keyed.intrinsicContentSize.width, plain.intrinsicContentSize.width + Quire.Layout.Button.keycapGap + cap)
         // The keycap sits beside the face, never on it.
         XCTAssertEqual(keyed.faceRect.width, plain.intrinsicContentSize.width, accuracy: 0.01)
 

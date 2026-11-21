@@ -6,8 +6,9 @@ import XCTest
 
 /// Help me write in the app, in place (spec §5.56): ⌘J writes into the quick reply or a reply composer's body from the
 /// user's notes (or the thread alone, or a selection), in pencil while it streams, then in ink as one undo step; Try again
-/// writes again from the same notes; ⇧⌘J's strip says how, with its chips; Esc puts the notes back; failures stay in the
-/// tool row; no permission sheet anywhere in the write path. Every write goes to the demo writer: nothing here reaches the
+/// writes again from the same notes; ⇧⌘J's prompt line says how, with its chips; Esc puts the notes back; failures stay in
+/// the text, under the caret's line; no permission sheet anywhere in the write path. The marks themselves (the ghost, the
+/// pill, the blocks' room) are `HelpMeWriteCaretTests`'. Every write goes to the demo writer: nothing here reaches the
 /// network, a CLI or the Keychain.
 @MainActor
 final class HelpMeWriteTests: XCTestCase {
@@ -57,10 +58,12 @@ final class HelpMeWriteTests: XCTestCase {
     /// Sheets something tried to show while writing: there must be none (§5.56).
     private var sheets: [AppAlert] = []
 
-    /// The quick reply focused with `text` typed, as R and typing leave it.
+    /// The quick reply focused with `text` typed, as R and typing leave it, its marks drawn as in the key window (the
+    /// test window never is).
     @discardableResult
     private func type(_ text: String, _ harness: MainWindowHarness) -> NSTextView {
         XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        harness.reader.quickReplyWriteSession?.assumesKeyWindow = true
         let field = harness.reader.quickReplyBar.writingTextView
         field.insertText(text, replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
         return field
@@ -70,8 +73,21 @@ final class HelpMeWriteTests: XCTestCase {
         try XCTUnwrap(harness.reader.quickReplyWriteSession)
     }
 
-    private func control(_ harness: MainWindowHarness) -> WriteToolControl {
-        harness.reader.quickReplyBar.writeControl
+    private func layer(_ harness: MainWindowHarness) -> WriteInlineLayer {
+        harness.reader.quickReplyBar.writeLayer
+    }
+
+    /// Presses one of the afterline's actions as a click does.
+    private func press(_ action: WriteAfterline.Action, in layer: WriteInlineLayer) {
+        layer.afterline.layoutSubtreeIfNeeded()
+        layer.afterline.actions[action]?.performClick(nil)
+    }
+
+    /// Whether anything titled Write (1.12's control) shows in `view`'s tree.
+    private func showsAWriteButton(in view: NSView) -> Bool {
+        if !view.isHiddenOrHasHiddenAncestor, let button = view as? QuireButton, button.title == "Write" { return true }
+        if !view.isHiddenOrHasHiddenAncestor, view.accessibilityLabel() == "Write with Help Me Write" { return true }
+        return view.subviews.contains { showsAWriteButton(in: $0) }
     }
 
     private func item(_ action: Selector, _ key: String = "j") -> NSMenuItem {
@@ -122,7 +138,7 @@ final class HelpMeWriteTests: XCTestCase {
         let all = bar.items.compactMap(\.submenu).flatMap { Self.items(in: $0) }
         XCTAssertEqual(all.filter { $0.keyEquivalent.lowercased() == "j" && $0.keyEquivalentModifierMask.contains(.shift) }.count, 1)
         XCTAssertTrue(Quire.cheatSheet.first { $0.title == "Write" }?.rows
-            .contains { $0.keys == "⌘J ⇧⌘J" && $0.label == "Write · say how" } ?? false)
+            .contains { $0.keys == "⌘J ⇧⌘J" && $0.label == "Write at caret · say how" } ?? false)
     }
 
     private static func items(in menu: NSMenu) -> [NSMenuItem] {
@@ -167,59 +183,35 @@ final class HelpMeWriteTests: XCTestCase {
         let item = writeItem
         XCTAssertTrue(reply.validateMenuItem(item))
         XCTAssertNil(item.toolTip)
-        XCTAssertFalse(reply.content.bottomBar.writeControl.isHidden, "the Write control in a reply's bar")
+        reply.content.layoutSubtreeIfNeeded()
+        XCTAssertFalse(showsAWriteButton(in: reply.content.bottomBar), "no Write in a reply's bar: it is in the text")
         for mode in [ComposeMode.new, .forward(original)] {
             let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
                                                            mode: mode)
             composer.window?.makeFirstResponder(composer.bodyEditor)
             XCTAssertFalse(composer.validateMenuItem(item), "\(mode) answers no one")
             XCTAssertEqual(item.toolTip, "Help Me Write works on replies")
-            XCTAssertTrue(composer.content.bottomBar.writeControl.isHidden, "and shows no Write control")
+            XCTAssertFalse(showsAWriteButton(in: composer.content.bottomBar), "and shows no Write control")
         }
     }
 
-    // MARK: The Write control and its hint
+    // MARK: Off, not turned on, needs setup
 
-    func testTheWriteControlShowsWithAProviderAndTheHintOnlyWithNotes() throws {
-        let (harness, _) = try harness()
-        defer { harness.close() }
-        let bar = harness.reader.quickReplyBar
-        type("", harness)
-        bar.layoutSubtreeIfNeeded()
-        let control = control(harness)
-        XCTAssertEqual(control.availability, .ready(writer: "Claude", source: "Claude Opus 5.5 \u{00b7} Anthropic"))
-        XCTAssertFalse(control.isHidden)
-        XCTAssertTrue(control.writeButton.isEnabled)
-        XCTAssertEqual(control.writeButton.toolTip?.components(separatedBy: "\n").first, "Write with Claude  \u{2318}J")
-        XCTAssertFalse(control.showsHint, "an empty field writes from the thread alone: no hint")
-        type("thursday", harness)
-        XCTAssertFalse(control.showsHint, "one word is not yet notes")
-        type("thursday works", harness)
-        XCTAssertTrue(control.showsHint, "a few words of the user's own")
-        XCTAssertEqual(control.lineWords, "\u{2318}J writes from your notes")
-        bar.layoutSubtreeIfNeeded()
-        XCTAssertFalse(control.label.isHidden)
-        XCTAssertTrue(control.frame.maxX <= bar.subviews.compactMap { $0 as? QuireButton }.first { $0.title == "Send" }.map(\.frame.minX) ?? .greatestFiniteMagnitude,
-                      "the hint never runs under Send")
-        XCTAssertFalse(bar.writingTextView.frame.intersects(control.frame), "nor over the text")
-    }
-
-    func testOffShowsNoControlAndCommandJSaysSo() throws {
+    func testOffShowsNothingAndCommandJSaysSo() throws {
         let (harness, script) = try harness(provider: nil)
         defer { harness.close() }
         var opened = 0
         harness.environment.helpMeWrite.openSettings = { opened += 1 }
         let field = type("Tuesday works", harness)
-        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
-        let control = control(harness)
-        XCTAssertTrue(control.isHidden, "with AI off the control is absent")
+        try session(harness).showNotesGhostNow()
+        let layer = layer(harness)
+        XCTAssertNil(layer.state.ghost, "with AI off nothing shows in the text")
+        XCTAssertTrue(try session(harness).contextMenuItems().isEmpty, "and the text's menu has no group")
         commandJ(harness)
         XCTAssertEqual(try session(harness).phase, .failed(reason: "Help Me Write is off", offersSettings: true))
-        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
-        XCTAssertFalse(control.isHidden, "⌘J says why in the tool row")
-        let settings: QuireControl = control.settingsLink.isHidden ? control.settingsIcon : control.settingsLink
-        XCTAssertFalse(settings.isHidden, "Settings…, as a link or, where the reason needs the room, its glyph")
-        settings.performClick(nil)
+        XCTAssertFalse(layer.afterline.isHidden, "⌘J says why under the caret's line")
+        XCTAssertEqual(layer.afterline.lineWords, "Help Me Write is off \u{00b7} Try again \u{2318}J \u{00b7} Settings\u{2026}")
+        press(.settings, in: layer)
         XCTAssertEqual(opened, 1, "Settings… opens Settings › AI")
         XCTAssertEqual(field.string, "Tuesday works")
         XCTAssertTrue(script.requests.isEmpty)
@@ -232,11 +224,11 @@ final class HelpMeWriteTests: XCTestCase {
         let (harness, script) = try harness(turnedOn: false)
         defer { harness.close() }
         let field = type("tue 10 ok", harness)
-        let control = control(harness)
-        XCTAssertEqual(control.availability, .unavailable(reason: "Turn it on in Settings \u{203a} AI"))
-        XCTAssertFalse(control.writeButton.isEnabled, "dimmed")
-        XCTAssertEqual(control.writeButton.toolTip, "Turn it on in Settings \u{203a} AI")
-        XCTAssertEqual(control.lineWords, "", "no hint while it cannot write")
+        let writeSession = try session(harness)
+        XCTAssertEqual(writeSession.availability, .unavailable(reason: "Turn it on in Settings \u{203a} AI"))
+        writeSession.showNotesGhostNow()
+        XCTAssertNil(writeSession.layer.state.ghost, "no ghost while it cannot write")
+        XCTAssertFalse(writeSession.contextMenuItems().isEmpty, "the text's menu offers it, to say why")
         commandJ(harness)
         XCTAssertEqual(try session(harness).phase, .failed(reason: "Turn it on in Settings \u{203a} AI", offersSettings: true))
         ListTestSupport.spin(for: 0.2)
@@ -247,8 +239,8 @@ final class HelpMeWriteTests: XCTestCase {
 
         // Turned on (in Settings), the same ⌘J writes, with no sheet either.
         harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
-        until({ control.availability == .ready(writer: "Claude", source: "Claude Opus 5.5 \u{00b7} Anthropic") },
-              "Settings' change reaches the control")
+        until({ writeSession.availability == .ready(writer: "Claude", source: "Claude Opus 5.5 \u{00b7} Anthropic") },
+              "Settings' change reaches the reply")
         type("tue 10 ok", harness)
         commandJ(harness)
         until({ try! self.session(harness).phase == .written })
@@ -256,233 +248,15 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(script.requests.count, 1)
     }
 
-    func testANeedsSetupProviderIsDimmedWithItsReason() throws {
+    func testANeedsSetupProviderSaysItsReasonOnCommandJ() throws {
         let (harness, script) = try harness()
         defer { harness.close() }
         script.health = .needsSetup(reason: "Add your API key")
         type("tue 10 ok", harness)
-        let control = control(harness)
-        XCTAssertEqual(control.availability, .unavailable(reason: "Add your API key"))
-        XCTAssertFalse(control.writeButton.isEnabled)
+        XCTAssertEqual(try session(harness).availability, .unavailable(reason: "Add your API key"))
         commandJ(harness)
         XCTAssertEqual(try session(harness).phase, .failed(reason: "Add your API key", offersSettings: true))
         XCTAssertTrue(script.requests.isEmpty)
-    }
-
-    // MARK: The row's room
-
-    /// A quick reply on its own, as wide as a reader `width` pt wide, open as if focused, with notes typed and Help me
-    /// write ready: its tool row at any width, from the narrowest reader (400 pt) up.
-    @MainActor
-    private final class LoneBar {
-        let bar = QuickReplyView(frame: NSRect(x: 0, y: 0, width: 616, height: 120))
-        let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 616, height: 240), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-
-        init() {
-            window.isReleasedWhenClosed = false
-            let content = window.contentView!
-            content.addSubview(bar)
-            bar.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                bar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                bar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-                bar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            ])
-            bar.text = "tue 10 works, I'll bring the budget"
-            bar.isHeldOpen = true
-            bar.writeControl.availability = .ready(writer: "Claude", source: "Claude Opus 5.5 \u{00b7} Anthropic")
-        }
-
-        var control: WriteToolControl { bar.writeControl }
-
-        /// Lays the bar out `width` wide; Send's face in the bar.
-        @discardableResult
-        func layOut(width: CGFloat) -> NSRect {
-            window.setContentSize(NSSize(width: width, height: 240))
-            window.layoutIfNeeded()
-            bar.layoutSubtreeIfNeeded()
-            let send = bar.subviews.compactMap { $0 as? QuireButton }.first { $0.title == "Send" }
-            return send.map { $0.alignmentRect(forFrame: $0.frame) } ?? .zero
-        }
-
-        func view<T: NSView>(_ type: T.Type) -> T? { bar.subviews.first { $0 is T } as? T }
-
-        func close() { window.close() }
-    }
-
-    /// Where each part of the control draws, in the bar: a control's face, a label's text.
-    private func drawnParts(of control: WriteToolControl, in bar: NSView) -> [(NSView, NSRect)] {
-        control.subviews.filter { !$0.isHidden }.map { view in
-            let rect = (view as? QuireControl).map { $0.alignmentRect(forFrame: $0.frame) }
-                ?? (view is NSTextField ? view.frame.insetBy(dx: 2, dy: 0) : view.frame)
-            return (view, control.convert(rect, to: bar))
-        }
-    }
-
-    /// At every width down to the narrowest reader (400 pt, the day column folded), in every state the line can take,
-    /// nothing of Help me write draws on Send or past the room the row gives: the hint and the line give way, measured,
-    /// and what does not fit is not shown.
-    func testNothingOfTheLineDrawsOverSendAtAnyWidth() throws {
-        let lone = LoneBar()
-        defer { lone.close() }
-        let control = lone.control
-        let states: [(String, WriteToolControl.Phase, WriteToolControl.Hint?)] = [
-            ("the hint", .idle, .notes), ("the selection's hint", .idle, .selection), ("no hint", .idle, nil),
-            ("writing", .writing, nil), ("written", .written, nil),
-            ("failed", .failed(reason: "Claude Code is signed out. Run claude in Terminal to sign in.", offersSettings: true), nil),
-            ("failed briefly", .failed(reason: "No connection", offersSettings: false), nil),
-        ]
-        for width in stride(from: CGFloat(400), through: 760, by: 12) {
-            for (name, phase, hint) in states {
-                control.phase = phase
-                control.hint = hint
-                let send = lone.layOut(width: width)
-                XCTAssertGreaterThan(send.width, 0)
-                XCTAssertEqual(lone.bar.frame.width, width, "\(name): the bar is \(width) wide")
-                XCTAssertFalse(control.isHidden, "\(name) at \(width)")
-                for (view, drawn) in drawnParts(of: control, in: lone.bar) {
-                    XCTAssertLessThanOrEqual(drawn.maxX, send.minX - Quire.Layout.QuickReply.toolGroupGap + 0.5,
-                                             "\(name) at \(width): \(Swift.type(of: view)) ends at \(drawn.maxX), Send at \(send.minX)")
-                    XCTAssertLessThanOrEqual(drawn.maxX, control.frame.maxX + 0.5, "\(name) at \(width): within its frame")
-                }
-                // Nothing of the line under the tabs or the tools that still show.
-                for tool in lone.bar.subviews where !tool.isHidden && (tool is QuireUnderlineTabs || tool is QuireIconButton) {
-                    let face = (tool as? QuireControl).map { $0.alignmentRect(forFrame: $0.frame) } ?? tool.frame
-                    guard face.maxX < send.minX else { continue }
-                    for (view, drawn) in drawnParts(of: control, in: lone.bar) {
-                        XCTAssertFalse(drawn.intersects(face), "\(name) at \(width): \(Swift.type(of: view)) over \(Swift.type(of: tool))")
-                    }
-                }
-            }
-        }
-        // At the narrowest reader Open in Composer leaves Send no room for Write (⌘J and the Edit menu still write): it is
-        // not drawn rather than drawn over Send. A little wider, its glyph; wider still, its label, the hint giving way.
-        control.phase = .idle
-        control.hint = .notes
-        lone.layOut(width: 400)
-        XCTAssertTrue(control.writeButton.isHidden, "no room at all: nothing")
-        lone.layOut(width: 448)
-        XCTAssertFalse(control.writeButton.isHidden)
-        XCTAssertEqual(control.writeButton.title, "", "its glyph alone")
-        lone.layOut(width: 496)
-        XCTAssertEqual(control.writeButton.title, "Write")
-        XCTAssertTrue(control.label.isHidden, "the hint gave way first")
-        // A draft's and a failure's line take what the row has, and say what they must.
-        control.phase = .written
-        lone.layOut(width: 400)
-        XCTAssertFalse(control.undoLink.isHidden, "Undo at the narrowest reader")
-        XCTAssertTrue(control.shownWords.hasPrefix("Written by Claude"), control.shownWords)
-        control.phase = .failed(reason: "No connection", offersSettings: false)
-        lone.layOut(width: 400)
-        XCTAssertEqual(control.label.stringValue, "No connection", "a short reason whole")
-    }
-
-    /// Typing the second word brings the hint without taking Write's label: the hint gives way first, so the button
-    /// looks the same, in the same place, with one word typed as with two.
-    func testTheHintNeverTakesWritesLabel() throws {
-        let lone = LoneBar()
-        defer { lone.close() }
-        let control = lone.control
-        for width in stride(from: CGFloat(400), through: 760, by: 8) {
-            control.hint = nil
-            lone.layOut(width: width)
-            let before = (control.writeButton.isHidden, control.writeButton.title, control.writeButton.frame)
-            if width >= 496 { XCTAssertEqual(control.writeButton.title, "Write", "one word at \(width)") }
-            control.hint = .notes
-            lone.layOut(width: width)
-            XCTAssertEqual(control.writeButton.isHidden, before.0, "\(width)")
-            XCTAssertEqual(control.writeButton.title, before.1, "two words at \(width): the hint gave way, not Write")
-            XCTAssertEqual(control.writeButton.frame, before.2, "Write did not move at \(width)")
-        }
-        lone.layOut(width: 760)
-        XCTAssertEqual(control.shownWords, "\u{2318}J writes from your notes", "whole where there is room")
-        control.hint = .selection
-        lone.layOut(width: 760)
-        XCTAssertEqual(control.shownWords, "\u{2318}J rewrites the selection")
-
-        // In the app's default window, the hint keeps its short words after Write.
-        let (harness, _) = try harness()
-        defer { harness.close() }
-        type("thursday works", harness)
-        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
-        XCTAssertEqual(self.control(harness).writeButton.title, "Write")
-        XCTAssertEqual(self.control(harness).shownWords, "\u{2318}J from notes")
-        XCTAssertEqual(self.control(harness).lineWords, "\u{2318}J writes from your notes", "the whole hint for VoiceOver")
-    }
-
-    /// A failure's reason is what the line is for: the links turn to glyphs before it is cut, a cut one ends where its
-    /// text does, and the reason never says Try again beside the link.
-    func testAFailureKeepsItsReasonWholeLongest() throws {
-        let lone = LoneBar()
-        defer { lone.close() }
-        let control = lone.control
-        let reason = AIError.signedOut.lineMessage(for: .claudeCode)
-        control.phase = .failed(reason: reason, offersSettings: true)
-        lone.layOut(width: 616)
-        XCTAssertEqual(control.label.stringValue, reason, "whole at the default reader")
-        XCTAssertFalse(control.tryAgainIcon.isHidden && control.tryAgainLink.isHidden)
-        XCTAssertEqual(control.label.frame.width, ceil(control.label.attributedStringValue.size().width) + 4, accuracy: 1,
-                       "the label is as wide as its words")
-        lone.layOut(width: 400)
-        XCTAssertTrue(control.label.stringValue.hasSuffix("\u{2026}"), "cut where it must be: \(control.label.stringValue)")
-        XCTAssertTrue(control.tryAgainLink.isHidden, "the links went to glyphs first")
-        XCTAssertFalse(control.tryAgainIcon.isHidden)
-        XCTAssertFalse(control.settingsIcon.isHidden)
-        XCTAssertEqual(control.label.frame.width, ceil(control.label.attributedStringValue.size().width) + 4, accuracy: 1,
-                       "a cut label ends where its text does: no gap before what follows")
-        let iconStart = control.tryAgainIcon.alignmentRect(forFrame: control.tryAgainIcon.frame).minX
-        XCTAssertEqual(iconStart - (control.label.frame.maxX - 2), Quire.Layout.WriteTool.gap, accuracy: 1, "the glyphs follow at the gap")
-        XCTAssertEqual(control.label.toolTip, reason, "the whole reason in its tooltip")
-        XCTAssertEqual(control.lineWords, reason + " \u{00b7} Try again \u{00b7} Settings\u{2026}", "and whole for VoiceOver")
-        XCTAssertFalse(AIError.rateLimited(retryAfter: 30).lineMessage(for: .claudeAPI).contains("Try again"))
-    }
-
-    /// After a draft lands the reply's own tools stay: the line follows them where it can, or at least the tabs; only a
-    /// write under way takes the row. Taking it, Stop's glyph starts on the text's column.
-    func testAfterADraftTheRepliesToolsStayAndStopLinesUpWithTheText() throws {
-        let (harness, script) = try harness(reply: "Tuesday at ten works. See you then.")
-        defer { harness.close() }
-        script.holdsAfter = 1
-        let field = type("tue 10 ok", harness)
-        let bar = harness.reader.quickReplyBar
-        let control = control(harness)
-        commandJ(harness)
-        let session = try session(harness)
-        until({ !field.string.hasPrefix("tue") }, "streaming")
-        bar.layoutSubtreeIfNeeded()
-        let tabs = try XCTUnwrap(bar.subviews.first { $0 is QuireUnderlineTabs })
-        XCTAssertTrue(tabs.isHidden, "while a reply streams the line takes the row")
-        let stop = control.convert(control.stopButton.alignmentRect(forFrame: control.stopButton.frame), to: bar)
-        let textColumn = try XCTUnwrap(field.enclosingScrollView).frame.minX
-        XCTAssertEqual(stop.minX + QuireButtonSize.small.padX, textColumn, accuracy: 0.5, "Stop's glyph on the text's column")
-        session.stop()
-
-        script.holdsAfter = nil
-        commandJ(harness)
-        until({ session.phase == .written })
-        bar.layoutSubtreeIfNeeded()
-        XCTAssertFalse(tabs.isHidden, "Reply · Reply all at the default reader")
-        XCTAssertFalse(control.undoLink.isHidden, "beside the draft's Undo")
-        XCTAssertFalse(control.tryAgainLink.isHidden)
-        XCTAssertTrue(control.shownWords.hasPrefix("Written by Claude"), control.shownWords)
-        XCTAssertGreaterThanOrEqual(control.frame.minX, tabs.frame.maxX, "after the tabs")
-
-        // Wider, Attach and Open in Composer stay too.
-        let lone = LoneBar()
-        defer { lone.close() }
-        lone.control.phase = .written
-        lone.layOut(width: 760)
-        let tools = lone.bar.subviews.compactMap { $0 as? QuireIconButton }.filter { !$0.isHidden }
-        XCTAssertEqual(tools.count, 3, "Attach, Open in Composer and Send's options")
-        XCTAssertFalse(lone.view(QuireUnderlineTabs.self)?.isHidden ?? true)
-        XCTAssertEqual(lone.control.shownWords, "Written by Claude Try again Say how Undo", "its keycaps gave way first")
-        // VoiceOver hears the whole line, keys included.
-        XCTAssertEqual(lone.control.lineWords,
-                       "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{21e7}\u{2318}J Say how \u{00b7} \u{2318}Z Undo")
-        lone.control.phase = .writing
-        lone.layOut(width: 760)
-        XCTAssertTrue(lone.view(QuireUnderlineTabs.self)?.isHidden ?? false, "a write under way takes the row")
     }
 
     // MARK: Undo, redo and the selection
@@ -521,9 +295,9 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertFalse(script.requests[1].task.contains("First draft"), "never from the draft")
         XCTAssertFalse(script.requests[1].task.contains("SELECTION"), "and never as a selection")
 
-        // The line's Undo.
-        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
-        control(harness).undoLink.performClick(nil)
+        // The afterline's Undo.
+        XCTAssertFalse(layer(harness).afterline.isHidden)
+        press(.undo, in: layer(harness))
         XCTAssertEqual(field.string, "tue 10 ok")
         XCTAssertEqual(field.selectedRange(), NSRange(location: 9, length: 0))
         XCTAssertEqual(session.plan, .fromNotes)
@@ -553,7 +327,7 @@ final class HelpMeWriteTests: XCTestCase {
         let write = writeItem
         XCTAssertTrue(harness.reader.validateMenuItem(write))
         XCTAssertEqual(write.title, "Write Reply from Notes")
-        XCTAssertEqual(control(harness).hint, .notes)
+        XCTAssertNil(layer(harness).state.pill, "no pill for a gap")
         commandJ(harness)
         until({ session.phase == .written })
         let request = try XCTUnwrap(script.requests.first)
@@ -562,41 +336,43 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(field.string, "A whole reply.", "the reply replaces the notes, not the gap")
     }
 
-    /// With text selected the hint says ⌘J rewrites it, following the selection, and so does the open strip.
-    func testTheHintAndTheStripFollowTheSelection() throws {
+    /// With text selected the pill offers to rewrite it, following the selection, and the open prompt line's placeholder
+    /// says so too.
+    func testThePillAndThePromptFollowTheSelection() throws {
         let (harness, _) = try harness()
         defer { harness.close() }
         let field = type("tue 10 works, I'll bring the budget", harness)
-        let control = control(harness)
-        XCTAssertEqual(control.hint, .notes)
-        XCTAssertEqual(control.lineWords, "\u{2318}J writes from your notes")
+        let layer = layer(harness)
+        XCTAssertNil(layer.state.pill)
         field.setSelectedRange(NSRange(location: 25, length: 10))
-        XCTAssertEqual(control.hint, .selection)
-        XCTAssertEqual(control.lineWords, "\u{2318}J rewrites the selection")
+        XCTAssertEqual(layer.state.pill, NSRange(location: 25, length: 10))
         harness.reader.helpMeWriteWithInstructions(nil)
-        let strip = harness.reader.quickReplyBar.writeStrip
-        XCTAssertTrue(strip.rewritesSelection)
+        let prompt = layer.prompt
+        XCTAssertTrue(prompt.rewritesSelection)
+        XCTAssertEqual(prompt.placeholder, "Tell Claude how to rewrite it\u{2026}")
+        XCTAssertNil(layer.state.pill, "the prompt line takes the selection's place under it")
         field.setSelectedRange(NSRange(location: 3, length: 0))
-        XCTAssertFalse(strip.rewritesSelection, "the strip's placeholder follows the selection while it is open")
-        XCTAssertEqual(strip.field.placeholder, "Tell it what to write\u{2026}")
-        XCTAssertEqual(control.hint, .notes)
+        XCTAssertFalse(prompt.rewritesSelection, "the prompt's placeholder follows the selection while it is open")
+        XCTAssertEqual(prompt.placeholder, "Tell Claude what to write\u{2026}")
+        try session(harness).closePrompt(focusText: true)
         field.setSelectedRange(NSRange(location: 13, length: 1))
-        XCTAssertEqual(control.hint, .notes, "a space alone is no selection")
+        XCTAssertNil(layer.state.pill, "a space alone is no selection")
     }
 
-    /// Text set from outside while the keyboard stays in the field (a send undone puts the draft back) is read for the hint.
-    func testTextPutBackFromOutsideIsReadForTheHint() throws {
+    /// Text set from outside while the keyboard stays in the field (a send undone puts the draft back) is read for the ghost.
+    func testTextPutBackFromOutsideIsReadForTheGhost() throws {
         let (harness, _) = try harness()
         defer { harness.close() }
         type("", harness)
         let bar = harness.reader.quickReplyBar
-        let control = control(harness)
-        XCTAssertFalse(control.showsHint)
+        let layer = layer(harness)
+        XCTAssertEqual(layer.state.ghost?.words, WriteWords.ghostAfterPlaceholder, "an empty reply: the ghost after the placeholder")
         bar.restoreDraft("hi there friend")
         XCTAssertTrue(harness.controller.window?.firstResponder === bar.writingTextView, "the keyboard stayed")
-        XCTAssertTrue(control.showsHint, "three words put back: the hint")
+        XCTAssertNil(layer.state.ghost, "the notes ghost waits for a pause")
+        until({ layer.state.ghost?.words == WriteWords.ghostNotes }, "three words put back: the notes ghost, after the pause")
         bar.text = ""
-        XCTAssertFalse(control.showsHint)
+        XCTAssertEqual(layer.state.ghost?.words, WriteWords.ghostAfterPlaceholder)
     }
 
     /// Edit › Help Me Write's titles start over each time the menu opens: with the keyboard where nothing answers ⌘J (the
@@ -618,32 +394,30 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(instructions.title, MainMenu.helpMeWriteWithInstructionsTitle)
     }
 
-    /// ⇧⌘J is found from the reply itself: Write's tooltip names it, its right-click menu holds Say How… and the presets,
-    /// and a draft's line offers Say how.
+    /// ⇧⌘J is found from the reply itself: the text's menu offers Say How…, and a draft's afterline offers Say how, which
+    /// opens the prompt line under the draft; Shorter on the afterline runs at once, from the same notes.
     func testSayHowIsFoundFromTheReply() throws {
         let (harness, script) = try harness(reply: "Tuesday at ten works.")
         defer { harness.close() }
         let field = type("tue 10 ok", harness)
-        let control = control(harness)
-        XCTAssertTrue(control.writeButton.toolTip?.contains("Say how  \u{21e7}\u{2318}J") == true, control.writeButton.toolTip ?? "")
-        let menu = try XCTUnwrap(control.writeButton.menu)
-        XCTAssertEqual(menu.items.map(\.title), ["Write", "Say How\u{2026}", "", "Shorter", "Friendlier", "Say no politely"])
-        XCTAssertEqual(menu.items[1].keyEquivalentModifierMask, [.command, .shift])
-        // A preset from the menu runs at once, from the notes.
-        let shorter = menu.items[3]
-        _ = (shorter.target as? NSObject)?.perform(shorter.action, with: shorter)
         let session = try session(harness)
+        let items = session.contextMenuItems()
+        XCTAssertEqual(items.map(\.title), ["Write Reply from Notes", "Say How\u{2026}", ""])
+        XCTAssertEqual(items[1].keyEquivalent, "j")
+        XCTAssertEqual(items[1].keyEquivalentModifierMask, [.command, .shift])
+        commandJ(harness)
         until({ session.phase == .written })
-        XCTAssertTrue(script.requests.first?.task.hasSuffix("Shorter") == true)
-        XCTAssertTrue(script.requests.first?.task.contains("tue 10 ok") == true)
+        // Shorter, from the afterline: at once, from the notes.
+        press(.shorter, in: layer(harness))
+        until({ script.requests.count == 2 && session.phase == .written })
+        XCTAssertTrue(script.requests[1].task.hasSuffix("Shorter"))
+        XCTAssertTrue(script.requests[1].task.contains("tue 10 ok"))
         XCTAssertEqual(field.string, "Tuesday at ten works.")
-        // The draft's line offers Say how where the row has room for it beside the reply's tools (a composer's bar, a wide
-        // reader; in the default reader Write's tooltip and menu say it): it opens the strip, the keyboard in it.
-        _ = (control.writeButton.menu?.items[1]).map { item in (item.target as? NSObject)?.perform(item.action, with: item) }
-        let bar = harness.reader.quickReplyBar
-        XCTAssertTrue(bar.showsWriteStrip, "Write's Say How… opens the strip")
-        XCTAssertTrue(bar.writeStrip.holdsFocus)
-        XCTAssertEqual(bar.writeStrip.instruction, "Shorter", "the strip remembers the last instruction")
+        press(.sayHow, in: layer(harness))
+        XCTAssertTrue(session.isPromptShown, "the afterline's Say how opens the prompt line")
+        XCTAssertTrue(layer(harness).prompt.fieldHoldsFocus)
+        XCTAssertEqual(layer(harness).prompt.instruction, "Shorter", "the prompt remembers the last instruction")
+        XCTAssertTrue(layer(harness).afterline.isHidden, "one block at a time")
 
         let composer = replyComposer(harness)
         composer.window?.makeFirstResponder(composer.bodyEditor)
@@ -651,11 +425,10 @@ final class HelpMeWriteTests: XCTestCase {
         composer.helpMeWrite(nil)
         let composed = try XCTUnwrap(composer.writeSession)
         until({ composed.phase == .written })
-        let composerControl = composer.content.bottomBar.writeControl
-        composer.content.bottomBar.layoutSubtreeIfNeeded()
-        XCTAssertFalse(composerControl.sayHowLink.isHidden, composerControl.shownWords)
-        composerControl.sayHowLink.performClick(nil)
-        XCTAssertTrue(composer.content.writeStrip.holdsFocus, "the composer's strip, the keyboard in it")
+        composer.bodyWriteLayer.afterline.layoutSubtreeIfNeeded()
+        XCTAssertFalse(composer.bodyWriteLayer.afterline.actions[.sayHow]?.isHidden ?? true, composer.bodyWriteLayer.afterline.shownWords)
+        composer.bodyWriteLayer.afterline.actions[.sayHow]?.performClick(nil)
+        XCTAssertTrue(composer.bodyWriteLayer.prompt.fieldHoldsFocus, "the composer's prompt line, the keyboard in it")
     }
 
     // MARK: Writing in place
@@ -673,9 +446,8 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(session.phase, .writing, "no card, no extra step: it starts at once")
         until({ field.string.hasPrefix("One two") }, "the reply streams into the field")
         XCTAssertEqual(color(of: field, at: 0), .qInk2, "in pencil while it streams")
-        XCTAssertEqual(control(harness).lineWords, "Writing with Claude\u{2026}")
         bar.layoutSubtreeIfNeeded()
-        XCTAssertFalse(control(harness).stopButton.isHidden, "Stop in Write's place")
+        XCTAssertFalse(layer(harness).pencil.isHidden, "the pencil in the caret's place")
         XCTAssertEqual(bar.sendControlsEnabled.send, false, "Send waits")
         XCTAssertFalse(field.shouldChangeText(in: NSRange(location: 0, length: 0), replacementString: "x"), "typing waits")
         XCTAssertTrue(WriteSession.isStreaming(in: field.window))
@@ -683,7 +455,9 @@ final class HelpMeWriteTests: XCTestCase {
         until({ session.phase == .written }, "the reply lands")
         XCTAssertEqual(field.string, "One two three four five six seven eight nine ten")
         XCTAssertEqual(color(of: field, at: 0), .qInk, "and turns to ink")
-        XCTAssertEqual(control(harness).lineWords, "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{21e7}\u{2318}J Say how \u{00b7} \u{2318}Z Undo")
+        XCTAssertEqual(layer(harness).afterline.lineWords,
+                       "Written by Claude \u{00b7} Try again \u{2318}J \u{00b7} Shorter \u{00b7} Say how \u{21e7}\u{2318}J \u{00b7} Undo \u{2318}Z")
+        XCTAssertTrue(layer(harness).pencil.isHidden)
         XCTAssertTrue(field.window?.firstResponder === field)
         XCTAssertTrue(announced.contains("Reply written by Claude"), "\(announced)")
         let request = try XCTUnwrap(script.requests.first)
@@ -697,7 +471,7 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(undo.undoMenuItemTitle, "Undo Help Me Write")
         undo.undo()
         XCTAssertEqual(field.string, "tue 10 ok", "⌘Z brings the notes back in one step")
-        XCTAssertEqual(session.phase, .idle, "and the line about the reply goes")
+        XCTAssertEqual(session.phase, .idle, "and the afterline goes")
         undo.redo()
         XCTAssertEqual(field.string, "One two three four five six seven eight nine ten", "⌘⇧Z brings the reply back")
     }
@@ -747,7 +521,7 @@ final class HelpMeWriteTests: XCTestCase {
         let session = try session(harness)
         until({ session.phase == .written })
         script.holdsAfter = 1
-        control(harness).tryAgainLink.performClick(nil)
+        press(.tryAgain, in: layer(harness))
         XCTAssertEqual(session.phase, .writing)
         until({ field.string.hasPrefix("Tuesday") || field.string.hasPrefix("First") })
         field.cancelOperation(nil)
@@ -766,7 +540,7 @@ final class HelpMeWriteTests: XCTestCase {
         until({ session.phase == .written })
         field.setSelectedRange(NSRange(location: (field.string as NSString).length, length: 0))
         field.insertText(" Bring snacks.", replacementRange: field.selectedRange())
-        XCTAssertEqual(session.phase, .idle, "typing ends the line about the reply")
+        XCTAssertEqual(session.phase, .idle, "typing ends the afterline")
         XCTAssertEqual(session.plan, .fromNotes)
         commandJ(harness)
         until({ session.phase == .written })
@@ -786,9 +560,9 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(field.string, "See you Tuesday, Ben")
     }
 
-    // MARK: The instruction strip (⇧⌘J)
+    // MARK: The prompt line (⇧⌘J)
 
-    func testTheStripSaysHowAndRemembersItsInstruction() throws {
+    func testThePromptLineSaysHowAndRemembersItsInstruction() throws {
         let (harness, script) = try harness()
         defer { harness.close() }
         let field = type("tue 10 ok", harness)
@@ -796,48 +570,47 @@ final class HelpMeWriteTests: XCTestCase {
         let heightBefore = bar.barHeight
         XCTAssertTrue(harness.reader.validateMenuItem(instructionsItem))
         harness.reader.helpMeWriteWithInstructions(nil)
-        let strip = bar.writeStrip
-        XCTAssertTrue(bar.showsWriteStrip)
-        XCTAssertFalse(strip.isHidden)
-        XCTAssertTrue(strip.holdsFocus, "the keyboard goes to the strip")
-        XCTAssertEqual(strip.field.textField.placeholderString ?? strip.field.placeholder, "Tell it what to write\u{2026}")
-        XCTAssertEqual(strip.chips.map(\.title), ["Shorter", "Friendlier", "Say no politely"])
-        bar.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(bar.barHeight, heightBefore, "docked in the reply: the field grows by its height")
-        XCTAssertLessThanOrEqual(strip.frame.maxY, field.enclosingScrollView?.frame.minY ?? 0, "above the text, never over it")
-        XCTAssertTrue(harness.reader.validateMenuItem(writeItem), "⌘J still applies from the strip")
-
-        strip.instruction = "Warmer"
-        let editor = try XCTUnwrap(strip.field.textField.currentEditor() as? NSTextView)
-        XCTAssertTrue(strip.control(strip.field.textField, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
         let session = try session(harness)
+        let prompt = layer(harness).prompt
+        XCTAssertTrue(session.isPromptShown)
+        XCTAssertFalse(prompt.isHidden)
+        XCTAssertTrue(prompt.fieldHoldsFocus, "the keyboard goes to the prompt line")
+        XCTAssertEqual(prompt.placeholder, "Tell Claude what to write\u{2026}")
+        XCTAssertEqual(prompt.chips.map(\.title), ["Shorter", "Friendlier", "Say no politely"])
+        bar.layoutSubtreeIfNeeded()
+        XCTAssertEqual(bar.barHeight, heightBefore + WritePromptLine.blockHeight, accuracy: 0.5, "in the reply's text: the field grows by it")
+        XCTAssertTrue(prompt.isDescendant(of: field), "in the text, under the caret's line")
+        XCTAssertTrue(harness.reader.validateMenuItem(writeItem), "⌘J still applies from the prompt line")
+
+        prompt.instruction = "Warmer"
+        let editor = try XCTUnwrap(prompt.field.currentEditor() as? NSTextView)
+        XCTAssertTrue(prompt.control(prompt.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertFalse(session.isPromptShown, "running closes the line")
+        XCTAssertTrue(field.window?.firstResponder === field, "and gives the keyboard back to the text")
         until({ session.phase == .written })
         XCTAssertTrue(script.requests.first?.task.hasSuffix("Write my reply from these notes. Warmer") == true)
-        XCTAssertTrue(bar.showsWriteStrip, "the strip stays for the next try")
-        XCTAssertEqual(strip.instruction, "Warmer", "with its instruction")
 
-        // A chip fills the field and runs it, from the same notes.
-        strip.chips[0].performClick(nil)
+        // ⇧⌘J brings it back with the instruction kept; a chip runs, from the same notes.
+        harness.reader.helpMeWriteWithInstructions(nil)
+        XCTAssertEqual(prompt.instruction, "Warmer", "remembered for this reply until it is sent")
+        prompt.chips[0].performClick(nil)
         until({ script.requests.count == 2 && session.phase == .written })
-        XCTAssertEqual(strip.instruction, "Shorter")
+        XCTAssertEqual(prompt.instruction, "Shorter")
         XCTAssertTrue(script.requests[1].task.contains("tue 10 ok"))
         XCTAssertTrue(script.requests[1].task.hasSuffix("Shorter"))
 
-        // Esc closes it; ⇧⌘J brings it back with the instruction kept.
-        strip.focus()
-        let stripEditor = try XCTUnwrap(strip.field.textField.currentEditor() as? NSTextView)
-        XCTAssertTrue(strip.control(strip.field.textField, textView: stripEditor, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
-        XCTAssertFalse(bar.showsWriteStrip)
-        XCTAssertTrue(field.window?.firstResponder === field, "and the keyboard goes back to the text")
+        // Esc closes it, the keyboard back in the text.
         harness.reader.helpMeWriteWithInstructions(nil)
-        XCTAssertEqual(strip.instruction, "Shorter", "remembered for this reply until it is sent")
+        let promptEditor = try XCTUnwrap(prompt.field.currentEditor() as? NSTextView)
+        XCTAssertTrue(prompt.control(prompt.field, textView: promptEditor, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+        XCTAssertFalse(session.isPromptShown)
+        XCTAssertTrue(field.window?.firstResponder === field, "and the keyboard goes back to the text")
 
         // With a selection, it says how to rewrite the selection.
-        session.closeStrip(focusText: true)
         field.setSelectedRange(NSRange(location: 0, length: 4))
         harness.reader.helpMeWriteWithInstructions(nil)
-        XCTAssertTrue(strip.rewritesSelection)
-        XCTAssertEqual(strip.field.placeholder, "Tell it how to rewrite the selection\u{2026}")
+        XCTAssertTrue(prompt.rewritesSelection)
+        XCTAssertEqual(prompt.placeholder, "Tell Claude how to rewrite it\u{2026}")
     }
 
     func testEscStopsAWriteThenBehavesAsBefore() throws {
@@ -861,7 +634,7 @@ final class HelpMeWriteTests: XCTestCase {
 
     // MARK: Failures stay inline
 
-    func testAFailureStaysInTheToolRowWithTryAgainAndSettings() throws {
+    func testAFailureStaysInTheTextWithTryAgainAndSettings() throws {
         let (harness, script) = try harness()
         defer { harness.close() }
         var opened = 0
@@ -874,39 +647,43 @@ final class HelpMeWriteTests: XCTestCase {
         until({ if case .failed = session.phase { return true } else { return false } })
         XCTAssertEqual(field.string, "my notes", "the notes are untouched")
         XCTAssertEqual(session.phase, .failed(reason: "The Anthropic API key was refused", offersSettings: true))
-        let control = control(harness)
-        harness.reader.quickReplyBar.layoutSubtreeIfNeeded()
-        XCTAssertFalse(control.tryAgainLink.isHidden)
-        XCTAssertFalse(control.settingsLink.isHidden, "the fix is in Settings › AI")
-        XCTAssertEqual(control.label.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, .qDanger)
-        XCTAssertFalse(control.lineWords.contains("my notes"), "no words from the field in the failure")
+        let layer = layer(harness)
+        layer.afterline.layoutSubtreeIfNeeded()
+        XCTAssertFalse(layer.afterline.isHidden, "under the caret's line")
+        XCTAssertFalse(layer.afterline.actions[.tryAgain]?.isHidden ?? true)
+        XCTAssertFalse(layer.afterline.actions[.settings]?.isHidden ?? true, "the fix is in Settings › AI")
+        XCTAssertEqual(layer.afterline.content, .failed(reason: "The Anthropic API key was refused", offersSettings: true))
+        XCTAssertFalse(layer.afterline.lineWords.contains("my notes"), "no words from the field in the failure")
         XCTAssertNil(harness.controller.window?.attachedSheet, "no sheet")
         XCTAssertTrue(sheets.isEmpty)
 
         script.failure = nil
-        control.tryAgainLink.performClick(nil)
+        press(.tryAgain, in: layer)
         until({ session.phase == .written })
         XCTAssertEqual(field.string, "Tuesday at ten works. See you then.")
         script.failure = .keyRefused
         type("again", harness)
         commandJ(harness)
         until({ if case .failed = session.phase { return true } else { return false } })
-        control.settingsLink.performClick(nil)
+        press(.settings, in: layer)
         XCTAssertEqual(opened, 1)
     }
 
-    func testMovingAwayEndsTheLineAndClosesTheStrip() throws {
+    func testMovingAwayEndsTheAfterlineAndClosesThePromptLine() throws {
         let (harness, _) = try harness()
         defer { harness.close() }
         let field = type("tue 10 ok", harness)
         commandJ(harness)
         let session = try session(harness)
         until({ session.phase == .written })
-        harness.reader.helpMeWriteWithInstructions(nil)
-        XCTAssertTrue(session.isStripShown)
         field.window?.makeFirstResponder(harness.list.tableView)
-        XCTAssertEqual(session.phase, .idle, "the line about the reply goes as the user moves away")
-        XCTAssertFalse(session.isStripShown)
+        XCTAssertEqual(session.phase, .idle, "the afterline goes as the user moves away")
+        XCTAssertTrue(layer(harness).afterline.isHidden)
+        field.window?.makeFirstResponder(field)
+        harness.reader.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(session.isPromptShown)
+        field.window?.makeFirstResponder(harness.list.tableView)
+        XCTAssertFalse(session.isPromptShown, "and the prompt line closes")
     }
 
     // MARK: The bar and the conversation going away
@@ -1015,40 +792,61 @@ final class HelpMeWriteTests: XCTestCase {
         editor.insertText("will read", replacementRange: editor.selectedRange())
         let before = composer.bodyText
         XCTAssertTrue(before.hasSuffix("Alex"), "the signature sits below what was typed")
-        let control = composer.content.bottomBar.writeControl
-        XCTAssertTrue(control.showsHint, "the hint counts the user's own words, not the signature")
+        XCTAssertEqual(try XCTUnwrap(composer.bodyWriteSession).plan, .fromNotes, "the notes are the user's own words, not the signature")
         XCTAssertTrue(composer.validateMenuItem(writeItem))
         composer.helpMeWrite(nil)
         let session = try XCTUnwrap(composer.writeSession)
         until({ session.phase == .written })
         XCTAssertEqual(composer.bodyText, "Thanks, I'll read it tonight.\n\nAlex", "the reply replaces the notes and keeps the signature")
         MainWindowHarness.assertWritingStyle(composer.contents.body)
-        XCTAssertEqual(control.lineWords, "Written by Claude \u{00b7} \u{2318}J Try again \u{00b7} \u{21e7}\u{2318}J Say how \u{00b7} \u{2318}Z Undo")
+        XCTAssertEqual(composer.bodyWriteLayer.afterline.lineWords,
+                       "Written by Claude \u{00b7} Try again \u{2318}J \u{00b7} Shorter \u{00b7} Say how \u{21e7}\u{2318}J \u{00b7} Undo \u{2318}Z")
         XCTAssertEqual(editor.undoManager?.undoMenuItemTitle, "Undo Help Me Write")
         editor.undoManager?.undo()
         XCTAssertEqual(composer.bodyText, before)
     }
 
-    func testTheComposersStripDocksAboveTheBody() throws {
+    /// The composer's prompt line opens under the caret's line in the body: the signature under it moves down by its height
+    /// (the body's text is never covered), and back as it closes; a chip runs from the notes.
+    func testTheComposersPromptLineMakesRoomInTheBody() throws {
         let (harness, script) = try harness()
         defer { harness.close() }
+        try harness.environment.store.setSignature("<p>Alex</p>", for: ListTestSupport.accountA.id)
+        harness.controller.refreshAccounts()
         let composer = replyComposer(harness)
-        composer.window?.makeFirstResponder(composer.bodyEditor)
-        composer.bodyEditor.insertText("will read tonight", replacementRange: NSRange(location: 0, length: 0))
-        let content = composer.content
-        let bodyTop = content.scrollView.frame.minY
+        let editor = composer.bodyEditor
+        composer.window?.makeFirstResponder(editor)
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        editor.insertText("will read tonight", replacementRange: editor.selectedRange())
+        func signatureTop() -> CGFloat {
+            let signature = (editor.string as NSString).range(of: "Alex")
+            editor.layoutManager?.ensureLayout(for: editor.textContainer!)
+            let glyph = editor.layoutManager!.glyphIndexForCharacter(at: signature.location)
+            return editor.layoutManager!.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY
+        }
+        let before = signatureTop()
+        let height = editor.intrinsicContentSize.height
         XCTAssertTrue(composer.validateMenuItem(instructionsItem))
         composer.helpMeWriteWithInstructions(nil)
-        content.layoutSubtreeIfNeeded()
-        XCTAssertTrue(content.showsWriteStrip)
-        XCTAssertTrue(content.writeStrip.holdsFocus)
-        XCTAssertGreaterThan(content.scrollView.frame.minY, bodyTop, "the body gives the strip its height")
-        XCTAssertLessThanOrEqual(content.writeStrip.frame.maxY, content.scrollView.frame.minY, "above the text")
-        content.writeStrip.chips[1].performClick(nil)
+        let layer = composer.bodyWriteLayer
+        XCTAssertTrue(layer.prompt.fieldHoldsFocus)
+        XCTAssertTrue(layer.prompt.isDescendant(of: editor), "in the body's text")
+        XCTAssertEqual(signatureTop() - before, WritePromptLine.blockHeight, accuracy: 0.5, "the signature moved down by the line's height")
+        XCTAssertEqual(editor.intrinsicContentSize.height - height, WritePromptLine.blockHeight, accuracy: 0.5, "and the body grew by it")
+        XCTAssertGreaterThanOrEqual(editor.convert(layer.prompt.frame, from: layer.prompt.superview).minY,
+                                    editor.textContainerOrigin.y + 21 - 0.5, "under the caret's line")
+        layer.prompt.chips[1].performClick(nil)
         let session = try XCTUnwrap(composer.writeSession)
         until({ session.phase == .written })
         XCTAssertTrue(script.requests.first?.task.hasSuffix("Friendlier") == true)
         XCTAssertTrue(script.requests.first?.task.contains("will read tonight") == true)
+        XCTAssertFalse(layer.afterline.isHidden, "the afterline under the draft, in its own room")
+        XCTAssertTrue(session.escape(), "Esc dismisses the afterline")
+        XCTAssertTrue(layer.afterline.isHidden)
+        XCTAssertEqual(editor.textContainer?.exclusionPaths.count, 0, "the room is given back once nothing shows")
+        XCTAssertEqual(layer.reservedHeight, 0)
+        XCTAssertEqual(editor.reservedBottom, 0)
+        XCTAssertEqual(composer.bodyText.hasPrefix("Tuesday at ten works."), true, "the draft kept")
     }
 
     func testEscInAComposerStopsTheWriteBeforeItCanClose() throws {
@@ -1263,8 +1061,7 @@ final class HelpMeWriteTests: XCTestCase {
     }
 
     /// A composer's attachment strip is not the body: while a reply streams in, a file dropped on the window or pasted on
-    /// the body attaches as Attach Files… would, and the reply streams on, untouched. The drop outline lies over the open
-    /// instruction strip too, so nothing hides “Drop to attach”.
+    /// the body attaches as Attach Files… would, and the reply streams on, untouched.
     func testAComposerStillAttachesWhileAReplyStreams() throws {
         let (harness, script) = try harness(reply: "One two three four five six seven eight")
         defer { harness.close() }
@@ -1272,7 +1069,7 @@ final class HelpMeWriteTests: XCTestCase {
         let composer = replyComposer(harness)
         composer.window?.makeFirstResponder(composer.bodyEditor)
         composer.helpMeWriteWithInstructions(nil)
-        composer.content.writeStrip.chips[0].performClick(nil)
+        composer.bodyWriteLayer.prompt.chips[0].performClick(nil)
         let session = try XCTUnwrap(composer.writeSession)
         until({ composer.bodyText.hasPrefix("One two three four") })
         let content = try XCTUnwrap(composer.window?.contentView as? ComposeContentView)
@@ -1280,9 +1077,9 @@ final class HelpMeWriteTests: XCTestCase {
         defer { drag.draggingPasteboard.releaseGlobally() }
         XCTAssertEqual(content.draggingEntered(drag), .copy)
         XCTAssertTrue(content.showsDropOutline)
-        let strip = try XCTUnwrap(content.subviews.firstIndex(of: content.writeStrip))
+        let body = try XCTUnwrap(content.subviews.firstIndex(of: content.scrollView))
         let veil = try XCTUnwrap(content.subviews.firstIndex(of: content.dropOverlay))
-        XCTAssertGreaterThan(veil, strip, "the outline and its words are drawn over the strip")
+        XCTAssertGreaterThan(veil, body, "the outline and its words are drawn over the body, Help me write's marks included")
         XCTAssertTrue(content.performDragOperation(drag))
         XCTAssertFalse(content.showsDropOutline)
         XCTAssertEqual(composer.contents.attachments.map(\.filename), ["brief.txt"], "dropped while the reply streams")

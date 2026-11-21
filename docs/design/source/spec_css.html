@@ -248,6 +248,22 @@ code{font:11px/14px var(--q-mono)}
 .kbd{display:inline-flex;align-items:center;justify-content:center;height:18px;min-width:18px;padding:0 4px;border-radius:{{layout.kbd.radius}}px;background:var(--q-raised);box-shadow:inset 0 0 0 1px var(--q-rule),inset 0 -1px 0 var(--q-rule);font:var(--q-font-kbd);color:var(--q-ink2);white-space:nowrap;flex:none}
 .kbd.lg{height:24px;min-width:24px;font-size:12px;border-radius:5px;padding:0 6px}
 .kbd.os{background:transparent;box-shadow:inset 0 0 0 1px var(--q-onSlipEdge);color:var(--q-onSlip2)}
+.split{display:inline-flex;align-items:stretch;height:{{layout.button.regular.height}}px;border-radius:{{layout.button.regular.radius}}px;background:var(--q-accentFill);color:var(--q-onAccent);font:600 13px/16px var(--q-sans);white-space:nowrap;flex:none;position:relative}
+.split>.sa{display:inline-flex;align-items:center;gap:{{layout.button.glyphGap}}px;padding:0 6px 0 {{layout.button.regular.padX}}px;border-radius:inherit;border-top-right-radius:0;border-bottom-right-radius:0;position:relative}
+.split>.so{display:inline-flex;align-items:center;justify-content:center;width:{{layout.splitButton.menuWidth.1}}px;border-radius:inherit;border-top-left-radius:0;border-bottom-left-radius:0;position:relative}
+.split>.so::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:{{layout.splitButton.divider}}px;background:currentColor;opacity:{{layout.splitButton.dividerAlpha}}}
+.split .kbd.oa{height:{{layout.kbd.onFill}}px;min-width:{{layout.kbd.onFill}}px;margin-left:0;background:none;color:inherit;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor {{PY: '%d' % round(T.LAYOUT['kbd']['onFillEdgeAlpha'] * 100)}}%,transparent)}
+.split .sa .kbd.oa{margin-left:{{PY: T.LAYOUT['splitButton']['keycapGap'] - T.LAYOUT['button']['glyphGap']}}px}
+.split.sm{height:{{layout.button.small.height}}px;border-radius:{{layout.button.small.radius}}px;font-size:12px}
+.split.sm>.sa{padding:0 4px 0 {{layout.button.small.padX}}px;gap:5px}
+.split.sm>.so{width:{{layout.splitButton.menuWidth.0}}px}
+.split.sm>.so::before{top:3px;bottom:3px}
+.split>.hov{background:var(--q-accentFillHover)}.split>.prs{background:var(--q-accentFillPressed)}
+.split>.foc{box-shadow:0 0 0 2px var(--q-paper),0 0 0 4px var(--q-focus);z-index:1}
+.split>.so.wait{color:color-mix(in srgb,var(--q-onAccent) {{PY: '%d' % round(T.LAYOUT['splitButton']['dimAlpha'] * 100)}}%,transparent)}
+.split.quiet{background:var(--q-fill);color:var(--q-inkDisabled)}.split.quiet>.so{color:var(--q-ink2)}.split.quiet>.so.wait{color:var(--q-inkDisabled)}
+.split.inact{background:var(--q-raised);color:var(--q-ink);font-weight:500;box-shadow:inset 0 0 0 1px var(--q-ruleStrong)}
+.split.inact>.so{color:var(--q-ink2)}.split.inact>.so::before{background:var(--q-ruleStrong);opacity:1}.split.inact .kbd.oa{color:var(--q-ink2)}
 .then{font:var(--q-font-meta);color:var(--q-ink3);margin:0 4px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:6px;font:500 13px/16px var(--q-sans);white-space:nowrap;color:var(--q-ink);position:relative;flex:none}
 .btn.sm{height:22px;padding:0 9px;border-radius:5px;font-size:12px;gap:5px}

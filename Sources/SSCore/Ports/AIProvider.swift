@@ -14,7 +14,7 @@ public protocol AIProvider: Sendable {
 
     /// Whether it looks ready, from this Mac alone: a key is stored (its attributes, never its data, so no Keychain
     /// prompt), the CLI is there and executable, the version its path or an earlier check showed. No network, no process:
-    /// Settings › AI's status as it opens and the Write control's dimmed or ready state come from here.
+    /// Settings › AI's status as it opens and whether the reply's text shows Help me write's marks come from here.
     func localHealth() -> AIHealth
 
     /// The user's Check (or a key just saved): an API provider makes its cheapest authenticated call (`GET /v1/models`,
