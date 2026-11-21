@@ -113,9 +113,13 @@ final class ComposerWriteField: WriteField {
     var placeholderWidth: CGFloat? { nil }
 
     /// A block under the body's last line hangs below its text: the body grows by it, and the quoted original moves down.
+    /// A block inside the text (under a line the signature or more notes follow) moves those lines down without hanging
+    /// below anything: the body grows by it all the same, or they would run past the editor, over the quoted original and
+    /// out of reach of a click.
     func reservedSpaceDidChange() {
         guard let composer, let editor else { return }
         editor.reservedBottom = composer.bodyWriteLayer.overflow
+        editor.invalidateIntrinsicContentSize()
     }
 
     func setHeldOpen(_ held: Bool) {}

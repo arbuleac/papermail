@@ -388,6 +388,49 @@ final class HelpMeWriteCaretTests: XCTestCase {
         XCTAssertFalse(AIError.rateLimited(retryAfter: 30).lineMessage(for: .claudeAPI).contains("Try again"))
     }
 
+    /// In a composer a block often opens inside the body's text (under a line more notes or the signature follow): the
+    /// lines under it move down, and the body grows by as much, so they stay in the editor, over nothing of the quoted
+    /// original, where a click reaches them; and back as it closes.
+    func testABlockInsideTheComposersBodyGrowsIt() throws {
+        let (harness, _) = try harness(reply: "Thursday")
+        defer { harness.close() }
+        let (composer, session) = try composerSession(harness)
+        let editor = composer.bodyEditor
+        let lines = (1...30).map { "line \($0) of my notes" }.joined(separator: "\n")
+        editor.insertText(lines, replacementRange: NSRange(location: 0, length: 0))
+        let page = try XCTUnwrap(composer.window?.contentView)
+        page.layoutSubtreeIfNeeded()
+        func textFits(_ message: String) {
+            let used = editor.layoutManager!.usedRect(for: editor.textContainer!)
+            XCTAssertGreaterThanOrEqual(editor.frame.height, editor.textContainerOrigin.y + used.maxY - 0.5, message)
+        }
+        let height = editor.frame.height
+        textFits("at rest")
+
+        editor.setSelectedRange(NSRange(location: 3, length: 0))
+        composer.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(session.isPromptShown)
+        page.layoutSubtreeIfNeeded()
+        XCTAssertEqual(editor.frame.height - height, WritePromptLine.blockHeight, accuracy: 0.5, "the body grew by the prompt line")
+        textFits("its last line still in the editor")
+        session.closePrompt(focusText: true)
+        page.layoutSubtreeIfNeeded()
+        XCTAssertEqual(editor.frame.height, height, accuracy: 0.5, "and gave it back")
+
+        // A rewrite in the first line: the afterline under it, thirty lines below it.
+        editor.setSelectedRange(NSRange(location: 0, length: 4))
+        composer.helpMeWrite(nil)
+        until({ session.phase == .written })
+        page.layoutSubtreeIfNeeded()
+        XCTAssertFalse(session.layer.afterline.isHidden)
+        let afterline = WriteInlineLayer.Block.afterline(.end(0), .written(writer: "", rewrite: true, source: nil)).height
+        XCTAssertEqual(editor.frame.height - height, afterline, accuracy: 0.5, "the body grew by the afterline")
+        textFits("under the afterline too")
+        session.escape()
+        page.layoutSubtreeIfNeeded()
+        XCTAssertEqual(editor.frame.height, height, accuracy: 0.5)
+    }
+
     // MARK: The pencil
 
     func testThePencilFollowsTheLastWordAndAClickStops() throws {
