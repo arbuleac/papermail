@@ -203,7 +203,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             completion(nil)
             return
         }
-        webView.takeSnapshot(with: nil) { image, error in
+        // At `--snapshot-scale` past the screen's own, WebKit paints the page at that scale (a snapshot wider than the view,
+        // drawn back into the view's frame), so a render from a 1x screen shows the reader's Retina type and marks too.
+        var configuration: WKSnapshotConfiguration?
+        let backing = webView.window?.backingScaleFactor ?? 1
+        if let scale = SnapshotRenderer.scale, scale > backing {
+            configuration = WKSnapshotConfiguration()
+            configuration?.snapshotWidth = NSNumber(value: Double(webView.bounds.width * scale / backing))
+        }
+        webView.takeSnapshot(with: configuration) { image, error in
             if let error { Self.log.error("snapshot: web view capture failed: \(error.localizedDescription, privacy: .public)") }
             completion(image)
         }
@@ -258,7 +266,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // `wrap-…` states: a long text typed into the body instead of the demo's sample (WrapSnapshot).
         if WrapSnapshot.writeComposeSnapshot(from: mainWindow, to: path) { return }
         #endif
-        guard mainWindow?.openReplyComposer() == true else {
+        #if DEBUG
+        // `attachments`: the hand-off pack forwarded, its files on the strip (§5.22, §5.57), and no sample in the body.
+        let forwardsFiles = CommandLine.arguments.contains { $0.hasPrefix("--snapshot-state=") && $0.contains("attachments") }
+        #else
+        let forwardsFiles = false
+        #endif
+        guard (forwardsFiles ? mainWindow?.openForwardComposer() : mainWindow?.openReplyComposer()) == true else {
             Self.log.error("snapshot: no conversation to reply to")
             return
         }
@@ -266,13 +280,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // `write-…` state, Help me write on the body (§5.56).
         let composer = ComposeWindowRegistry.shared.openControllers.first
         #if DEBUG
-        if composer?.stageDebugWriteState() != true { composer?.writeDemoSample() }
+        if composer?.stageDebugWriteState() != true, !forwardsFiles { composer?.writeDemoSample() }
         composer?.stageDebugSendStates()
         #else
         composer?.writeDemoSample()
         #endif
-        // Let the composer lay out and load the quoted original.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        // Let the composer lay out and load the quoted original (and a forward's files).
+        DispatchQueue.main.asyncAfter(deadline: .now() + (forwardsFiles ? 3 : 1.5)) {
             MainActor.assumeIsolated {
                 guard let window = ComposeWindowRegistry.shared.openControllers.first?.window,
                       let view = window.contentView?.superview ?? window.contentView,

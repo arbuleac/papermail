@@ -8,4 +8,9 @@ public enum DemoComposerSample {
 
     /// The sunset at 480 × 300, the size of a pasted photo that fits the composer's body without scaling.
     public static let picture: Data = DemoAssets.makeSunsetPNG(width: 480, height: 300)
+
+    /// The work account's conversation whose last message carries a file of every common family (spec §5.57):
+    /// `--snapshot-state=attachments` opens it in the reader, and with `--snapshot-compose` forwards it, so the composer's
+    /// strip holds the same files.
+    public static let handoffSubject = "Brand refresh: the hand-off pack"
 }

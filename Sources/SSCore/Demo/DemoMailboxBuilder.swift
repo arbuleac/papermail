@@ -56,8 +56,8 @@ struct DemoMailboxBuilder {
         for (index, script) in scripts.enumerated() {
             let day = index < 3 ? Double(index) * 0.6 : random.unit() * Double(Self.historyDays - 5)
             // The long thread runs over the last fortnight, ending yesterday, and stays in the inbox.
-            addScript(script, startDaysAgo: script.isRecent ? 14 : day, style: quoteStyle(for: script),
-                      inInbox: script.isRecent ? true : nil)
+            addScript(script, startDaysAgo: script.isRecent ? 14 : (script.inboxDaysAgo ?? day), style: quoteStyle(for: script),
+                      inInbox: script.isRecent || script.inboxDaysAgo != nil ? true : nil)
         }
         // Invitations are the newest mail, so the inbox opens on a card (spec §5.14).
         for invitation in DemoInvitations.invitations(for: profile, reference: reference) {
@@ -297,6 +297,8 @@ struct DemoMailboxBuilder {
                         id: Self.trainingAttachmentID, filename: "training-schedule.csv", mimeType: "text/csv",
                         sizeBytes: DemoAssets.trainingCSV.count, isInline: false
                     ))
+                case .handoff:
+                    attachments.append(contentsOf: DemoHandoffFiles.attachments)
                 }
             }
             let rendered = DemoHTML.personal(text: line, style: style, quoted: quoted, inlineImageCID: cid)

@@ -146,7 +146,7 @@ final class DemoMailbox: @unchecked Sendable {
         case DemoMailboxBuilder.invoiceAttachmentID: return DemoAssets.invoicePDF
         case DemoMailboxBuilder.checklistAttachmentID: return DemoAssets.checklistPDF
         case DemoMailboxBuilder.trainingAttachmentID: return DemoAssets.trainingCSV
-        default: return nil
+        default: return DemoHandoffFiles.data(for: attachmentID)
         }
     }
 

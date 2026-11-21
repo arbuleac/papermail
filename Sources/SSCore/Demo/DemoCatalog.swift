@@ -14,6 +14,8 @@ enum DemoCatalog {
         case invoice
         /// Two files on one message, so the reader shows the count line and Download all (spec §5.17).
         case checklist
+        /// A brand hand-off pack: a file of every common family on one message, each wearing its file mark (spec §5.57).
+        case handoff
     }
 
     /// A conversation between people, written out. Lines alternate between the counterpart and Alex, starting
@@ -28,6 +30,8 @@ enum DemoCatalog {
         var starred = false
         /// Its last message a day or so old, in the inbox: the demo's long thread, so the inbox shows it.
         var isRecent = false
+        /// Started this many days ago and kept in the inbox, whatever the random spread would give it.
+        var inboxDaysAgo: Double?
     }
 
     struct Newsletter {
@@ -273,6 +277,12 @@ enum DemoCatalog {
             "Travel for two customer guests fits inside the budget we approved, about $1,200 all in.",
             "Great, so we're nearly there. Can you confirm you'll send the deposit before the 3rd, and are you happy to present the roadmap on Thursday morning? Also, should we invite the new hires to the dinner on Wednesday or keep it to the Thursday?",
         ], isRecent: true),
+        // A file of every common family on one message (spec §5.57), after the long thread so every thread before it keeps
+        // the mail it had; in the inbox a few days back, so it is there to open without leading it.
+        Script(subject: DemoComposerSample.handoffSubject, people: [marcus], lines: [
+            "Could you send me everything for the brand refresh before you're off next week? I'll take it from there.",
+            "Here's the whole hand-off pack: the guidelines, the budget and the attendee list, the agency contract and the launch deck, the review invite, the logo and the hero shot, my voice memo on the photography, and the press kit. The agency's old exports came as a rar, sorry. Release notes are in the txt.",
+        ], alexStarts: true, attachment: .handoff, attachmentOnLine: 1, inboxDaysAgo: 3.4),
     ]
 
     /// The work account's older threads on the demo's server, found only by a search of the server (spec §5.10).

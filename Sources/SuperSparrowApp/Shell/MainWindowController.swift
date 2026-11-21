@@ -1101,6 +1101,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 ((try? store.messages(in: row.id)) ?? []).contains { UnsubscribeMethod(message: $0) != nil }
             }?.id ?? newest
         }
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("attachments") }) {
+            // The demo's hand-off pack, a file of every common family on its last message (§5.57).
+            let store = environment.store
+            first = list.conversations.first { row in
+                ((try? store.messages(in: row.id)) ?? []).contains { $0.subject == DemoComposerSample.handoffSubject }
+            }?.id ?? newest
+        }
         #else
         let first = newest
         #endif
@@ -1132,6 +1139,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Debug aid for `--snapshot-compose`.
     func openReplyComposer() -> Bool {
         composeReply(all: false)
+    }
+
+    /// Debug aid for `--snapshot-compose` with `--snapshot-state=attachments`: forwards the selected conversation, so the
+    /// composer's strip holds its files.
+    func openForwardComposer() -> Bool {
+        composeForward()
     }
 
     // MARK: Notifications (§5.41)
