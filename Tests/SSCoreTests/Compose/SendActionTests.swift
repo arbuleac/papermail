@@ -28,6 +28,20 @@ final class SendActionTests: XCTestCase {
         XCTAssertEqual(SendAction.send.effective(answers: false), .send)
     }
 
+    /// The drop-down shows beside each action the key that does it while `current` is chosen (§5.23): ⌘↩ the checked one,
+    /// ⇧⌘↩ Send and Archive while Send is chosen, and nothing beside Send while Send and Archive is, since no key only sends
+    /// then. Never a key that does something else.
+    func testEachActionsKeyFollowsTheChoice() {
+        XCTAssertEqual(SendAction.sendAndArchive.key(whenChosen: .sendAndArchive), .commandReturn)
+        XCTAssertNil(SendAction.send.key(whenChosen: .sendAndArchive))
+        XCTAssertEqual(SendAction.send.key(whenChosen: .send), .commandReturn)
+        XCTAssertEqual(SendAction.sendAndArchive.key(whenChosen: .send), .shiftCommandReturn)
+        XCTAssertEqual(SendKey.commandReturn.legend, "⌘↩")
+        XCTAssertEqual(SendKey.shiftCommandReturn.legend, "⇧⌘↩")
+        XCTAssertEqual(SendKey.commandReturn.spoken, "⌘Return")
+        XCTAssertTrue(SendAction.sendAndArchive.tooltip.hasSuffix(SendKey.commandReturn.legend), "the tooltip names the same key")
+    }
+
     func testRawValuesAreStableForTheSavedPreference() {
         XCTAssertEqual(SendAction(rawValue: "sendAndArchive"), .sendAndArchive)
         XCTAssertEqual(SendAction(rawValue: "send"), .send)
