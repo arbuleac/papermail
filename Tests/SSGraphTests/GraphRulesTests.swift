@@ -355,6 +355,17 @@ final class GraphRulesTests: GraphTestCase {
         XCTAssertFalse(requests.contains { $0.method == "POST" })
     }
 
+    /// A sender address the read would not show again as this rule (no `@`, a group, a wildcard) is never sent: Exchange
+    /// would keep running a rule that vanishes from Senders. The create is refused before any request.
+    func testAnAddressTheReadWouldNotShowAgainIsRefusedWithoutARequest() async {
+        routeCreate(existing: [])
+        for address in ["MAILER-DAEMON", "a@x.example; b@x.example", "*@spam.example", "-promo@spam.example", ""] {
+            let error = await thrown { _ = try await self.makeProvider().createSenderRule(address: address, action: .trash) }
+            XCTAssertEqual(error as? RuleProviderError, .refused, address)
+        }
+        XCTAssertTrue(requests.isEmpty, "nothing sent")
+    }
+
     func testACreatedRuleWithoutAnIDIsAReplyThatDidNotRead() async {
         routeCreate(existing: [], created: "{}")
         let error = await thrown { _ = try await self.makeProvider().createSenderRule(address: "a@b.example", action: .trash) }

@@ -62,18 +62,23 @@ extension GraphProvider: RuleProvider {
     /// Creates the rule last in the order (`sequence` after the highest), enabled, stopping the rules after it, under a
     /// name the user can read in Outlook's settings. Reads the rules first for that order, and returns the id of an
     /// identical rule already there rather than make a second (a create sent again after a lost reply). An archive needs
-    /// the Archive folder's id, which is never guessed: a mailbox without one refuses the rule.
+    /// the Archive folder's id, which is never guessed: a mailbox without one refuses the rule. An address the read would
+    /// not show again as this rule (no single plain address) is refused before any request: Exchange would keep running a
+    /// rule that vanished from Senders.
     public func createSenderRule(address: String, action: SenderRule.Action) async throws -> String {
+        guard let wanted = ServerSenderRule.singleAddress(address) else {
+            Self.folderLog.notice("rules: a create refused here: the sender is no single plain address")
+            throw RuleProviderError.refused
+        }
         do {
             let rules = try await listRules()
             let archive = try await archiveFolderIDs(needed: action == .archive || rules.contains(where: \.movesToFolder))
-            let wanted = ServerSenderRule.singleAddress(address)
             if let existing = rules.lazy.compactMap({ Self.senderRule(from: $0, archiveFolderIDs: archive?.all ?? []) })
                 .first(where: { $0.address == wanted && $0.action == action }) {
                 return existing.serverID
             }
             let sequence = (rules.compactMap(\.sequence).max() ?? 0) + 1
-            guard let payload = Self.rulePayload(address: address, action: action, archiveFolderID: archive?.forCreate,
+            guard let payload = Self.rulePayload(address: wanted, action: action, archiveFolderID: archive?.forCreate,
                                                  sequence: sequence) else {
                 Self.folderLog.notice("rules: an archive rule needs the Archive folder, which this mailbox does not have")
                 throw RuleProviderError.refused

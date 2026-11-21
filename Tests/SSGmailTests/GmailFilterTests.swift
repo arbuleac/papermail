@@ -159,6 +159,20 @@ final class GmailFilterTests: XCTestCase {
         XCTAssertEqual(error as? RuleProviderError, .refused)
     }
 
+    /// Gmail reads a filter's `from` in its search grammar: a sender address that grammar reads as more than one plain
+    /// address (a leading `-` negates it, and a block would then take every other sender's mail; braces make a group, a
+    /// bare name matches far more) is never sent, and one the read would not show again as this rule (so it would vanish
+    /// from Senders while Gmail kept running it) neither. The create is refused before any request.
+    func testAnAddressGmailWouldReadAsMoreThanOneSenderIsRefusedWithoutARequest() async {
+        server.on("POST", filtersPath, .json(GmailFilterFixtures.created("ANe1BmjNew0003", from: "x", archive: false)))
+        for address in ["-promo@spam.example", "{a@x.example}", "MAILER-DAEMON", "a@x.example OR b@x.example", "\"x\"@y.example",
+                        "*@spam.example", ""] {
+            let error = await thrown { _ = try await self.provider().createSenderRule(address: address, action: .trash) }
+            XCTAssertEqual(error as? RuleProviderError, .refused, address)
+        }
+        XCTAssertTrue(server.requests.isEmpty, "nothing sent")
+    }
+
     func testACreatedFilterWithoutAnIDIsAReplyThatDidNotRead() async throws {
         server.on("POST", filtersPath, .json("{}"))
         let error = await thrown { _ = try await self.provider().createSenderRule(address: "x@y.example", action: .archive) }
