@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.12.0"
+VERSION = "1.14.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -369,7 +369,7 @@ LAYOUT = {
               "statusBarWidth": 96, "statusBarGap": 4, "savedGap": 8, "aiKeyFieldWidth": 220,
               "groupMaxRows": 6, "detailTop": 20, "detailRow": 40, "monogramFieldWidth": 64, "colourPopupWidth": 160, "lastErrorMaxLines": 3,
               "signatureLines": 3, "signatureFieldHeight": 66, "mailboxSizeGap": 12,
-              "sendersWidth": 440, "senderRow": 40, "senderRowsMax": 8, "senderRowX": 12, "senderActionGap": 12, "senderRemoveInset": 9,
+              "sendersWidth": 480, "senderRow": 40, "senderRowsMax": 8, "senderRowX": 12, "senderActionGap": 12, "senderRemoveInset": 9,
               "themeTile": [60, 40], "themeTileGap": 15, "themeRow": 76, "themeNameGap": 6, "themeUnderline": 2, "themeUnderlineGap": 3,
               "themeCaptionLines": 2, "themeTileSpine": 8, "themeTilePaper": 18, "themeTilePip": 4, "themeTileLine": 1.5, "themeTileInset": 4},
  # Paper faces (§5.55). The art is drawn in an `artBox`-unit square (paper_faces.json). Each layer casts a shadow by its lift
