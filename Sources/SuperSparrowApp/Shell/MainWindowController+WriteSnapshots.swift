@@ -18,6 +18,9 @@ import SSDesign
 /// - `write-failed`: the key refused, the afterline in `danger` with Try again and Settings…;
 /// - `write-rewrite`: part of the notes selected and rewritten, held mid-stream;
 /// - `write-unavailable`: a provider chosen but not turned on, ⌘J pressed: the reason under the caret's line.
+///
+/// `narrow` with any of them (`--snapshot-state=write-written,narrow`): the quick reply in a half-screen window; `long`:
+/// the reply as long as a real one.
 @MainActor
 enum WriteSnapshotStates {
     static let states = ["write-ghost-empty", "write-ghost-notes", "write-pill", "write-pill-start", "write-prompt", "write-writing", "write-written",
@@ -28,6 +31,14 @@ enum WriteSnapshotStates {
     static let notes = "tue 10 works, I\u{2019}ll bring the budget"
     static let reply = "Tuesday at ten works for me. I\u{2019}ll bring the draft budget, and we can go through the open "
         + "questions on the venue together."
+    /// `long`: a reply as long as a real one, past the quick reply's five lines.
+    static let longReply = "Hi Sam,\n\nTuesday at ten works for me. I\u{2019}ll bring the draft budget, and we can go through "
+        + "the open questions on the venue together.\n\nIf Wednesday suits the others better, I can move a call and make "
+        + "that work too; just let me know by Monday.\n\nSee you then,\nAlex"
+
+    /// `narrow` with a state: the window half a 2560 pt screen wide, the list ending where it usually does.
+    static let narrowWidth: CGFloat = 1_289
+    static let narrowListEdge: CGFloat = 463
 
     /// The state asked for on the command line, if any.
     static var requested: (state: String, all: Set<String>)? {
@@ -38,11 +49,12 @@ enum WriteSnapshotStates {
 
     /// Holds Claude chosen and turned on (or, for `write-unavailable`, not turned on) for this run, and scripts the demo
     /// writer for `state`.
-    static func prepare(_ center: HelpMeWrite, for state: String) {
+    static func prepare(_ center: HelpMeWrite, for state: String, all: Set<String> = []) {
         center.configurationOverride = AIProviderConfiguration(kind: .claudeAPI)
         center.consentOverride = state == "write-unavailable" ? [] : [.claudeAPI]
         guard let script = center.demoScript else { return }
-        script.reply = state == "write-rewrite" ? "I\u{2019}ll bring the draft budget and the venue options." : reply
+        script.reply = state == "write-rewrite" ? "I\u{2019}ll bring the draft budget and the venue options."
+            : all.contains("long") ? longReply : reply
         script.delay = .milliseconds(12)
         switch state {
         case "write-writing": script.holdsAfter = 7
@@ -101,7 +113,14 @@ extension MainWindowController {
         // A composer's snapshot stages the state on the composer instead: notes typed here would move into it.
         guard let (state, all) = WriteSnapshotStates.requested,
               !CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-compose=") }) else { return }
-        WriteSnapshotStates.prepare(environment.helpMeWrite, for: state)
+        WriteSnapshotStates.prepare(environment.helpMeWrite, for: state, all: all)
+        if all.contains("narrow"), let window, let content = window.contentView {
+            // A half-screen window, the list at its usual width: the reader's column at its narrowest in daily use.
+            window.setContentSize(NSSize(width: WriteSnapshotStates.narrowWidth, height: content.frame.height))
+            content.layoutSubtreeIfNeeded()
+            splitView.setPosition(WriteSnapshotStates.narrowListEdge, ofDividerAt: 1)
+            content.layoutSubtreeIfNeeded()
+        }
         conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in
             guard let self, self.conversation.focusQuickReply(all: false),
                   let session = self.conversation.quickReplyWriteSession else { return }
@@ -116,7 +135,7 @@ extension ComposeWindowController {
     func stageDebugWriteState() -> Bool {
         guard let (state, all) = WriteSnapshotStates.requested, let center = HelpMeWrite.current else { return false }
         keepNoDraft()
-        WriteSnapshotStates.prepare(center, for: state)
+        WriteSnapshotStates.prepare(center, for: state, all: all)
         guard let session = bodyWriteSession else { return false }
         // After the reply's prefill has placed the signature and the folded original.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in

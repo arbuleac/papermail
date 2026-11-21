@@ -390,6 +390,46 @@ final class HelpMeWriteCaretTests: XCTestCase {
         XCTAssertTrue(harness.controller.window?.firstResponder === field, "and the keyboard stays")
     }
 
+    /// A reply longer than the quick reply's five lines scrolls in it: the afterline under its last line still shows whole,
+    /// that line above it, and so does a prompt line opened under a line out of view; the field holds five lines and the
+    /// block, every line in view whole.
+    func testABlockUnderALongReplyShowsWhole() throws {
+        let long = "Hi Sam,\n\nTuesday at ten works for me. I\u{2019}ll bring the draft budget.\n\nIf Wednesday suits the others "
+            + "better, I can move a call.\n\nSee you then,\nAlex"
+        let (harness, _) = try harness(reply: long)
+        defer { harness.close() }
+        let (field, session) = try type("tue 10 ok", harness)
+        let bar = harness.reader.quickReplyBar
+        let clip = try XCTUnwrap(field.enclosingScrollView?.contentView)
+        func showsWhole(_ view: NSView, _ message: String) {
+            bar.layoutSubtreeIfNeeded()
+            let shown = clip.documentVisibleRect
+            let frame = view.frame
+            XCTAssertFalse(view.isHidden, message)
+            XCTAssertGreaterThanOrEqual(frame.minY, shown.minY - 0.5, "\(message): its top in view")
+            XCTAssertLessThanOrEqual(frame.maxY, shown.maxY + 0.5, "\(message): its bottom in view")
+            let line = field.layoutManager!.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height
+            let top = shown.minY - field.textContainerOrigin.y
+            XCTAssertEqual(top / line, (top / line).rounded(), accuracy: 0.01, "\(message): no line cut at the top (\(top))")
+        }
+        harness.reader.helpMeWrite(nil)
+        until({ session.phase == .written })
+        XCTAssertGreaterThan(field.frame.height, clip.bounds.height, "the reply is longer than the field")
+        showsWhole(session.layer.afterline, "the afterline")
+        let afterline = session.layer.afterline.frame
+        let last = field.layoutManager!.lineFragmentRect(forGlyphAt: field.layoutManager!.numberOfGlyphs - 1, effectiveRange: nil)
+        XCTAssertGreaterThanOrEqual(last.minY + field.textContainerOrigin.y, clip.documentVisibleRect.minY, "the last line above it")
+        XCTAssertLessThan(last.maxY, afterline.minY)
+
+        // ⇧⌘J under the first line, scrolled out of view: the line and the prompt under it come into view.
+        field.cancelOperation(nil)
+        field.setSelectedRange(NSRange(location: 3, length: 0))
+        clip.scroll(to: NSPoint(x: 0, y: field.frame.height - clip.bounds.height))
+        harness.reader.helpMeWriteWithInstructions(nil)
+        showsWhole(session.layer.prompt, "the prompt line")
+        XCTAssertLessThanOrEqual(clip.documentVisibleRect.minY, field.textContainerOrigin.y + 0.5, "its line above it")
+    }
+
     /// The afterline gives way where the column is tight, each step measured: the keycaps, then Shorter, then the words
     /// (the glyph stays), then Say how; a failure keeps its reason longest and cuts it where it must. Nothing past the room.
     func testTheAfterlineGivesWayInOrder() throws {
@@ -465,6 +505,29 @@ final class HelpMeWriteCaretTests: XCTestCase {
         session.escape()
         page.layoutSubtreeIfNeeded()
         XCTAssertEqual(editor.frame.height, height, accuracy: 0.5)
+    }
+
+    /// A reply that runs past the composer's window: the afterline under its last line scrolls into view with that line.
+    func testTheComposersAfterlineUnderALongReplyShowsWhole() throws {
+        let reply = (1...60).map { "Line \($0) of a long reply." }.joined(separator: "\n")
+        let (harness, _) = try harness(reply: reply)
+        defer { harness.close() }
+        let (composer, session) = try composerSession(harness)
+        let editor = composer.bodyEditor
+        editor.insertText("notes", replacementRange: NSRange(location: 0, length: 0))
+        let page = try XCTUnwrap(composer.window?.contentView)
+        page.layoutSubtreeIfNeeded()
+        composer.helpMeWrite(nil)
+        until({ session.phase == .written })
+        let afterline = session.layer.afterline
+        let clip = try XCTUnwrap(editor.enclosingScrollView?.contentView)
+        func inView() -> Bool {
+            let frame = afterline.convert(afterline.bounds, to: clip)
+            return frame.minY >= clip.bounds.minY - 0.5 && frame.maxY <= clip.bounds.maxY + 0.5
+        }
+        XCTAssertGreaterThan(editor.frame.height, clip.bounds.height, "the reply is longer than the window")
+        until({ inView() }, "the afterline scrolled into view: \(afterline.convert(afterline.bounds, to: clip)) in \(clip.bounds)")
+        XCTAssertFalse(afterline.isHidden)
     }
 
     /// A new text size moves every line: the block is measured again under its anchor and the quick reply takes the height

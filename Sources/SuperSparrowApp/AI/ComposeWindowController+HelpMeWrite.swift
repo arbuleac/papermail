@@ -120,6 +120,15 @@ final class ComposerWriteField: WriteField {
         guard let composer, let editor else { return }
         editor.reservedBottom = composer.bodyWriteLayer.overflow
         editor.invalidateIntrinsicContentSize()
+        guard composer.bodyWriteLayer.revealsBlock else { return }
+        // A block that just opened shows whole once the window has laid the grown body out: a reply that ends at the
+        // window's bottom edge would otherwise leave its afterline below it.
+        DispatchQueue.main.async { [weak editor, weak composer] in
+            MainActor.assumeIsolated {
+                editor?.window?.contentView?.layoutSubtreeIfNeeded()
+                composer?.bodyWriteLayer.revealBlockIfNeeded()
+            }
+        }
     }
 
     func setHeldOpen(_ held: Bool) {}

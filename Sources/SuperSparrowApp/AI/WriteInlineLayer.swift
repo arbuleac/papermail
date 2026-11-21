@@ -122,6 +122,8 @@ final class WriteInlineLayer {
     }
 
     private var containerWidth: CGFloat = 0
+    /// A block opened or changed and has not been scrolled into view yet (`revealBlockIfNeeded`).
+    private(set) var revealsBlock = false
     private var savedInsertionPointColor: NSColor?
     private var observers: [NSObjectProtocol] = []
     private static let signposter = OSSignposter(subsystem: "io.supersparrow.mac", category: "ai")
@@ -171,7 +173,11 @@ final class WriteInlineLayer {
         defer { Self.signposter.endInterval("ai.place", signpost) }
         let old = state
         state = new
-        if old.block != new.block { setBlock(new.block) }
+        if old.block != new.block {
+            // A block that opens, or shows something new, is scrolled into view once its host has made its room.
+            revealsBlock = new.block != nil
+            setBlock(new.block)
+        }
         place()
         if new.ghost != nil, !ghost.isHidden {
             if old.ghost == nil, new.ghost?.fades == true { ghost.fadeIn() } else if old.ghost == nil { ghost.showNow() }
@@ -426,6 +432,31 @@ final class WriteInlineLayer {
 
     /// Whether the keyboard is in the prompt line.
     var promptHoldsFocus: Bool { !prompt.isHidden && prompt.holdsFocus }
+
+    /// Scrolls the text so a block that just opened or changed shows whole, with the line it hangs under: a reply longer
+    /// than the field leaves the caret on its last visible line, and the afterline under it out of sight. Once per block;
+    /// the host calls it when the field has taken the block's room (after its layout), so the scroll is measured against
+    /// the room the field ends with. Scrolling back up past it afterwards is the reader's own.
+    func revealBlockIfNeeded() {
+        guard revealsBlock else { return }
+        revealsBlock = false
+        guard let rect = blockRect, textView.enclosingScrollView != nil else { return }
+        let origin = textView.textContainerOrigin
+        let anchorTop: CGFloat
+        switch state.block?.anchor {
+        case .caret(let at)?:
+            anchorTop = WriteTextGeometry.caret(at: at, in: textView, attributes: textAttributes).map { $0.line.minY - origin.y } ?? rect.minY
+        case .end(let at)?:
+            anchorTop = WriteTextGeometry.lastLine(endingAt: at, in: textView)?.minY ?? rect.minY
+        case nil:
+            anchorTop = rect.minY
+        }
+        let shown = NSRect(x: 0, y: origin.y + min(anchorTop, rect.minY), width: textView.bounds.width,
+                           height: rect.maxY - min(anchorTop, rect.minY))
+        // Where the field cannot hold the line and the block together, the block wins: it holds what to do next.
+        let visible = textView.visibleRect.height
+        textView.scrollToVisible(shown.height > visible ? NSRect(x: 0, y: shown.maxY - visible, width: shown.width, height: visible) : shown)
+    }
 
     /// The height the text needs with the block: its used rect, and the block where it hangs below it.
     var contentHeight: CGFloat {

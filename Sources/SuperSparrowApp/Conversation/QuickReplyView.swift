@@ -180,11 +180,21 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// A block (the prompt line, the afterline) opened, closed or moved in the text: the text view holds it, and the field
     /// grows by it.
     func writeSpaceDidChange() {
-        let block = madeWriteLayer?.blockRect != nil
-        textView.minSize = NSSize(width: 0, height: block ? madeWriteLayer?.contentHeight ?? 0 : 0)
-        textView.sizeToFit()
+        holdWriteSpace()
         updateHeight(animated: false)
         needsLayout = true
+    }
+
+    /// The text view as tall as the text and a block that hangs below its last line, and never shorter than the field's
+    /// text area, whose empty part is the text's to click. The scroll view sets the text's least height to its own each
+    /// time it resizes, which drops the block's room: below a reply longer than the field the block would lie past the
+    /// text's end, where no scroll reaches. The layout holds it again after every resize.
+    private func holdWriteSpace() {
+        let block = madeWriteLayer?.blockRect != nil ? madeWriteLayer?.contentHeight ?? 0 : 0
+        let least = max(block, scrollView.contentSize.height)
+        guard abs(textView.minSize.height - least) > 0.5 || textView.frame.height < least - 0.5 else { return }
+        textView.minSize = NSSize(width: 0, height: least)
+        textView.sizeToFit()
     }
 
     /// The layer, once Help me write has made it (the bar never makes it for nothing).
@@ -636,6 +646,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         textView.frame.size.width = scrollView.contentSize.width
         scrollView.hasVerticalScroller = looksFocused && lineCount >= Int(m.maxLines)
         if rewrapped, isFocused { textView.scrollRangeToVisible(textView.selectedRange()) }
+        // A prompt line or afterline that just opened shows whole, now that the field has its room: a reply longer than
+        // five lines would otherwise leave it under the last line in view.
+        if madeWriteLayer != nil { holdWriteSpace() }
+        if extra > 0 { madeWriteLayer?.revealBlockIfNeeded() }
         let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
         placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (lineHeight - placeholderHeight) / 2).rounded(),
                                    width: textWidth + 4, height: placeholderHeight)
