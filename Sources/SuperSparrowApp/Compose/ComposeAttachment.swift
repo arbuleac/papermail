@@ -117,8 +117,4 @@ struct ComposeAttachment: Identifiable, Hashable, Sendable {
     static func mimeType(forExtension pathExtension: String) -> String {
         UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? "application/octet-stream"
     }
-
-    static func formattedSize(_ bytes: Int) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
 }
