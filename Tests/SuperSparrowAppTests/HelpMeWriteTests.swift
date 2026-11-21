@@ -199,7 +199,7 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(control.lineWords, "\u{2318}J writes from your notes")
         bar.layoutSubtreeIfNeeded()
         XCTAssertFalse(control.label.isHidden)
-        XCTAssertTrue(control.frame.maxX <= bar.subviews.compactMap { $0 as? QuireButton }.first { $0.title == "Send" }.map(\.frame.minX) ?? .greatestFiniteMagnitude,
+        XCTAssertTrue(control.frame.maxX <= bar.subviews.compactMap { $0 as? QuireSplitButton }.first.map(\.frame.minX) ?? .greatestFiniteMagnitude,
                       "the hint never runs under Send")
         XCTAssertFalse(bar.writingTextView.frame.intersects(control.frame), "nor over the text")
     }
@@ -302,7 +302,7 @@ final class HelpMeWriteTests: XCTestCase {
             window.setContentSize(NSSize(width: width, height: 240))
             window.layoutIfNeeded()
             bar.layoutSubtreeIfNeeded()
-            let send = bar.subviews.compactMap { $0 as? QuireButton }.first { $0.title == "Send" }
+            let send = bar.subviews.compactMap { $0 as? QuireSplitButton }.first
             return send.map { $0.alignmentRect(forFrame: $0.frame) } ?? .zero
         }
 
@@ -474,7 +474,8 @@ final class HelpMeWriteTests: XCTestCase {
         lone.control.phase = .written
         lone.layOut(width: 760)
         let tools = lone.bar.subviews.compactMap { $0 as? QuireIconButton }.filter { !$0.isHidden }
-        XCTAssertEqual(tools.count, 3, "Attach, Open in Composer and Send's options")
+        XCTAssertEqual(tools.count, 2, "Attach and Open in Composer")
+        XCTAssertFalse(lone.bar.subviews.compactMap { $0 as? QuireSplitButton }.first?.isHidden ?? true, "and Send with its options")
         XCTAssertFalse(lone.view(QuireUnderlineTabs.self)?.isHidden ?? true)
         XCTAssertEqual(lone.control.shownWords, "Written by Claude Try again Say how Undo", "its keycaps gave way first")
         // VoiceOver hears the whole line, keys included.

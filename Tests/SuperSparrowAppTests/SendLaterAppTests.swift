@@ -103,7 +103,7 @@ final class SendLaterAppTests: XCTestCase {
         XCTAssertEqual(menu.items.prefix(2).map(\.title), ["Send and Archive", "Send"])
         XCTAssertTrue(menu.items[2].isSeparatorItem)
         XCTAssertTrue(menu.items[3].isSectionHeader)
-        XCTAssertEqual(menu.items[3].title, "Send Later")
+        XCTAssertEqual(menu.items[3].title, "Send Later  ⇧⌘L", "a heading draws no key equivalent: ⇧⌘L follows its words")
         let times = menu.items.dropFirst(4).dropLast()
         let offered = SendLaterPreset.offered(at: Date(), calendar: .autoupdatingCurrent)
         // Each item's title is its name, then its time on a tab stop.
@@ -111,10 +111,10 @@ final class SendLaterAppTests: XCTestCase {
         XCTAssertEqual(times.compactMap { $0.representedObject as? Date }, offered.map(\.date))
         XCTAssertEqual(times.first?.attributedTitle?.string, "Tomorrow\t" + time(offered[0].date), "its time beside it")
         XCTAssertEqual(menu.items.last?.title, "Pick a Time…")
-        XCTAssertTrue(menu.items.allSatisfy { $0.keyEquivalent.isEmpty })
+        XCTAssertTrue(menu.items.dropFirst(2).allSatisfy { $0.keyEquivalent.isEmpty }, "the times are no key's")
 
         let later = composer.sendLaterMenu()
-        XCTAssertEqual(later.items.map { name(of: $0) }, ["Send Later"] + offered.map(\.preset.title) + ["Pick a Time…"])
+        XCTAssertEqual(later.items.map { name(of: $0) }, ["Send Later  ⇧⌘L"] + offered.map(\.preset.title) + ["Pick a Time…"])
         // Each time says, where a sighted user sees it, that it sends only while the app is open (spec §5.46).
         for (item, preset) in zip(times, offered) {
             XCTAssertEqual(item.toolTip, "Sends " + time(preset.date) + " while SuperSparrow is open")
@@ -438,7 +438,7 @@ final class SendLaterAppTests: XCTestCase {
         bar.text = "Thanks, see you Monday"
         let menu = bar.sendOptionsMenu()
         XCTAssertEqual(menu.items.last?.title, "Pick a Time…")
-        XCTAssertEqual(bar.sendLaterMenu().items.first?.title, "Send Later")
+        XCTAssertEqual(bar.sendLaterMenu().items.first?.title, "Send Later  ⇧⌘L")
         let date = Date().addingTimeInterval(86_400)
         bar.sendLater(at: date)
         let send = try XCTUnwrap(sends(harness).first)
