@@ -1,13 +1,13 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="lockup-horizontal-white.svg">
-  <img src="lockup-horizontal.svg" alt="Paper" width="420">
+  <img src="lockup-horizontal.svg" alt="Paper" width="250">
 </picture>
 
 # Paper brand marks
 
 The mark is a **paper plane**: one sheet of white paper folded into a dart and drawn on an isometric grid. The trailing edge, the spine and the keel run on the grid's 1:2 lines, and the near wing and the keel share one straight 45° edge, so the outline is a single clean shape cut by two folds. It sits white on a black tile, paper on ink, so the app that sends your mail reads as a paper plane in the Dock at every size down to 16 pixels. It is black and white only, every edge a straight line, every corner sharp. The wordmark is drawn from straight strokes, mitred joins and 45° chamfers to match, never set in a font.
 
-Everything here except this README and `source/` is built by `swift scripts/tools/brand-assets.swift` from the mark in `docs/design/tokens.json` (`paper.paperPlane`, the inks and lockup metrics in `layout.brand`, the icon grid in `layout.appIcon`) and the wordmark's outlines in `source/wordmark.svg`. Change those and run it again; never edit the files by hand. `--check` writes nothing and lists every file here that no longer matches what the script draws; `scripts/test.sh` runs it. The app icon is built separately (`scripts/tools/app-icon.swift`, spec §5.42) from the same mark and palette.
+Everything here except this README and `source/` is built by `swift scripts/tools/brand-assets.swift` from the mark in `docs/design/tokens.json` (`paper.paperPlane`, the inks and lockup metrics in `layout.brand`, the icon grid in `layout.appIcon`) and the wordmark's outlines in `source/wordmark.svg`. Change those and run it again; never edit the files by hand. `--check` writes nothing and lists every file here that no longer matches what the script draws; `scripts/test.sh` runs it, and `BrandFilesTests` holds what the script draws to clean pixels: the on-black lockup's ground covers every pixel, and the other files are one colour with their clear space empty. The app icon is built separately (`scripts/tools/app-icon.swift`, spec §5.42) from the same mark and palette.
 
 ## Construction
 
@@ -43,17 +43,17 @@ The plane is drawn on the app icon's 1024 canvas, on an 8 px construction grid (
 | `symbol`, `symbol-white` | The plane alone, from 24 px wide up. Below that use the app icon, whose 16 and 32 px images are pixel-fitted |
 | `construction` | The plane on its grid and lattice, with the lines it is built on and its vertices (for reference, not for use as a logo) |
 
-Each comes as SVG (use it wherever you can) and PNG: the symbol at 1 px per pixel of the icon in the SVG (800 × 640) and 1600 × 1280 px; the lockups 3504 × 770 px and the wordmark 2697 × 636 px, each twice its SVG's size; the construction drawing 1024 px. Every file is paths only: no text, fonts, images or links.
+Each comes as SVG (use it wherever you can) and PNG: the symbol at 1 px per pixel of the icon in the SVG (800 × 640) and 1600 × 1280 px; the lockups 2092 × 770 px and the wordmark 1284 × 636 px, each twice its SVG's size; the construction drawing 1024 px. Every file is paths only: no text, fonts, images or links.
 
 ## Clear space and size
 
 - **Clear space** is built into every file, so place the file whole and let nothing into its frame: one step of the lattice (80 px on the icon, 10 units) around the symbol, and half the cap height around the wordmark and the lockups.
-- **Minimum size**: the plane at least 24 px wide wherever it appears: the symbol 24 px wide, and the lockup 120 px wide across its ink (130 px for the file with its clear space), where the plane is 24 px. 180 px is the comfortable small size. Below 24 px the folds close up, which is why the app icon carries separate 16 and 32 px masters.
+- **Minimum size**: the plane at least 24 px wide wherever it appears: the symbol 24 px wide, and the lockup 70 px wide across its ink (80 px for the file with its clear space), where the plane is 25 px. 105 px is the comfortable small size. Below 24 px the folds close up, which is why the app icon carries separate 16 and 32 px masters.
 - **Beside the word** the plane is 1.75 cap heights tall (1225 wordmark units at a cap height of 700), its box centred on the cap height, and 0.55 cap heights (385) from the plane's box to the word's origin.
 
 ## The wordmark
 
-`source/wordmark.svg` is the master: “Paper” in straight strokes 100 units wide, cap height 700, x-height 520, descender 190, each letter built from centreline polylines stroked with mitred joins and butt caps and then unioned. Corners are chamfered at 45°, and the S's spine runs at the plane's 1:2 slope. It is 6042 units from its origin to its advance. Outer contours run anticlockwise on screen and counters clockwise, so it fills the same under nonzero and even-odd.
+`source/wordmark.svg` is the master: “Paper” in straight strokes 100 units wide, cap height 700, x-height 520, descender 190, each letter built from centreline polylines stroked with mitred joins and butt caps and then unioned. Corners are chamfered at 45°. The capital P is drawn in the family of the lowercase a, p, e and r, its stem the full cap height and its bowl closing on the line of the a's bar. It is 2511 units from its origin to its advance, and its side bearings are uneven on purpose: 50 units before the P, whose full-height straight stem wants more room than a round letter (the previous wordmark's S had 30), and none after the r, whose open arm already carries white on its right. So the ink sits 25 units right of the frame's centre (10 px in the wordmark PNGs), and the clear space, measured from the frame, is 400 units on the P's side and exactly 350 on the r's. Where the word stands alone and centred, centre its ink, not the file, as the welcome screen does. Outer contours run anticlockwise on screen and counters clockwise, so it fills the same under nonzero and even-odd.
 
 ## Colour
 
