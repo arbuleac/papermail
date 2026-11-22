@@ -18,30 +18,24 @@ enum SenderRuleCopy {
     /// The toast a new rule leaves: “Gmail will archive mail from news@letter.example”, “Outlook will block
     /// deals@shop.example”. The server does it from now on, so it is said in the future and names the server; the
     /// address goes last, so a long one loses its end to the slip's truncation and the verb stays. When Always Archive
-    /// took mail beyond the conversation it was set from (`archived`, the conversations it archived mail in, in every
-    /// Inbox), what it did now comes first, in the past, as a toast's action does: “Archived 12 conversations · Gmail will
-    /// archive mail from news@letter.example”. Conversations, not messages: a conversation is what leaves the Inbox and
-    /// what the list shows. Beside Undo and Z, a list of the default width has no room for both sentences and the start of
-    /// the address, so where `fits` says the words before the address would be cut, the count keeps the address beside
-    /// it and the rule's sentence goes: “Archived 12 conversations from news@letter.example”, as the snooze's toast keeps
-    /// its time (`MailActionCopy.snoozed(until:fits:)`).
-    static func toast(_ action: SenderRule.Action, address: String, kind: ProviderKind, archived conversations: Int? = nil,
-                      fits: (String) -> Bool = { _ in true }) -> String {
+    /// took rows out of the Inbox beyond the conversation it was set from (`archived`, the conversations it took out of
+    /// every Inbox, `SenderRuleSweep.counted`), what it did comes first, in the past, as a toast's action does, then the
+    /// rule, in the server's own word, and the address: “Archived 12 · Gmail filter for news@letter.example”,
+    /// “Archived 3 · Outlook rule for …”. Short, as “Marked 3 as unread” is, because the toast lives in the list: beside
+    /// Undo and Z, the list at its default width shows the count (to four digits) and the rule whole and cuts only the
+    /// address, and at its widest shows the address's start too. The rule's longer sentence after a count (“Archived 12
+    /// conversations · Gmail will archive mail from …”) never fitted the list, which then showed the count alone and no
+    /// longer said there was a rule.
+    static func toast(_ action: SenderRule.Action, address: String, kind: ProviderKind, archived conversations: Int? = nil) -> String {
         switch action {
         case .archive:
-            let rule = "\(service(kind)) will archive mail from"
-            guard let conversations, conversations > 0 else { return "\(rule) \(address)" }
+            guard let conversations, conversations > 0 else { return "\(service(kind)) will archive mail from \(address)" }
             let n = conversations.formatted(.number.grouping(.automatic))
-            let counted = "Archived \(n) \(conversations == 1 ? "conversation" : "conversations")"
-            // The words before the address, and the address's first letters: the least the long form must show.
-            let start = String(address.prefix(addressStart))
-            return fits("\(counted) · \(rule) \(start)") ? "\(counted) · \(rule) \(address)" : "\(counted) from \(address)"
+            let rule = kind == .gmail ? "Gmail filter" : "Outlook rule"
+            return "Archived \(n) · \(rule) for \(address)"
         case .trash: return "\(service(kind)) will block \(address)"
         }
     }
-
-    /// How much of the address the long form of a counting toast must leave room for.
-    private static let addressStart = 6
 
     /// What a rule does, beside its address in Senders.
     static func detail(_ action: SenderRule.Action) -> String {

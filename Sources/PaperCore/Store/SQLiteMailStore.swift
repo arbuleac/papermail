@@ -380,6 +380,11 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try ConversationTable.unreadInboxCount(accountIDs: accountIDs, in: $0) }
     }
 
+    public func summaries(of conversations: [ConversationID]) throws -> [ConversationID: ConversationSummary] {
+        guard !conversations.isEmpty else { return [:] }
+        return try read { try ConversationTable.summaries(of: conversations, in: $0) }
+    }
+
     // MARK: Snoozes
 
     public func snoozes() throws -> [Snooze] {
@@ -435,10 +440,12 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
     }
 
     public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
-                              enqueueing operations: [Operation], at now: Date) throws {
+                              enqueueing operations: [Operation], at now: Date, returnMarks: [ConversationID: Date]) throws {
         try write { db in
             for operation in operations { try OperationTable.enqueue(operation, in: db) }
             try SenderRuleTable.set(action, for: address, accountID: accountID, now: now, in: db)
+            // Last, once an undo's inverse steps have put the conversations back in the Inbox, which a mark needs.
+            for (conversation, date) in returnMarks { try SnoozeTable.markReturned(conversation, at: date, in: db) }
         }
     }
 

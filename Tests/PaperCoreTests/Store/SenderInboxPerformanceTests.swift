@@ -4,14 +4,18 @@ import XCTest
 /// Always Archive Mail from This Sender reads the sender's mail in every Inbox on the click (`inboxMessages(from:)`,
 /// docs/ARCHITECTURE.md "Rules" and "Performance budgets"): 16 ms at the median and 50 ms at worst on the synthetic
 /// mailbox (`PerfMailbox`, 300,000 messages in three accounts, 156,574 of them in the Inbox) in a real file, for its
-/// busiest sender (753 messages in the Inbox), the same address in capitals, the sender with the fewest and an address with
-/// none; and, reported, the rule's whole transaction with its archive in every account, its undo, and the read for a
-/// newsletter with 5,000 messages in the Inbox, whose local part is too common to narrow by, which costs what it returns.
+/// busiest sender (753 messages in the Inbox), the same address in capitals, the sender with the fewest, an address with
+/// none, and a newsletter with 20,000 messages, 5,000 of them in the Inbox, whose local part is too common to narrow by and
+/// whose read costs what it returns. Reported: the rule's whole step for the busiest sender and for the newsletter (the
+/// read, the summaries before and after, the transaction with its archive in every account) and its undo, beyond the
+/// 16 ms of a key's few conversations, and held: the outbox writing such an operation again before each attempt, which
+/// the user's next action would wait behind, never in proportion to its targets.
 /// Loading the mailbox takes a while, so it only runs with `PAPER_PERF=1`:
 ///
 ///     PAPER_PERF=1 swift test -c release -Xswiftc -enable-testing --filter SenderInboxPerformanceTests
 ///
-/// It holds the budget in a debug build too (`PAPER_PERF=1 swift test --filter SenderInboxPerformanceTests`).
+/// It holds the budget in a debug build too (`PAPER_PERF=1 swift test --filter SenderInboxPerformanceTests`), but for the
+/// newsletter, whose 5,000 messages take twice as long to decode unoptimized: that one is held in release builds alone.
 /// `PAPER_PERF_MESSAGES` sets another size.
 final class SenderInboxPerformanceTests: XCTestCase {
     private let runs = 21
@@ -46,57 +50,72 @@ final class SenderInboxPerformanceTests: XCTestCase {
             XCTAssertEqual(found.count, expected, label)
         }
 
-        // The rule's transaction, as the window makes it: the read, the sweep, then the rule and an archive per account;
-        // and its undo. Reported: a write, not the read the budget is for.
-        let sender = busiest.key
-        let accountID = try XCTUnwrap(mailbox.accounts.first).id
-        var sweep: SenderRuleSweep?
-        let set = try PerfMailbox.milliseconds {
-            let found = try store.inboxMessages(from: sender)
-            let made = SenderRuleSweep(.archive, address: sender, setFrom: try XCTUnwrap(found.first).conversationID,
-                                       conversationMessages: [], inboxMessages: found,
-                                       ownAddresses: Dictionary(uniqueKeysWithValues: mailbox.accounts.map { ($0.id, $0.email) }))
-            sweep = made
-            let operations = MailActionRecord.Step(change: .archive, targets: made.record?.targets ?? [])
-            try store.setSenderRule(.archive, for: sender, accountID: accountID,
-                                    enqueueing: operations.operationsPerAccount(at: Date()), at: Date())
-        }
-        let taken = try XCTUnwrap(sweep)
-        PerfMailbox.report("Always Archive set: \(taken.record?.targets.count ?? 0) messages in \(taken.conversations.count) "
-                           + "conversations, \(taken.accounts.count) accounts, read and write", set)
-        XCTAssertEqual(try store.inboxMessages(from: sender), [], "every Inbox emptied of the sender")
-        let undo = try PerfMailbox.milliseconds {
-            let back = MailActionRecord.Step(change: .moveToInbox, targets: taken.record?.targets ?? [])
-            try store.setSenderRule(nil, for: sender, accountID: accountID, enqueueing: back.operationsPerAccount(at: Date()), at: Date())
-        }
-        PerfMailbox.report("Always Archive undone", undo)
-
-        // A newsletter with 5,000 messages in the Inbox across the accounts: the read costs what it returns, not the mailbox.
+        // A newsletter with 20,000 messages across the accounts, 5,000 of them in the Inbox, each its own conversation.
         let letter = EmailAddress(name: "Weekly Letter", address: "news@letter.example")
-        let issues = (0..<5_000).map { index -> MessageMetadata in
+        let issues = (0..<20_000).map { index -> MessageMetadata in
             let account = mailbox.accounts[index % mailbox.accounts.count]
             return MessageMetadata(id: MessageID(accountID: account.id, providerID: "letter-\(index)"),
                                    conversationID: ConversationID(accountID: account.id, providerID: "letter-\(index)"),
                                    subject: "Issue \(index)", snippet: "This week", from: letter, to: [EmailAddress(address: account.email)],
-                                   date: mailbox.options.now.addingTimeInterval(-Double(index) * 3_600), roles: [.inbox], isRead: true,
-                                   isStarred: false, hasAttachments: false)
+                                   date: mailbox.options.now.addingTimeInterval(-Double(index) * 3_600), roles: index % 4 == 0 ? [.inbox] : [],
+                                   isRead: true, isStarred: false, hasAttachments: false)
         }
         for batch in stride(from: 0, to: issues.count, by: PerfMailbox.batchSize) {
             try store.upsertMessages(Array(issues[batch..<min(batch + PerfMailbox.batchSize, issues.count)]))
         }
-        let letters = try timings { try store.inboxMessages(from: letter.address) }
-        PerfMailbox.report("a newsletter with \(letters.value.count) messages in the Inbox (median)", letters.median)
-        PerfMailbox.report("a newsletter with \(letters.value.count) messages in the Inbox (max)", letters.max)
-        XCTAssertEqual(letters.value.count, issues.count)
+        // Decoding 5,000 messages is what this read costs, about twice as long unoptimized: held in release builds alone.
+        XCTAssertEqual(try measure("a newsletter of 20,000", inDebug: false) { try store.inboxMessages(from: letter.address) }.count, 5_000)
+
+        // The rule's whole step, as the window takes it, and its undo. Reported: an archive of hundreds or thousands of
+        // conversations at once, which the 16 ms of a key's few does not cover.
+        let own = Dictionary(uniqueKeysWithValues: mailbox.accounts.map { ($0.id, $0.email) })
+        let accountID = try XCTUnwrap(mailbox.accounts.first).id
+        for (label, sender) in [("the busiest sender", busiest.key), ("the newsletter", letter.address)] {
+            var sweep: SenderRuleSweep?
+            var archived: [ConversationID] = []
+            let set = try PerfMailbox.milliseconds {
+                let found = try store.inboxMessages(from: sender)
+                let made = SenderRuleSweep(.archive, address: sender, setFrom: try XCTUnwrap(found.first).conversationID,
+                                           conversationMessages: [], inboxMessages: found, ownAddresses: own)
+                sweep = made
+                _ = try store.summaries(of: made.conversations)
+                let operations = MailActionRecord.Step(change: .archive, targets: made.record?.targets ?? [])
+                try store.setSenderRule(.archive, for: sender, accountID: accountID,
+                                        enqueueing: operations.operationsPerAccount(at: Date()), at: Date())
+                archived = made.archived(after: try store.summaries(of: made.conversations))
+            }
+            let taken = try XCTUnwrap(sweep)
+            PerfMailbox.report("Always Archive set for \(label): \(taken.record?.targets.count ?? 0) messages, \(archived.count) "
+                               + "conversations out of the Inbox, \(taken.accounts.count) accounts, reads and write", set)
+            XCTAssertEqual(try store.inboxMessages(from: sender), [], "every Inbox emptied of \(label)")
+
+            // The outbox writes the biggest operation again before its first attempt: never in proportion to its targets.
+            var operation = try XCTUnwrap(try store.pendingOperations(accountID: accountID, limit: 10).last)
+            operation.status = .uncertain
+            operation.attempts = 1
+            operation.nextAttemptAt = Date().addingTimeInterval(60)
+            let writeAhead = try PerfMailbox.milliseconds { try store.updateOperation(operation) }
+            PerfMailbox.report("the outbox's write-ahead of \(label)'s \(operation.targets.count) targets", writeAhead)
+            XCTAssertLessThan(writeAhead, 16, "the write-ahead of \(label)'s operation")
+
+            let undo = try PerfMailbox.milliseconds {
+                let back = MailActionRecord.Step(change: .moveToInbox, targets: taken.record?.targets ?? [])
+                try store.setSenderRule(nil, for: sender, accountID: accountID, enqueueing: back.operationsPerAccount(at: Date()), at: Date())
+            }
+            PerfMailbox.report("Always Archive undone for \(label)", undo)
+        }
         try store.close()
     }
 
     /// The median and the slowest of `runs` reads after one warm-up, reported and held to the budget.
     @discardableResult
-    private func measure(_ label: String, _ read: () throws -> [MessageMetadata]) throws -> [MessageMetadata] {
+    private func measure(_ label: String, inDebug: Bool = true, _ read: () throws -> [MessageMetadata]) throws -> [MessageMetadata] {
         let result = try timings(read)
         PerfMailbox.report("inboxMessages(from:) for \(label), \(result.value.count) messages (median)", result.median)
         PerfMailbox.report("inboxMessages(from:) for \(label), \(result.value.count) messages (max)", result.max)
+        #if DEBUG
+        guard inDebug else { return result.value }
+        #endif
         XCTAssertLessThan(result.median, 16, "median for \(label)")
         XCTAssertLessThan(result.max, 50, "slowest for \(label)")
         return result.value

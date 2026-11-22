@@ -54,9 +54,10 @@ public protocol MailClient: AnyObject {
     /// `accountID`'s alone and lives on its server (a Gmail filter, an Outlook inbox rule): the store shows it at once as
     /// a change on its way there (`SenderRule.sync`), and the engine creates, replaces or deletes it on the server,
     /// asking the account for `AccountPermission.rules` on its next reconnect while it lacks it. Every account the steps
-    /// touch has its outbox woken. Local state updates before this returns.
+    /// touch has its outbox woken. An undo also passes the return marks the change ended (`MailActionRecord.returnedAt`),
+    /// put back in that transaction. Local state updates before this returns.
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
-                       performing steps: [MailActionRecord.Step]) throws
+                       performing steps: [MailActionRecord.Step], returnMarks: [ConversationID: Date]) throws
 
     /// Unsubscribes as the user asked (spec §5.14), in one transaction: archives `messages` (the conversation's
     /// messages the archive changes; empty when it changes none), ends the snoozes of `snoozed` (a snoozed conversation
@@ -200,6 +201,12 @@ extension MailClient {
 }
 
 extension MailClient {
+    /// `setSenderRule(_:for:accountID:performing:returnMarks:)` with no return mark to put back.
+    public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                              performing steps: [MailActionRecord.Step]) throws {
+        try setSenderRule(action, for: address, accountID: accountID, performing: steps, returnMarks: [:])
+    }
+
     /// `setMuted(_:conversations:performing:returnMarks:)` with no return mark to put back.
     public func setMuted(_ muted: Bool, conversations: [ConversationID], performing steps: [MailActionRecord.Step]) throws {
         try setMuted(muted, conversations: conversations, performing: steps, returnMarks: [:])

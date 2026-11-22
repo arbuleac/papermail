@@ -4,7 +4,7 @@ import PaperCore
 /// What setting a sender rule takes of the mail already stored (spec §5.52): Always Archive their mail in every
 /// account's Inbox, Block their mail in the conversation it was set from, each message through
 /// `SenderRule.Action.change(for:)`, never an account's mail from its own address; the conversations it took, the one
-/// it was set from first, and the undo's steps.
+/// it was set from first, those of them that left the Inbox, which the toast counts, and the undo's steps.
 final class SenderRuleSweepTests: XCTestCase {
     private let a = AccountID("a"), b = AccountID("b")
     private let letter = EmailAddress(name: "Weekly", address: "news@letter.example")
@@ -19,6 +19,16 @@ final class SenderRuleSweepTests: XCTestCase {
     }
 
     private var own: [AccountID: String] { [a: "me@a.example", b: "me@b.example"] }
+
+    /// The summary rows once the step is done: `inInbox` for the conversations that keep someone else's Inbox mail.
+    private func after(_ conversations: [ConversationID], inInbox kept: Set<ConversationID> = []) -> [ConversationID: ConversationSummary] {
+        Dictionary(uniqueKeysWithValues: conversations.map { id in
+            (id, ConversationSummary(id: id, subject: "", snippet: "", participants: [], latestDate: Date(timeIntervalSince1970: 0),
+                                     messageCount: 1, unreadCount: 0, isStarred: false, hasAttachments: false, inInbox: kept.contains(id),
+                                     inboxSection: .unknown, latestMessageID: MessageID(accountID: id.accountID, providerID: "m"),
+                                     hasPendingOperations: true))
+        })
+    }
 
     func testAlwaysArchiveTakesTheirInboxMailInEveryAccount() {
         let open = ConversationID(accountID: a, providerID: "open")
@@ -35,7 +45,26 @@ final class SenderRuleSweepTests: XCTestCase {
         XCTAssertEqual(sweep.inverse, [MailActionRecord.Step(change: .moveToInbox, targets: sweep.record?.targets ?? [])])
         XCTAssertEqual(sweep.accounts, [a, b])
         XCTAssertTrue(sweep.takesItsConversation)
-        XCTAssertTrue(sweep.reachesBeyondItsConversation)
+        let archived = sweep.archived(after: after(sweep.conversations))
+        XCTAssertEqual(archived, sweep.conversations)
+        XCTAssertEqual(sweep.counted(archived), 3)
+    }
+
+    /// A conversation that keeps someone else's mail in the Inbox keeps its row: the sender's mail in it is archived, but
+    /// the step did not archive the conversation, and the toast does not count it.
+    func testARowThatStaysInTheInboxIsNotCounted() {
+        let open = ConversationID(accountID: a, providerID: "open")
+        let mixed = ConversationID(accountID: b, providerID: "mixed"), single = ConversationID(accountID: b, providerID: "single")
+        let sweep = SenderRuleSweep(.archive, address: letter.address, setFrom: open, conversationMessages: [message("o1", "open")],
+                                    inboxMessages: [message("o1", "open"), message("m1", "mixed", account: b),
+                                                    message("s1", "single", account: b)], ownAddresses: own)
+        XCTAssertEqual(sweep.record?.targets.map(\.providerID), ["o1", "m1", "s1"], "their mail in the mixed conversation too")
+        XCTAssertEqual(sweep.archived(after: after(sweep.conversations, inInbox: [mixed])), [open, single])
+        XCTAssertEqual(sweep.counted([open, single]), 2)
+        XCTAssertNil(sweep.counted([open]), "only the open conversation left: the rule's toast alone")
+        XCTAssertEqual(sweep.archived(after: after(sweep.conversations, inInbox: [open, mixed])), [single])
+        XCTAssertEqual(sweep.counted([single]), 1, "the open one stays for someone else's mail, another left")
+        XCTAssertNil(sweep.counted([]))
     }
 
     func testOnlyTheOpenConversationOrNothingReachesNoFurther() {
@@ -43,7 +72,7 @@ final class SenderRuleSweepTests: XCTestCase {
         let alone = SenderRuleSweep(.archive, address: letter.address, setFrom: open, conversationMessages: [message("o1", "open")],
                                     inboxMessages: [message("o1", "open")], ownAddresses: own)
         XCTAssertEqual(alone.conversations, [open])
-        XCTAssertFalse(alone.reachesBeyondItsConversation)
+        XCTAssertNil(alone.counted(alone.archived(after: after(alone.conversations))))
 
         let archived = SenderRuleSweep(.archive, address: letter.address, setFrom: open,
                                        conversationMessages: [message("o1", "open", roles: [])], inboxMessages: [], ownAddresses: own)
@@ -58,7 +87,8 @@ final class SenderRuleSweepTests: XCTestCase {
                                         ownAddresses: own)
         XCTAssertEqual(elsewhere.conversations.map(\.providerID), ["x"])
         XCTAssertFalse(elsewhere.takesItsConversation)
-        XCTAssertTrue(elsewhere.reachesBeyondItsConversation, "another conversation, though not the open one")
+        XCTAssertEqual(elsewhere.counted(elsewhere.archived(after: after(elsewhere.conversations))), 1,
+                       "another conversation, though not the open one")
     }
 
     /// A rule set in one account for the address of another of the user's accounts never archives that account's own mail.
@@ -79,7 +109,6 @@ final class SenderRuleSweepTests: XCTestCase {
                                     inboxMessages: [message("x1", "x", account: b)], ownAddresses: own)
         XCTAssertEqual(sweep.record?.targets.map(\.providerID), ["o1", "o2"], "out of the Trash's way; never Spam; never elsewhere")
         XCTAssertEqual(sweep.conversations, [open])
-        XCTAssertFalse(sweep.reachesBeyondItsConversation)
         XCTAssertEqual(sweep.inverse.map(\.change), [.restoreFromTrash, .archive], "the archived one goes back to the archive")
     }
 }

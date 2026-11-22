@@ -33,6 +33,10 @@ enum ConversationTable {
     //
     // The CROSS JOINs are join-order hints: the temp table has no statistics, and without them SQLite scans
     // every message of the mailbox probing the handful of touched keys instead of the other way round.
+    //
+    // `+rn` keeps `rn` out of the automatic index SQLite builds on `latest`, so it indexes the conversation's key: on
+    // `rn`, where every row is 1, each conversation scanned every other one's latest row: a refresh of 5,000
+    // conversations (Always Archive on a busy newsletter) took 530 ms on the 300,000-message benchmark, and takes 130.
     private static let refreshSQL = """
         WITH msgs AS (
             SELECT m.account_id, m.conversation_provider_id AS cid, m.provider_id, m.subject, m.snippet,
@@ -54,7 +58,7 @@ enum ConversationTable {
             SELECT account_id, cid, provider_id, snippet, date_ms
             FROM (SELECT b.*, ROW_NUMBER() OVER (PARTITION BY account_id, cid ORDER BY date_ms DESC, provider_id DESC) AS rn
                   FROM basis b)
-            WHERE rn = 1
+            WHERE +rn = 1
         )
         INSERT OR REPLACE INTO conversations (
             account_id, provider_id, subject, snippet, participants_json, latest_date_ms, latest_provider_id,
@@ -382,6 +386,22 @@ enum ConversationTable {
             let inView = view == .later ? snoozedPredicate : viewPredicate(view)
             return negated ? "NOT (\(inView))" : "(\(inView))"
         }
+    }
+
+    /// `MailStoring.summaries(of:)`: the ids as one JSON array of `[account, provider id]` pairs, each looked up by the
+    /// primary key (the CROSS JOIN keeps the array the outer loop).
+    static func summaries(of conversations: [ConversationID], in db: Database) throws -> [ConversationID: ConversationSummary] {
+        let keys = try MailStoreCodec.json(Set(conversations).map { [$0.accountID.rawValue, $0.providerID] })
+        let rows = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT \(summaryColumns), NULL FROM json_each(?) j
+            CROSS JOIN conversations c ON c.account_id = json_extract(j.value, '$[0]') AND c.provider_id = json_extract(j.value, '$[1]')
+            """), arguments: [keys])
+        var found: [ConversationID: ConversationSummary] = [:]
+        for row in rows {
+            let summary = try summary(from: row)
+            found[summary.id] = summary
+        }
+        return found
     }
 
     /// Read from `conversations_latest` alone, which carries the flag, the count and the account: the Inbox's own index

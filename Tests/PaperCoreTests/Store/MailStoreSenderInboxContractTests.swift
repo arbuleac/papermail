@@ -112,6 +112,81 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.pendingOperations(accountID: accountB, limit: 10).map(\.change), [.archive, .moveToInbox])
         XCTAssertEqual(try summary("t-b1", account: accountB).inInbox, true)
     }
+
+    /// The summary rows of conversations by id, in every account, as the list reads them: what Always Archive reads of the
+    /// conversations it takes mail from, before (their marks of coming back from Later) and after (which left the Inbox).
+    func testSummariesOfConversationsByIDInEveryAccount() throws {
+        try seedTheLettersMail()
+        let a1 = ConversationID(accountID: accountA, providerID: "t-a1"), a3 = ConversationID(accountID: accountA, providerID: "t-a3")
+        let b1 = ConversationID(accountID: accountB, providerID: "t-b1")
+        let gone = ConversationID(accountID: accountB, providerID: "nowhere")
+        let spamOnly = ConversationID(accountID: accountA, providerID: "t-a4")
+        let found = try store.summaries(of: [a1, b1, a3, gone, spamOnly, a1])
+        XCTAssertEqual(Set(found.keys), [a1, b1, a3], "none for a conversation the store holds no summary of")
+        XCTAssertEqual(found[a1], try summary("t-a1"), "the row the list reads")
+        XCTAssertEqual(found[b1], try summary("t-b1", account: accountB))
+        XCTAssertEqual(found[a3]?.inInbox, false)
+        XCTAssertEqual(try store.summaries(of: []), [:])
+    }
+
+    /// The undo of Always Archive puts back the marks of the conversations it took back from Later out of the Inbox, in its
+    /// transaction, where the inverse steps have put them back in the Inbox; a mark is never put on a conversation still
+    /// out of it, nor on one whose newest mail is newer.
+    func testASenderRulesUndoPutsBackReturnMarks() throws {
+        try seedTheLettersMail()
+        let a1 = ConversationID(accountID: accountA, providerID: "t-a1"), b1 = ConversationID(accountID: accountB, providerID: "t-b1")
+        let a3 = ConversationID(accountID: accountA, providerID: "t-a3")
+        let mark = date(500)
+        try store.setSnoozes([a1, b1].map { Snooze.Change(conversationID: $0, until: nil, returnedAt: mark) }, enqueueing: [], at: date(500))
+        XCTAssertEqual(try store.summaries(of: [a1, b1]).compactMapValues(\.returnedAt), [a1: mark, b1: mark])
+        let a = [MessageID(accountID: accountA, providerID: "a-inbox"), MessageID(accountID: accountA, providerID: "a-other")]
+        let b = [MessageID(accountID: accountB, providerID: "b-inbox")]
+        try store.setSenderRule(.archive, for: letter.address, accountID: accountA, enqueueing: [
+            Operation(accountID: accountA, change: .archive, targets: a, createdAt: date(600)),
+            Operation(accountID: accountB, change: .archive, targets: b, createdAt: date(600)),
+        ], at: date(600))
+        XCTAssertTrue(try store.summaries(of: [a1, b1]).compactMapValues(\.returnedAt).isEmpty, "out of the Inbox, the marks end")
+
+        try store.setSenderRule(nil, for: letter.address, accountID: accountA, enqueueing: [
+            Operation(accountID: accountA, change: .moveToInbox, targets: a, createdAt: date(601)),
+            Operation(accountID: accountB, change: .moveToInbox, targets: b, createdAt: date(601)),
+        ], at: date(601), returnMarks: [a1: mark, b1: mark, a3: mark])
+        XCTAssertEqual(try store.summaries(of: [a1, b1, a3]).compactMapValues(\.returnedAt), [a1: mark, b1: mark],
+                       "back in both accounts; never on a conversation the undo left archived")
+        XCTAssertEqual(try summary("t-a1").returnedAt, mark, "the list sorts it by its mark again")
+    }
+
+    /// The outbox writes a live operation again before every attempt and on every narrowing: a conversation's pending
+    /// state follows the targets it keeps, so a narrowing settles only the conversations of the targets it drops.
+    func testALiveOperationWrittenAgainKeepsItsTargetsPendingAndANarrowingSettlesTheRest() throws {
+        try seedTheLettersMail()
+        let a = [MessageID(accountID: accountA, providerID: "a-inbox"), MessageID(accountID: accountA, providerID: "a-case")]
+        var operation = Operation(accountID: accountA, change: .archive, targets: a, createdAt: date(600))
+        try store.enqueue(operation)
+        XCTAssertEqual(try summary("t-a1").hasPendingOperations, true)
+        XCTAssertEqual(try summary("t-a2").hasPendingOperations, true)
+
+        operation.status = .uncertain
+        operation.attempts = 1
+        operation.nextAttemptAt = date(700)
+        try store.updateOperation(operation)
+        XCTAssertEqual(try summary("t-a1").hasPendingOperations, true, "the write-ahead changes nothing the row shows")
+        XCTAssertEqual(try summary("t-a2").hasPendingOperations, true)
+
+        operation.targets = [a[1]]
+        operation.status = .pending
+        try store.updateOperation(operation)
+        XCTAssertEqual(try summary("t-a1").hasPendingOperations, false, "its target went out: settled")
+        XCTAssertEqual(try summary("t-a2").hasPendingOperations, true)
+        XCTAssertEqual(try store.pendingOperations(accountID: accountA, limit: 10).map(\.targets), [[a[1]]])
+
+        operation.status = .failed
+        try store.updateOperation(operation)
+        XCTAssertEqual(try summary("t-a2").hasPendingOperations, false)
+        XCTAssertEqual(try summary("t-a2").failedOperation, .archive, "given up: the row shows it")
+        XCTAssertEqual(try store.message(a[1])?.roles, [.inbox], "and the target it kept is put back")
+        XCTAssertEqual(try store.message(a[0])?.roles, [], "never one that went out")
+    }
 }
 
 /// The SQLite store answers the read from the full-text index, never by walking the mailbox, and writes Always Archive's

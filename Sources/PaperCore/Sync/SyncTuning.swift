@@ -116,7 +116,13 @@ struct SyncTuning: Sendable {
     /// (`ServerSearcher`).
     var serverSearchLimit: Int = 50
     var serverSearchConcurrency: Int = 2
-    var maxApplyTargets: Int = 50
+    /// The most targets one provider call carries, whatever the provider takes (`MailProvider.maxApplyTargets`): adjacent
+    /// operations of one change share a call up to it, and a larger operation is cut into calls of it.
+    var maxApplyTargets: Int = 1_000
+    /// The most provider calls one outbox drain makes for the account's changes. An operation with thousands of targets
+    /// (Always Archive on a busy sender) goes out over several cycles, the account's poll between them, so new mail and
+    /// Sync Now never wait behind it: 5,000 messages are 100 Graph calls of 50, each three `$batch` requests.
+    var maxApplyCallsPerDrain: Int = 4
     /// After this many failed attempts an operation is marked `failed` instead of staying in the outbox forever.
     var maxOperationAttempts: Int = 25
     /// An uncertain operation last sent longer ago than this is dropped once a poll has observed every target. Past

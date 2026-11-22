@@ -14,7 +14,8 @@ public struct SenderRuleSweep: Sendable {
     /// What the change takes and its undo (nil when it takes nothing): its targets, every account's, and the inverse
     /// steps that put each one back.
     public var record: MailActionRecord?
-    /// The conversations whose mail it takes, the one it was set from first, then as the messages came.
+    /// The conversations whose mail it takes, the one it was set from first, then as the messages came. Not all of them
+    /// leave the Inbox: one that holds someone else's mail there keeps its row (`archived(after:)`).
     public var conversations: [ConversationID]
 
     /// `conversationMessages` are the messages of `conversation`; `inboxMessages` the sender's mail in every Inbox, read
@@ -57,8 +58,17 @@ public struct SenderRuleSweep: Sendable {
         conversations.contains(conversation)
     }
 
-    /// Whether it takes mail beyond the conversation it was set from: the toast then counts the conversations.
-    public var reachesBeyondItsConversation: Bool {
-        conversations.contains { $0 != conversation }
+    /// The conversations it took out of the Inbox, in `conversations`' order, given their summary rows once it is done
+    /// (`MailStoring.summaries(of:)`): those whose mail in the Inbox was all the sender's. One that keeps someone else's
+    /// mail in the Inbox keeps its row, so it is not one the step archived, though the sender's mail in it was: the
+    /// toast's “Archived 12” counts the rows that left, as every other archive's toast does.
+    public func archived(after summaries: [ConversationID: ConversationSummary]) -> [ConversationID] {
+        conversations.filter { summaries[$0]?.inInbox != true }
+    }
+
+    /// What the toast counts of `archived`, nil while it is no more than the conversation the rule was set from, whose
+    /// leaving the list shows: the rule's own toast then says all there is.
+    public func counted(_ archived: [ConversationID]) -> Int? {
+        archived.contains { $0 != conversation } ? archived.count : nil
     }
 }

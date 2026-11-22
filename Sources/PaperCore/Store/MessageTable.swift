@@ -183,33 +183,39 @@ enum MessageTable {
             .map(metadata(from:))
     }
 
-    /// `MailStoring.inboxMessages(from:)`, in two steps that never walk the mailbox or the Inbox. The candidates come
+    /// `MailStoring.inboxMessages(from:)`, in one statement that never walks the mailbox or the Inbox. The candidates come
     /// from the full-text index's `sender` column (the From name and address, as `message_fts_content` builds it), as a
-    /// phrase (`senderMatch`), with the Inbox's roles tested in SQL; only their From is read and compared exactly here,
-    /// and then the messages that match are read whole, by rowid. The phrase only narrows: unicode61 folds case and
-    /// accents and splits at punctuation, so `a.b@c` also finds `x.a.b@c`, `á.b@c` and a name holding those words. Its
-    /// case folding is Unicode's simple one, which agrees with Foundation's lowercasing for every letter but a few that
-    /// lowercase to two (the Turkish dotted capital İ): only an address written with one of those in capitals could be
-    /// missed. An address with no word the index holds (nothing but punctuation) walks the Inbox instead
+    /// phrase (`senderMatch`), with the Inbox's roles tested in SQL; each one's From address comes out of its JSON in SQL
+    /// and is compared exactly here, and only a match is decoded, read in place from a cursor, its From made from the
+    /// address and name SQL took out. The phrase only narrows: unicode61 folds case and accents and splits at
+    /// punctuation, so `a.b@c` also finds `x.a.b@c`, `á.b@c` and a name holding those words. Its case folding is Unicode's simple one, which agrees with Foundation's lowercasing for every
+    /// letter but a few that lowercase to two (the Turkish dotted capital İ): only an address written with one of those in
+    /// capitals could be missed. An address with no word the index holds (nothing but punctuation) walks the Inbox instead
     /// (`conversations_inbox`, then `messages_by_conversation`); walking it for every address outside ASCII, as a first
-    /// version did, took 1.6 s on the 300,000-message benchmark, whose Inbox holds 156,000 messages.
+    /// version did, took 1.6 s on the 300,000-message benchmark, whose Inbox holds 156,000 messages. There a newsletter
+    /// with 5,000 messages in the Inbox took 32 ms in two steps (the candidates' From decoded from JSON, then the matches
+    /// read again by rowid, copied whole into rows and decoded) and takes 15 ms this way.
     static func inboxMessages(from address: String, in db: Database) throws -> [MessageMetadata] {
         let sender = SenderRule.normalizedAddress(address)
         guard !sender.isEmpty else { return [] }
-        guard SearchGrammar.isIndexable(sender) else {
-            return try Row.fetchAll(db.cachedStatement(sql: inboxWalkSQL)).map(metadata(from:))
-                .filter { $0.from.map { SenderRule.normalizedAddress($0.address) == sender } == true }
+        let rows: RowCursor
+        if SearchGrammar.isIndexable(sender) {
+            rows = try Row.fetchCursor(db.cachedStatement(sql: candidatesSQL), arguments: [try senderMatch(sender, in: db)])
+        } else {
+            rows = try Row.fetchCursor(db.cachedStatement(sql: inboxWalkSQL))
         }
-        var rowids: [Int64] = []
-        for row in try Row.fetchAll(db.cachedStatement(sql: candidatesSQL), arguments: [try senderMatch(sender, in: db)]) {
-            let json: String? = row[1]
-            guard let json, SenderRule.normalizedAddress(try MailStoreCodec.decode(EmailAddress.self, from: json).address) == sender
-            else { continue }
-            rowids.append(row[0])
+        var found: [MessageMetadata] = []
+        while let row = try rows.next() {
+            let from: String? = row[fromAddressColumn]
+            guard let from, SenderRule.normalizedAddress(from) == sender else { continue }
+            let name: String? = row[fromAddressColumn + 1]
+            found.append(try metadata(from: row, sender: EmailAddress(name: name, address: from)))
         }
-        guard !rowids.isEmpty else { return [] }
-        return try Row.fetchAll(db.cachedStatement(sql: matchesSQL), arguments: [try MailStoreCodec.json(rowids)]).map(metadata(from:))
+        return found
     }
+
+    /// Where the candidates' statements put the From address, then its name, after the columns `metadata(from:)` reads.
+    private static let fromAddressColumn = selectColumns.split(separator: ",").count
 
     /// The phrase the candidates come from: the address's local part alone while fewer than `localPartCandidates`
     /// messages have it in their From (`olga.xu` of `olga.xu@studio.example.io`), since the domain's words are in nearly
@@ -230,18 +236,15 @@ enum MessageTable {
     private static let localPartCountSQL = "SELECT count(*) FROM (SELECT 1 FROM message_fts WHERE message_fts MATCH ? LIMIT ?)"
 
     private static let candidatesSQL = """
-        SELECT rowid, from_json FROM messages
+        SELECT \(selectColumns), json_extract(from_json, '$.address'), json_extract(from_json, '$.name') FROM messages
         WHERE rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?) AND \(inInbox("roles"))
-        """
-
-    private static let matchesSQL = """
-        SELECT \(selectColumns) FROM messages WHERE rowid IN (SELECT value FROM json_each(?))
         ORDER BY date_ms DESC, account_id, provider_id
         """
 
     /// CROSS JOIN keeps the Inbox's conversations the outer loop, read from `conversations_inbox`.
     private static let inboxWalkSQL = """
-        SELECT \(selectColumns.split(separator: ",").map { "m." + $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: ", "))
+        SELECT \(selectColumns.split(separator: ",").map { "m." + $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: ", ")),
+               json_extract(m.from_json, '$.address'), json_extract(m.from_json, '$.name')
         FROM conversations c
         CROSS JOIN messages m ON m.account_id = c.account_id AND m.conversation_provider_id = c.provider_id
         WHERE c.in_inbox = 1 AND \(inInbox("m.roles"))
@@ -257,7 +260,6 @@ enum MessageTable {
         guard SearchGrammar.isIndexable(sender) else { return try explain(inboxWalkSQL) }
         let match = try senderMatch(sender, in: db)
         return try explain(localPartCountSQL, [match, localPartCandidates]) + explain(candidatesSQL, [match])
-            + explain(matchesSQL, ["[1]"])
     }
 
     /// The Inbox's roles as `messages.roles` holds them in `column`: the inbox bit, and neither the trash's nor spam's.
@@ -485,8 +487,13 @@ enum MessageTable {
 
     /// Expects the column order of `selectColumns`.
     static func metadata(from row: Row) throws -> MessageMetadata {
-        let accountID = AccountID(row[0])
         let fromJSON: String? = row[8]
+        return try metadata(from: row, sender: try fromJSON.map { try MailStoreCodec.decode(EmailAddress.self, from: $0) })
+    }
+
+    /// `metadata(from:)` with the From already known: a read that took it out of `from_json` in SQL decodes no JSON for it.
+    static func metadata(from row: Row, sender: EmailAddress?) throws -> MessageMetadata {
+        let accountID = AccountID(row[0])
         let reply: String? = row[25]
         return MessageMetadata(
             id: MessageID(accountID: accountID, providerID: row[1]),
@@ -496,7 +503,7 @@ enum MessageTable {
             references: try MailStoreCodec.decode([String].self, from: row[5]),
             subject: row[6],
             snippet: row[7],
-            from: try fromJSON.map { try MailStoreCodec.decode(EmailAddress.self, from: $0) },
+            from: sender,
             to: try MailStoreCodec.decode([EmailAddress].self, from: row[9]),
             cc: try MailStoreCodec.decode([EmailAddress].self, from: row[10]),
             bcc: try MailStoreCodec.decode([EmailAddress].self, from: row[11]),

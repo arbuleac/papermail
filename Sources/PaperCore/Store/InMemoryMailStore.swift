@@ -723,6 +723,13 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         }
     }
 
+    public func summaries(of conversations: [ConversationID]) throws -> [ConversationID: ConversationSummary] {
+        lock.lock(); defer { lock.unlock() }
+        var found: [ConversationID: ConversationSummary] = [:]
+        for id in Set(conversations) { found[id] = summaryLocked(id) }
+        return found
+    }
+
     public func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int {
         lock.lock(); defer { lock.unlock() }
         return conversationsLocked(ConversationQuery(accountIDs: accountIDs, view: .inbox, limit: .max))
@@ -857,7 +864,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     }
 
     public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
-                              enqueueing operations: [Operation], at now: Date) throws {
+                              enqueueing operations: [Operation], at now: Date, returnMarks: [ConversationID: Date]) throws {
         lock.lock(); defer { lock.unlock() }
         for operation in operations { enqueueLocked(operation) }
         let key = SenderRule.normalizedAddress(address)
@@ -866,6 +873,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
                                                   at: Self.storedDate(now))
             applyLocked(change, accountID: accountID, address: key)
         }
+        for (id, date) in returnMarks { markReturnedLocked(id, at: date) }
         notifyAll()
     }
 

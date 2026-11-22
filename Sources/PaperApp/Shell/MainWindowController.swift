@@ -2267,11 +2267,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// the rule (`SenderRuleSweep`): Always Archive takes their mail out of the Inbox of every account, since the user
     /// wants no Inbox to hold it, and Block takes theirs in the conversation out of the Trash's way, so the rows leave as
     /// they will for the next message, which the server's rule takes before this Mac sees it. The rule itself is the
-    /// message's account's alone. The toast always shows, since no row shows a rule, and names the server that runs it
-    /// from now on, counting the conversations Always Archive took when they go beyond this one; its Undo puts back the
-    /// rule the sender had (none, or the other one) and every message it moved, in its own account, in one transaction.
-    /// The rule is listed and removed in Settings › Accounts › Senders…, and nowhere else. Reads the message again: after
-    /// the alert it may have gone.
+    /// message's account's alone. The toast always shows, since no row shows a rule: the server's rule and the address
+    /// (“Gmail will archive mail from …”), or, when Always Archive took rows out of the Inbox beyond this one, how many
+    /// and the rule (“Archived 12 · Gmail filter for …”, `SenderRuleCopy.toast`). Its Undo puts back the rule the
+    /// sender had (none, or the other one), every message it moved, in its own account, and the return marks of the
+    /// conversations it took back from Later out of the Inbox, in one transaction. The rule is listed and removed in
+    /// Settings › Accounts › Senders…, and nowhere else. Reads the message again: after the alert it may have gone.
     @discardableResult
     private func setSenderRuleNow(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
         guard !showingWelcome, let account = accountsByID[messageID.accountID],
@@ -2296,6 +2297,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let sweep = SenderRuleSweep(action, address: sender, setFrom: message.conversationID,
                                     conversationMessages: (try? store.messages(in: message.conversationID)) ?? [],
                                     inboxMessages: inbox, ownAddresses: accountsByID.mapValues(\.email))
+        // Out of the Inbox a conversation no longer sorts as back from Later (the refresh ends the mark): the undo puts the
+        // marks back, as Z after E does, for every conversation the step takes mail from, listed or not.
+        let returned = summaries(of: sweep.conversations).compactMapValues(\.returnedAt)
         let engine = environment.engine
         let accountID = messageID.accountID
         do {
@@ -2305,25 +2309,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             NSSound.beep()
             return false
         }
+        // The rows that left the Inbox: a conversation that keeps someone else's mail there stays listed, and uncounted.
+        let archived = action == .archive ? sweep.archived(after: summaries(of: sweep.conversations)) : []
         // Always Archive counts what it archived, none included; Block counts its one conversation, as before.
         Analytics.send(.mailAction(action == .trash ? .blockSender : .alwaysArchiveSender, Analytics.trigger,
-                                   conversations: action == .trash ? 1 : sweep.conversations.count))
+                                   conversations: action == .trash ? 1 : archived.count))
         let command = MailActionCopy.senderRuleCommand(action)
         let inverse = sweep.inverse
         let conversationID = message.conversationID
         let reselects = sweep.takesItsConversation
         let fromLater = actionView == .later
         let symbol = action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender
-        let host = stepToastHost
-        let toast = SenderRuleCopy.toast(action, address: sender, kind: account.kind,
-                                         archived: sweep.reachesBeyondItsConversation ? sweep.conversations.count : nil) { [toasts] words in
-            toasts.fits(words, symbol: symbol, actionTitle: "Undo", keycap: "Z", in: host)
-        }
+        let toast = SenderRuleCopy.toast(action, address: sender, kind: account.kind, archived: sweep.counted(archived))
         recordExternalUndo(command: command, accounts: sweep.accounts.union([accountID]), toast: toast, symbol: symbol) { [weak self] in
             // A rule not on the server yet just goes; one the server has is deleted there, or set back to the old action.
             // Every message comes back in its own account: one operation per account, in the rule's transaction.
             do {
-                try engine.setSenderRule(previous, for: address, accountID: accountID, performing: self?.restorable(inverse) ?? inverse)
+                try engine.setSenderRule(previous, for: address, accountID: accountID, performing: self?.restorable(inverse) ?? inverse,
+                                         returnMarks: returned)
             } catch {
                 Self.log.error("undoing a sender rule failed: \(String(describing: error), privacy: .public)")
                 NSSound.beep()
@@ -2334,6 +2337,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             if reselects, self?.stillHeld([conversationID]).isEmpty == false { self?.reselect([conversationID], inLater: fromLater) }
         }
         return true
+    }
+
+    /// The summary rows of `ids` from the store, which holds every account's beyond the list's page; none on a failed read,
+    /// which then counts every conversation as archived and puts no return mark back.
+    private func summaries(of ids: [ConversationID]) -> [ConversationID: ConversationSummary] {
+        guard !ids.isEmpty else { return [:] }
+        do {
+            return try environment.store.summaries(of: ids)
+        } catch {
+            Self.log.error("reading conversations' summaries failed: \(String(describing: error), privacy: .public)")
+            return [:]
+        }
     }
 
     /// Message › Always Archive Mail from This Sender, Block Sender and the context menu's items: the sender of the open
@@ -3817,7 +3832,7 @@ extension MainWindowController {
             slip.lifetimeContrail.mode = .countdown(duration: Quire.Motion.toastLife, remaining: Quire.Motion.toastLife * 0.6)
             slip.lifetimeContrail.isPaused = true
         }
-        return Set(best.sweep.conversations)
+        return Set(best.sweep.archived(after: summaries(of: best.sweep.conversations)))
     }
 }
 #endif

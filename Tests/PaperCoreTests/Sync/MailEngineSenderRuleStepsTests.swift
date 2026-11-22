@@ -64,25 +64,31 @@ final class MailEngineSenderRuleStepsTests: XCTestCase {
     }
 
     /// A sender with thousands of messages in the Inbox makes one archive operation with thousands of targets: the outbox
-    /// sends it in slices of `SyncTuning.maxApplyTargets` (50), each target once, well under Gmail's 1,000 ids per
-    /// `batchModify` and cut again by Graph into `$batch` calls of 20 (`GmailProviderTests`, `GraphApplyTests`).
-    func testThousandsOfTargetsGoOutInSlices() async throws {
+    /// sends it in calls of the provider's size (50 here, as Graph's, which Graph cuts again into `$batch` requests of 20;
+    /// Gmail's 1,000 ids per `batchModify`, `OperationRunnerDrainShareTests`), each target once, four calls a cycle, and
+    /// the account's poll still runs between them.
+    func testThousandsOfTargetsGoOutInSlicesWithThePollBetween() async throws {
         let provider = ScriptedProvider(accountID: Fixtures.accountID)
         let count = 2_345
         provider.bootstrapRuns = [["": .success(Fixtures.page(1...count, next: nil, cursor: "c0"))]]
-        let harness = try EngineHarness(provider: provider)
+        let harness = try EngineHarness(provider: provider, tune: { $0.pollInterval = 0.05 })
         harness.engine.start()
         try await waitUntil("bootstrapped") { try harness.store.syncCursor(for: Fixtures.accountID) == "c0" }
+        provider.applyDelay = 0.005
         let targets = (1...count).map { MessageID(accountID: Fixtures.accountID, providerID: "\($0)") }
         try harness.engine.setSenderRule(.archive, for: "sender1@example.com", accountID: Fixtures.accountID,
                                          performing: [MailActionRecord.Step(change: .archive, targets: targets)])
         XCTAssertEqual(try harness.store.pendingOperations(accountID: Fixtures.accountID, limit: 10).map(\.targets.count), [count],
                        "one operation")
-        try await waitUntil("sent") { try harness.store.pendingOperations(accountID: Fixtures.accountID, limit: 10).isEmpty }
-        let slices = provider.applyCalls.filter { $0.change == .archive }.map(\.ids)
-        XCTAssertEqual(slices.count, (count + 49) / 50)
-        XCTAssertTrue(slices.allSatisfy { $0.count <= SyncTuning().maxApplyTargets })
-        XCTAssertEqual(slices.flatMap { $0 }, targets.map(\.providerID), "each target once, in order")
+        try await waitUntil("sent", timeout: 20) {
+            try harness.store.pendingOperations(accountID: Fixtures.accountID, limit: 10).isEmpty
+        }
+        let calls = provider.applyCalls.filter { $0.change == .archive }
+        XCTAssertEqual(calls.count, (count + 49) / 50)
+        XCTAssertTrue(calls.allSatisfy { $0.ids.count <= 50 })
+        XCTAssertEqual(calls.flatMap(\.ids), targets.map(\.providerID), "each target once, in order")
+        let (first, last) = (try XCTUnwrap(calls.first).at, try XCTUnwrap(calls.last).at)
+        XCTAssertTrue(provider.changesCalls.contains { $0.at > first && $0.at < last }, "the account polled while the archive went out")
         await harness.shutdown()
     }
 }

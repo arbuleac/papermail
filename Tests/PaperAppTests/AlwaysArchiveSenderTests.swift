@@ -7,9 +7,10 @@ import XCTest
 /// Always Archive Mail from This Sender empties every Inbox of that sender's mail (spec §5.52): set from the list's
 /// context menu, the Message menu or a reader window, after the permission's alert or at once, it archives their mail in
 /// the Inbox of both accounts in one step, rows leaving in both, while the rule stays on the account of the message it
-/// was set from; the toast counts the conversations when they go beyond the open one, and Z, or ⌘Z long after, puts back
-/// the previous rule and every message in its own account. Block Sender still acts on its conversation alone. The engine
-/// never starts and no test reaches a server: the grant and the sign-in are the controller's callbacks.
+/// was set from; the toast counts the rows that left the Inbox when they go beyond the open one (never one that keeps
+/// someone else's mail there), and Z, or ⌘Z long after, puts back the previous rule, every message in its own account
+/// and the rows' marks of coming back from Later. Block Sender still acts on its conversation alone. The engine never
+/// starts and no test reaches a server: the grant and the sign-in are the controller's callbacks.
 @MainActor
 final class AlwaysArchiveSenderTests: XCTestCase {
     private let a = ListTestSupport.accountA
@@ -101,17 +102,9 @@ final class AlwaysArchiveSenderTests: XCTestCase {
         try harness.environment.store.senderRules().map { "\($0.accountID.rawValue) \($0.address) \($0.action) \($0.sync)" }
     }
 
-    /// The counting toast as the window words it where it shows (the list's when `place` is nil): the rule's sentence
-    /// too where the list leaves room for it, the count and the address alone otherwise.
-    private func counted(_ count: Int, _ kind: ProviderKind, _ harness: MainWindowHarness, in place: ToastView? = nil,
-                         file: StaticString = #filePath, line: UInt = #line) -> String {
-        let words = SenderRuleCopy.toast(.archive, address: letter.address, kind: kind, archived: count) {
-            harness.toasts.fits($0, symbol: Quire.Icon.alwaysArchiveSender, actionTitle: "Undo", keycap: "Z", in: place)
-        }
-        XCTAssertTrue(words.hasPrefix("Archived \(count) conversations"), words, file: file, line: line)
-        XCTAssertTrue(words.hasSuffix(" \(letter.address)"), "the address last: \(words)", file: file, line: line)
-        return words
-    }
+    /// The four rows that leave, the mixed conversation's staying: what the toast says, whatever the window's width.
+    private let gmailToast = "Archived 4 · Gmail filter for news@letter.example"
+    private let outlookToast = "Archived 4 · Outlook rule for news@letter.example"
 
     private func listed(_ harness: MainWindowHarness) -> Set<ConversationID> {
         Set(harness.list.conversations.map(\.id))
@@ -163,7 +156,7 @@ final class AlwaysArchiveSenderTests: XCTestCase {
 
         XCTAssertEqual(try rules(harness), ["acct-a news@letter.example archive creating"], "the rule is the Gmail account's alone")
         try assertArchivedEverywhere(letters, harness)
-        XCTAssertEqual(harness.toastMessage, counted(5, .gmail, harness))
+        XCTAssertEqual(harness.toastMessage, gmailToast, "four rows left; the mixed one stays and is not counted")
         XCTAssertEqual(harness.toasts.visibleKind, .undoable)
         XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Always Archive Mail from This Sender")
 
@@ -172,7 +165,7 @@ final class AlwaysArchiveSenderTests: XCTestCase {
         XCTAssertTrue(harness.controller.setSenderRule(.archive, from: id(a, "a1")))
         ListTestSupport.spin(for: 0.1)
         XCTAssertEqual(try harness.environment.store.pendingOperations(accountID: a.id, limit: 10).count, operations)
-        XCTAssertEqual(harness.toastMessage, counted(5, .gmail, harness))
+        XCTAssertEqual(harness.toastMessage, gmailToast)
 
         harness.controller.performUndo(harness.controller.zTarget)
         XCTAssertTrue(try rules(harness).isEmpty, "no rule before: a rule not on the server yet just goes")
@@ -242,7 +235,7 @@ final class AlwaysArchiveSenderTests: XCTestCase {
 
         XCTAssertEqual(try rules(harness), ["acct-b news@letter.example archive replacing"], "on the Outlook account alone")
         try assertArchivedEverywhere(letters, harness)
-        XCTAssertEqual(reader.toastView.slip?.message, counted(5, .microsoft, harness, in: reader.toastView), "the window's step, its toast there")
+        XCTAssertEqual(reader.toastView.slip?.message, outlookToast, "the window's step, its toast there")
         XCTAssertTrue(harness.controller.readerWindows.contains { $0 === reader }, "the window stays")
 
         XCTAssertTrue(reader.perform(.undo))
@@ -288,7 +281,7 @@ final class AlwaysArchiveSenderTests: XCTestCase {
         harness.spin { (try? self.rules(harness).isEmpty) == false }
         XCTAssertEqual(try rules(harness), ["acct-a news@letter.example archive creating"])
         try assertArchivedEverywhere(letters, harness)
-        XCTAssertEqual(harness.toastMessage, counted(5, .gmail, harness))
+        XCTAssertEqual(harness.toastMessage, gmailToast)
         harness.controller.performUndo(harness.controller.zTarget)
         try assertBack(letters, harness)
     }
@@ -312,29 +305,98 @@ final class AlwaysArchiveSenderTests: XCTestCase {
         XCTAssertTrue(try harness.environment.store.pendingOperations(accountID: b.id, limit: 10).isEmpty)
     }
 
+    // MARK: Rows that stay
+
+    /// The sender's only other Inbox mail sits beside someone else's: their message is archived, but the row stays, so the
+    /// step took no row beyond the open one and the toast is the rule's alone.
+    func testAConversationThatKeepsSomeoneElsesMailIsNotCounted() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let store = harness.environment.store
+        let ben = EmailAddress(name: "Ben", address: "ben@example.com")
+        try store.upsertMessages([
+            mail("solo", in: "letter-solo", a, ago: 10),
+            mail("mixed-news", in: "letter-mixed", b, ago: 20),
+            mail("mixed-ben", in: "letter-mixed", b, from: ben, ago: 30),
+        ])
+        let solo = ConversationID(accountID: a.id, providerID: "letter-solo")
+        let mixed = ConversationID(accountID: b.id, providerID: "letter-mixed")
+        open(solo, in: harness)
+        harness.controller.alwaysArchiveSender(nil)
+        harness.spin { (try? self.rules(harness).isEmpty) == false }
+
+        XCTAssertEqual(try roles(id(b, "mixed-news"), harness), [], "their mail in the other account archived")
+        XCTAssertEqual(try roles(id(b, "mixed-ben"), harness), [.inbox])
+        harness.spin { !self.listed(harness).contains(solo) }
+        XCTAssertTrue(listed(harness).contains(mixed), "the row stays for Ben's mail")
+        XCTAssertEqual(harness.toastMessage, "Gmail will archive mail from news@letter.example", "no row left beyond the open one")
+    }
+
+    // MARK: Back from Later
+
+    /// Rows that had come back from Later sort under Today by their mark, which leaving the Inbox ends: Z puts every mark
+    /// back with its row, in both accounts, listed or not, as Z after E does.
+    func testZPutsBackTheMarksOfRowsThatCameBackFromLater() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let letters = try seedLetters(harness)
+        let store = harness.environment.store
+        let back = Date().addingTimeInterval(-2)
+        let marked = [letters.leaving[1], letters.leaving[3]] // one in each account
+        try store.setSnoozes(marked.map { Snooze.Change(conversationID: $0, until: nil, returnedAt: back) }, enqueueing: [], at: Date())
+        func marks() throws -> [ConversationID: Date] {
+            try store.summaries(of: letters.leaving).compactMapValues(\.returnedAt)
+        }
+        let before = try marks()
+        XCTAssertEqual(Set(before.keys), Set(marked), "back from Later")
+        open(letters.open, in: harness)
+        harness.controller.alwaysArchiveSender(nil)
+        harness.spin { (try? self.rules(harness).isEmpty) == false }
+        XCTAssertTrue(try marks().isEmpty, "out of the Inbox, no longer back from Later")
+
+        harness.controller.performUndo(harness.controller.zTarget)
+        try assertBack(letters, harness)
+        XCTAssertEqual(try marks(), before, "every mark back with its row")
+        harness.spin { self.listed(harness).contains(marked[0]) }
+        XCTAssertNotNil(harness.list.conversations.first { $0.id == marked[0] }?.returnedAt, "the row sorts by its mark again")
+    }
+
     // MARK: Words
 
-    func testTheToastCountsConversationsBeforeTheRuleAndTheAddressLast() {
+    func testTheToastCountsTheRowsAndNamesTheRuleWithTheAddressLast() {
         XCTAssertEqual(SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .gmail, archived: 12),
-                       "Archived 12 conversations · Gmail will archive mail from news@letter.example")
+                       "Archived 12 · Gmail filter for news@letter.example")
         XCTAssertEqual(SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .microsoft, archived: 1),
-                       "Archived 1 conversation · Outlook will archive mail from news@letter.example")
+                       "Archived 1 · Outlook rule for news@letter.example")
         XCTAssertEqual(SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .gmail, archived: 1_234),
-                       "Archived \(1_234.formatted()) conversations · Gmail will archive mail from news@letter.example")
+                       "Archived \(1_234.formatted()) · Gmail filter for news@letter.example")
         XCTAssertEqual(SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .gmail, archived: nil),
                        "Gmail will archive mail from news@letter.example")
         XCTAssertEqual(SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .gmail, archived: 0),
                        "Gmail will archive mail from news@letter.example")
         XCTAssertEqual(SenderRuleCopy.toast(.trash, address: "deals@shop.example", kind: .gmail, archived: 5),
                        "Gmail will block deals@shop.example", "Block counts nothing")
-        // Where the list leaves no room for the rule's sentence before the address, the count keeps the address.
-        let narrow = SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .gmail, archived: 12) { _ in false }
-        XCTAssertEqual(narrow, "Archived 12 conversations from news@letter.example")
-        var asked: [String] = []
-        _ = SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .gmail, archived: 12) { asked.append($0); return true }
-        XCTAssertEqual(asked, ["Archived 12 conversations · Gmail will archive mail from news@l"],
-                       "the long form only when its words and the address's first letters show whole")
-        XCTAssertEqual(SenderRuleCopy.toast(.archive, address: "news@letter.example", kind: .gmail, archived: nil) { _ in false },
-                       "Gmail will archive mail from news@letter.example", "without a count the toast is as it was")
+    }
+
+    /// The list's toast, beside Undo and Z, at the default width and the widest: the count and the rule always show whole,
+    /// and only the address can be cut, never a word before it; at the widest its start shows too.
+    func testTheCountAndTheRuleShowWholeAtTheDefaultAndTheWidestListWidth() {
+        func fits(_ words: String, in width: CGFloat) -> Bool {
+            let slip = QuireSlipView(kind: .undoable, message: words, symbolName: Quire.Icon.alwaysArchiveSender)
+            _ = slip.setAction("Undo", keycap: "Z")
+            return slip.intrinsicContentSize.width <= width - 2 * Quire.Layout.Toast.sideMargin
+        }
+        for width in [Quire.Layout.List.defaultWidth, Quire.Layout.List.maxWidth] {
+            for kind in [ProviderKind.gmail, .microsoft] {
+                for count in [1, 12, 999, 1_234] {
+                    let words = SenderRuleCopy.toast(.archive, address: letter.address, kind: kind, archived: count)
+                    let beforeAddress = String(words[..<words.range(of: " for ")!.lowerBound])
+                    XCTAssertTrue(fits(beforeAddress, in: width), "“\(beforeAddress)” whole at \(width) pt")
+                }
+            }
+        }
+        let widest = SenderRuleCopy.toast(.archive, address: letter.address, kind: .microsoft, archived: 1_234)
+        XCTAssertTrue(fits(String(widest.prefix(widest.count - letter.address.count + 6)), in: Quire.Layout.List.maxWidth),
+                      "the address's start too at the widest list")
     }
 }

@@ -5,7 +5,9 @@ import Foundation
 /// Operations go out strictly in creation order. Consecutive operations with the same change share one
 /// `apply` call, so archiving twenty conversations costs one request. An operation waiting on a backoff holds
 /// back every later operation that touches one of its messages, so the provider never sees a later intent
-/// before an earlier one on the same message.
+/// before an earlier one on the same message. One drain makes at most `SyncTuning.maxApplyCallsPerDrain` calls: an
+/// operation with thousands of targets is narrowed to what is left and goes on next cycle, after the account's poll,
+/// so it never keeps new mail waiting.
 ///
 /// Unsubscribe requests (`MetadataChange.unsubscribe`) are no change to the provider's mail: they go after the rest,
 /// each on its own (`Unsubscriber`), and neither wait behind nor hold back anything. One the sender refuses, or one
@@ -38,6 +40,8 @@ struct OperationRunner: Sendable {
 
     private enum GroupResult {
         case applied
+        /// The drain's calls ran out part-way: what went out is settled, and the operations keep the rest, due at once.
+        case paused
         case deferred(Date)
         case throttled(Date, retryAfter: TimeInterval?)
         case uncertain(Date?)
@@ -122,13 +126,28 @@ struct OperationRunner: Sendable {
         return outcome
     }
 
+    /// The targets one provider call carries: the provider's own limit, within the tuning's.
+    private var callTargets: Int {
+        max(1, min(tuning.maxApplyTargets, provider.maxApplyTargets))
+    }
+
     private func applyGroups(of eligible: [Operation], into outcome: inout Outcome) async {
-        for group in Self.groups(of: eligible, maxTargets: tuning.maxApplyTargets) {
+        // Calls left in this drain (`SyncTuning.maxApplyCallsPerDrain`). Once they are spent the operations after wait for
+        // the next cycle, which comes at once, after the poll when one is due: strict order holds across cycles too.
+        var calls = max(1, tuning.maxApplyCallsPerDrain)
+        for group in Self.groups(of: eligible, maxTargets: callTargets) {
             if Task.isCancelled { break }
-            switch await apply(group) {
+            guard calls > 0 else {
+                outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, Date())
+                return
+            }
+            switch await apply(group, calls: &calls) {
             case .applied:
                 outcome.applied += group.count
                 if group.contains(where: { $0.change.kind == .answerInvitation }) { outcome.answeredInvitation = true }
+            case .paused:
+                outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, Date())
+                return
             case .deferred(let until):
                 // The provider is unhappy; later operations would fail the same way and must keep their order.
                 outcome.nextAttemptAt = Self.earlier(outcome.nextAttemptAt, until)
@@ -357,7 +376,7 @@ struct OperationRunner: Sendable {
         return groups
     }
 
-    private func apply(_ group: [Operation]) async -> GroupResult {
+    private func apply(_ group: [Operation], calls: inout Int) async -> GroupResult {
         guard let change = group.first?.change else { return .applied }
         var providerIDs: [String] = []
         var seen: Set<String> = []
@@ -385,12 +404,19 @@ struct OperationRunner: Sendable {
         // keep the others from going out, on this attempt or on every retry. Only a failure every request would meet
         // (a throttle, a refused token, the network, a cancellation) leaves the slices after it unsent.
         var unapplied: [String] = []
+        // Targets never sent because the drain's calls ran out.
+        var unsent: [String] = []
         var failure: Error?
         var start = 0
         while start < providerIDs.count {
-            let end = min(start + tuning.maxApplyTargets, providerIDs.count)
+            guard calls > 0 else {
+                unsent = Array(providerIDs[start...])
+                break
+            }
+            let end = min(start + callTargets, providerIDs.count)
             let slice = Array(providerIDs[start..<end])
             start = end
+            calls -= 1
             let error: Error
             do {
                 try await provider.apply(change, to: slice)
@@ -410,7 +436,7 @@ struct OperationRunner: Sendable {
             unapplied += providerIDs[start...]
             break
         }
-        guard let failure else {
+        guard failure != nil || !unsent.isEmpty else {
             confirm(marked)
             let count = providerIDs.count
             SyncLog.logger.debug("outbox: applied \(String(describing: change), privacy: .public) to \(count, privacy: .public) messages")
@@ -418,7 +444,8 @@ struct OperationRunner: Sendable {
         }
         // What went through is done: an operation keeps only the targets still owed, so a retry sends those alone and a
         // give-up puts back only those. One with none left is confirmed.
-        let owed = Set(unapplied)
+        let owed = Set(unapplied + unsent)
+        let refused = Set(unapplied)
         var settled: [Operation] = []
         var narrowed: [Operation] = []
         for operation in marked {
@@ -427,13 +454,27 @@ struct OperationRunner: Sendable {
                 settled.append(operation)
             } else {
                 var remaining = operation
-                remaining.targets = left
+                // Those never sent go first and those refused last, so each attempt reaches targets the one before did
+                // not, and a target the provider keeps refusing never holds back the rest from going out.
+                remaining.targets = unsent.isEmpty ? left
+                    : left.filter { !refused.contains($0.providerID) } + left.filter { refused.contains($0.providerID) }
                 narrowed.append(remaining)
             }
         }
         confirm(settled)
         guard !narrowed.isEmpty else { return .applied }
-        return record(failure, for: narrowed)
+        // A refusal counts as the attempt it was, the rest waiting out its backoff with it.
+        if let failure { return record(failure, for: narrowed) }
+        // The drain's share of calls is spent, not an attempt: the rest goes on the next cycle, at once.
+        let sent = providerIDs.count - unsent.count
+        SyncLog.logger.debug("outbox: sent \(sent, privacy: .public) of \(providerIDs.count, privacy: .public) targets, the rest next cycle")
+        for var operation in narrowed {
+            operation.status = .pending
+            operation.attempts = max(0, operation.attempts - 1)
+            operation.nextAttemptAt = nil
+            save(recorded: operation)
+        }
+        return .paused
     }
 
     private func confirm(_ operations: [Operation]) {
