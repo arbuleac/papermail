@@ -11,10 +11,26 @@ import QuartzCore
 /// mouse-down, back over `dur.quick` on release, or as it travels). The knob travels over `dur.quick`
 /// `ease.glide`, instantly under Reduce Motion. Focus rings the track outside a 1 pt gap (2 pt when on);
 /// disabled draws the switch at 0.45 opacity with the label `inkDisabled`.
+///
+/// With a `leadingSymbolName` it is a switch standing on its own in a bar (the reader header's reader mode, §5.59):
+/// the symbol, then the label, then the track, so the words come before the switch, as they do in a bar.
 @MainActor
 public final class QuireToggle: QuireControl {
     public var title: String? {
-        didSet { if oldValue != title { invalidateIntrinsicContentSize(); needsDisplay = true } }
+        didSet { if oldValue != title { contentDidChange() } }
+    }
+
+    /// A symbol before the label and the switch (§5.26, “In a bar”): `inText`, in `ink2`, `toggle.symbolGap` from the
+    /// label, which is then `label` `ink2`, `checkbox.labelGap` from the track at the trailing edge. nil, the default,
+    /// is the form switch: the track first, its label after it in `body` `ink`.
+    public var leadingSymbolName: String? {
+        didSet { if oldValue != leadingSymbolName { contentDidChange() } }
+    }
+
+    private func contentDidChange() {
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        needsDisplay = true
     }
 
     /// On or off. Setting it moves the knob without animation; the user's toggles animate.
@@ -56,10 +72,29 @@ public final class QuireToggle: QuireControl {
     private static var trackSize: NSSize { NSSize(width: Quire.Layout.Toggle.width, height: Quire.Layout.Toggle.height) }
 
     public override var intrinsicContentSize: NSSize {
-        QuireChoiceDrawing.size(control: QuireToggle.trackSize, title: title)
+        guard let symbol = leadingSymbolName else { return QuireChoiceDrawing.size(control: QuireToggle.trackSize, title: title) }
+        let glyph = QuireDraw.symbolSize(symbol, size: .inText)
+        var width = glyph.width + QuireToggle.trackSize.width
+        if let words = barLabel(enabled: true) {
+            width += Quire.Layout.Toggle.symbolGap + QuireDraw.width(words) + QuireChoiceDrawing.labelGap
+        } else {
+            width += QuireChoiceDrawing.labelGap
+        }
+        let height = max(QuireToggle.trackSize.height, QuireFont.Role.label.lineHeight, glyph.height)
+        return NSSize(width: ceil(width), height: ceil(height))
     }
 
-    public var trackRect: NSRect { QuireChoiceDrawing.controlRect(QuireToggle.trackSize, in: bodyRect) }
+    public var trackRect: NSRect {
+        guard leadingSymbolName != nil else { return QuireChoiceDrawing.controlRect(QuireToggle.trackSize, in: bodyRect) }
+        let size = QuireToggle.trackSize
+        return NSRect(x: bodyRect.maxX - size.width, y: (bodyRect.midY - size.height / 2).rounded(), width: size.width, height: size.height)
+    }
+
+    /// The label as a bar sets it, before the switch.
+    private func barLabel(enabled: Bool) -> NSAttributedString? {
+        guard let title, !title.isEmpty else { return nil }
+        return QuireDraw.line(title, .label, enabled ? .qInk2 : .qInkDisabled)
+    }
 
     /// Whether the knob is drawn stretched: a press in progress, or a forced pressed state.
     public var isKnobStretched: Bool { interactionState == .pressed }
@@ -155,10 +190,27 @@ public final class QuireToggle: QuireControl {
                 QuireDraw.strokeInside(track, radius: radius, width: Quire.Border.Strong.width, .qRuleStrong)
             }
         }
-        QuireChoiceDrawing.drawLabel(title, enabled: isEnabled, after: track, in: bodyRect)
+        if let symbol = leadingSymbolName {
+            drawBarLead(symbol, before: track)
+        } else {
+            QuireChoiceDrawing.drawLabel(title, enabled: isEnabled, after: track, in: bodyRect)
+        }
         if showsFocusRing {
             QuireFocusRing.draw(around: track, cornerRadius: radius, gap: storedOn ? QuireFocusRing.gapOnFill : QuireFocusRing.gap)
         }
+    }
+
+    /// The symbol and the label before the track, centred on the body's line.
+    private func drawBarLead(_ symbol: String, before track: NSRect) {
+        let body = bodyRect
+        let glyph = QuireDraw.symbolSize(symbol, size: .inText)
+        let glyphRect = NSRect(x: body.minX, y: body.midY - glyph.height / 2, width: glyph.width, height: glyph.height)
+        QuireDraw.symbol(symbol, size: .inText, color: isEnabled ? .qInk2 : .qInkDisabled, centredIn: glyphRect)
+        guard let words = barLabel(enabled: isEnabled) else { return }
+        let lineHeight = QuireFont.Role.label.lineHeight
+        let x = glyphRect.maxX + Quire.Layout.Toggle.symbolGap
+        QuireDraw.draw(words, x: x, top: (body.midY - lineHeight / 2).rounded(), maxWidth: track.minX - QuireChoiceDrawing.labelGap - x,
+                       lineHeight: lineHeight)
     }
 
     // MARK: Accessibility

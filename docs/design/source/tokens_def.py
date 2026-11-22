@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.18.0"
+VERSION = "1.18.1"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -405,7 +405,7 @@ LAYOUT = {
  "search": {"radius": 6, "glyph": 12, "glyphX": 8, "textX": 26, "trailingInset": 5, "resultsGap": 6, "clearVisual": 16, "clearGlyph": 9, "clearHit": 24},
  "checkbox": {"mixedBar": [8, 2], "disabledOpacity": 0.45, "size": 14, "radius": 3, "glyph": 10, "labelGap": 8},
  "radio": {"size": 14, "dot": 6},
- "toggle": {"width": 30, "height": 18, "knob": 14, "knobPressedWidth": 18, "inset": 2, "knobEdge": 1, "knobEdgeColor": "ruleStrong",
+ "toggle": {"width": 30, "height": 18, "knob": 14, "knobPressedWidth": 18, "inset": 2, "knobEdge": 1, "knobEdgeColor": "ruleStrong", "symbolGap": 6,
             "knobShadow": {"x": 0, "y": 1, "blur": 2, "spread": 0, "light": "#1D1B1833", "dark": "#00000066", "lightHC": "#1D1B184D", "darkHC": "#00000080"}},
  "popup": {"height": 24, "radius": 6, "padLeft": 9, "padRight": 6, "chevron": 12, "inkHalo": 2, "gap": 8},
  "badge": {"autoInitialsAt": 7, "height": 16, "minWidth": 16, "padX": 5, "rowMinWidth": 18, "dot": 8, "attention": 16, "attentionGlyph": 9, "cutout": 2, "cap": 99},
@@ -496,7 +496,7 @@ ICON = {
  "helpMeWrite": "pencil.line", "aiTab": "text.bubble", "stopWriting": "stop.circle",
  # Settings › Experimental (§5.58): features still taking shape. Reader mode's toggle and its line in a card (§5.59): lines
  # of text on a sheet.
- "experimentalTab": "flask", "readerMode": "doc.plaintext",
+ "experimentalTab": "flask", "readerMode": "eyeglasses",
  "mute": "bell.slash", "unmute": "bell", "blockSender": "hand.raised", "alwaysArchiveSender": "archivebox", "removeRule": "minus",
  "download": "arrow.down.circle",
  # day and week (§5.54); `later` and `send` mark Later and Send Later times on it, `warning` an overlap

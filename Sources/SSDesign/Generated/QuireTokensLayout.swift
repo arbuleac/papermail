@@ -742,6 +742,7 @@ extension Quire {
             public static let inset: CGFloat = 2
             public static let knobEdge: CGFloat = 1
             public static let knobEdgeColor: String = "ruleStrong"
+            public static let symbolGap: CGFloat = 6
             public enum KnobShadow {
                 public static let x: CGFloat = 0
                 public static let y: CGFloat = 1

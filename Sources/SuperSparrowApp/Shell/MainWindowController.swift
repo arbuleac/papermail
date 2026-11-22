@@ -1109,6 +1109,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 ((try? store.messages(in: row.id)) ?? []).contains { $0.subject == DemoComposerSample.handoffSubject }
             }?.id ?? newest
         }
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("quotes") }) {
+            // The newest conversation whose last message quotes another, so its quoted text can be shown (§5.15).
+            let store = environment.store
+            first = list.conversations.first { row in
+                guard let last = ((try? store.messages(in: row.id)) ?? []).last else { return false }
+                return (try? store.body(for: last.id))?.hasQuotedContent == true
+            }?.id ?? newest
+        }
         if let sample = prepareDebugReaderMode() { first = sample }
         if let sample = debugTrackerSampleConversation() { first = sample }
         #else
@@ -1125,6 +1133,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("find") }) {
             // Find in conversation (§5.50): the bar over the demo's first conversation, its matches marked.
             conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in self?.conversation.find.open(query: "the") }
+        }
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("quotes") }) {
+            // Shown quoted text (§5.15): the last open card's quote unfolded, its mark where it stood folded.
+            conversation.whenShownRenderLands(timeout: 10) { webView in
+                webView?.evaluateJavaScript("""
+                    var marks = document.querySelectorAll('.ss-card:not(.ss-collapsed) .ss-toggle-quote');
+                    var mark = marks[marks.length - 1];
+                    if (mark) { mark.scrollIntoView({ block: 'center' }); mark.click(); }
+                    """)
+            }
         }
         applyDebugCalendarStates()
         applyDebugReaderMode()

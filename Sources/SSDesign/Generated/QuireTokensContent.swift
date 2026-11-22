@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.18.0"
+    public static let version = "1.18.1"
 
     /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
@@ -95,7 +95,7 @@ extension Quire {
         public static let aiTab = "text.bubble"
         public static let stopWriting = "stop.circle"
         public static let experimentalTab = "flask"
-        public static let readerMode = "doc.plaintext"
+        public static let readerMode = "eyeglasses"
         public static let mute = "bell.slash"
         public static let unmute = "bell"
         public static let blockSender = "hand.raised"

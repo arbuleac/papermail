@@ -52,6 +52,8 @@ final class ReaderHeaderView: NSView {
     private let headline = ReaderHeadlineView()
     private let hairline = QuireHairline(.horizontal)
     private var buttons: [ReaderActionSet.Action: QuireIconButton] = [:]
+    /// Reader mode's switch (§5.59), in the middle of row 1 rather than among the actions, which act on the mail.
+    private var readerToggle: QuireToggle?
 
     private static let titlebarZone = Quire.Layout.Window.titlebarZone
 
@@ -130,7 +132,8 @@ final class ReaderHeaderView: NSView {
         for (action, button) in buttons where !shown.contains(action) {
             button.isHidden = true
         }
-        for action in set.all {
+        applyReaderToggle(set)
+        for action in set.all where action != .readerMode {
             let button = buttons[action] ?? makeButton(action)
             button.isHidden = false
             button.isEnabled = set.isEnabled(action)
@@ -139,10 +142,6 @@ final class ReaderHeaderView: NSView {
                 let several = set.replies.isEmpty
                 button.toolTip = set.starOn ? (several ? "Unstar All  S" : "Unstar  S") : (several ? "Star All  S" : "Star  S")
                 button.setAccessibilityLabel(set.starOn ? "Unstar" : "Star")
-            }
-            if action == .readerMode {
-                button.isOn = set.readerModeOn
-                button.toolTip = Self.spec(for: .readerMode).tooltip
             }
             if action == .replyAll {
                 // A disabled control says why (§5.34): Reply would already reach everyone.
@@ -161,11 +160,6 @@ final class ReaderHeaderView: NSView {
         if action == .star {
             button.onStyle = .star
             button.onSymbolName = Quire.Icon.unstar
-        }
-        if action == .readerMode {
-            // A quiet toggle (§5.59): on, the accent wash behind the accent glyph; VoiceOver hears a switch.
-            button.onStyle = .quiet
-            button.togglesOnClick = true
         }
         addSubview(button)
         buttons[action] = button
@@ -187,9 +181,42 @@ final class ReaderHeaderView: NSView {
         }
     }
 
-    /// The button drawn for `action`, nil until it was first shown (tests read its state).
+    /// The button drawn for `action`, nil until it was first shown (tests read its state). Reader mode has a switch
+    /// instead (`readerModeToggle`).
     func button(for action: ReaderActionSet.Action) -> QuireIconButton? {
         buttons[action]
+    }
+
+    /// Reader mode's switch, nil until the experiment was first offered (tests read its state).
+    var readerModeToggle: QuireToggle? { readerToggle }
+
+    static let readerToggleTitle = "Reader"
+
+    /// The switch while the experiment is offered (§5.59): the glasses and “Reader” before it, on while reader mode is.
+    /// Global, so it is never disabled with the conversation's actions.
+    private func applyReaderToggle(_ set: ReaderActionSet) {
+        guard set.view.contains(.readerMode) else {
+            readerToggle?.isHidden = true
+            return
+        }
+        let toggle = readerToggle ?? makeReaderToggle()
+        toggle.isHidden = false
+        toggle.isOn = set.readerModeOn
+    }
+
+    private func makeReaderToggle() -> QuireToggle {
+        let spec = Self.spec(for: .readerMode)
+        let toggle = QuireToggle(title: Self.readerToggleTitle, target: self, action: #selector(readerTogglePressed(_:)))
+        toggle.leadingSymbolName = spec.symbol
+        toggle.toolTip = spec.tooltip
+        toggle.setAccessibilityLabel(spec.label)
+        addSubview(toggle)
+        readerToggle = toggle
+        return toggle
+    }
+
+    @objc private func readerTogglePressed(_ sender: QuireToggle) {
+        onAction?(.readerMode)
     }
 
     @objc private func actionPressed(_ sender: QuireIconButton) {
@@ -216,13 +243,12 @@ final class ReaderHeaderView: NSView {
         super.layout()
         let metrics = Quire.Layout.ReaderHeader.self
         let column = ReaderColumn.frame(readerWidth: bounds.width)
-        // Groups from the trailing edge, 14 pt apart: the reply group, the first, then reader mode's toggle while it is
-        // offered (§5.59). The calendar's toggle is never here, among the message's actions: it stays at the window's
+        // Groups from the trailing edge, 14 pt apart: the reply group, then the first. Reader mode's switch is not among
+        // them: it stands in the middle (§5.59). The calendar's toggle is never here either: it stays at the window's
         // trailing edge (§5.54).
         var x = bounds.width - metrics.actionsTrailing
         var firstActionX = x
-        let groups = [content.actions.replies.compactMap { buttons[$0] }, content.actions.primary.compactMap { buttons[$0] },
-                      content.actions.view.compactMap { buttons[$0] }]
+        let groups = [content.actions.replies.compactMap { buttons[$0] }, content.actions.primary.compactMap { buttons[$0] }]
         var placedGroup = false
         for group in groups where !group.isEmpty {
             if placedGroup { x -= metrics.actionGroupGap - metrics.actionGap }
@@ -234,15 +260,31 @@ final class ReaderHeaderView: NSView {
                 x -= metrics.actionGap
             }
         }
-        let kickerHeight = QuireFont.Role.runningHead.lineHeight
         let kickerX = max(column.x, kickerMinX)
-        let kickerWidth = max(0, firstActionX - metrics.kickerActionGap - kickerX)
+        let kickerEnd = layOutReaderToggle(column: column, kickerX: kickerX, actionsX: firstActionX) ?? firstActionX
+        let kickerHeight = QuireFont.Role.runningHead.lineHeight
+        let kickerWidth = max(0, kickerEnd - metrics.kickerActionGap - kickerX)
         kickerView.frame = NSRect(x: kickerX, y: metrics.kickerCenterY - kickerHeight / 2, width: kickerWidth, height: kickerHeight)
         // The headline's text view lays the role's line out exactly (30 pt at Default), so its frame is the line itself.
         let headlineHeight = metrics.headlineHeight + QuireFont.Role.headline.step(at: textSize)
         headline.frame = NSRect(x: column.x, y: metrics.headlineTop, width: column.width, height: headlineHeight)
         let hair = QuireHairline.width(for: self)
         hairline.frame = NSRect(x: 0, y: bounds.height - max(hair, 1), width: bounds.width, height: max(hair, 1))
+    }
+
+    /// Reader mode's switch (§5.59), centred on the reading column on the actions' line. When the middle is too near the
+    /// actions it stands `actionGroupGap` before them instead; below `window.readerNarrow` its word drops, the glasses
+    /// and the switch stay. Returns where the kicker must end before, nil when the switch is not shown.
+    private func layOutReaderToggle(column: (x: CGFloat, width: CGFloat), kickerX: CGFloat, actionsX: CGFloat) -> CGFloat? {
+        guard let toggle = readerToggle, !toggle.isHidden else { return nil }
+        let metrics = Quire.Layout.ReaderHeader.self
+        toggle.title = bounds.width < Quire.Layout.Window.readerNarrow ? nil : Self.readerToggleTitle
+        let size = toggle.intrinsicContentSize
+        let latest = actionsX - metrics.actionGroupGap - size.width
+        let x = max(kickerX, min((column.x + (column.width - size.width) / 2).rounded(), latest))
+        let y = (metrics.actionsTop + (metrics.actionSize - size.height) / 2).rounded()
+        toggle.frame = toggle.frame(forVisualRect: NSRect(x: x, y: y, width: size.width, height: size.height))
+        return x
     }
 
     override func draw(_ dirtyRect: NSRect) {

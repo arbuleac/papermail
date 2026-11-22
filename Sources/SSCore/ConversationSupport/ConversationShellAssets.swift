@@ -498,6 +498,9 @@ public enum ConversationShellAssets {
 
     /* The elision mark (spec §5.15). */
     .ss-qrow { margin-top: 12px; }
+    /* Shown, the quoted text opens below the mark, which stays where it stood folded (spec §5.15): it leaves the flow
+       and stands over the gap the body keeps for it at the head of the quoted text (holdQuoteRow). */
+    .ss-qrow.ss-held { position: absolute; left: var(--ss-pad-x); margin-top: 0; }
     .ss-elide {
       display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 6px; border: 0;
       border-radius: var(--q-r-md); background: var(--q-fill); color: var(--q-ink2);
@@ -703,7 +706,12 @@ public enum ConversationShellAssets {
     /* Gmail and others put a <br> between the new text and the quote. With the quote folded that break is an
        empty line, and the elision mark would sit a line below the 12 pt the spec gives it (§5.14). It is
        hidden only while the folded quote is the last thing in its block, so no text can join up. */
-    body:not(.ss-show-quotes) br:has(+ .ss-quote:last-child) { display: none; }
+    body:not(.ss-show-quotes) br:has(+ .ss-quote:last-child),
+    body:not(.ss-show-quotes) br:has(+ .ss-qgap + .ss-quote:last-child) { display: none; }
+    /* The room Hide quoted text stands in, before the quoted text (holdQuoteRow); its height is set by the shell. A
+       block of its own, so the margins around it never collapse through it and its top is where the room starts. */
+    .ss-qgap { display: none; }
+    body.ss-show-quotes .ss-qgap { display: flow-root; height: 0; margin: 0; padding: 0; border: 0; }
     .ss-quote { border-left: 2px solid var(--q-rule); padding-left: 12px; }
     .ss-plain { white-space: pre-wrap; }
     body.ss-set { font: var(--q-font-reading); letter-spacing: var(--q-track-reading); color: var(--q-ink); max-width: 576px; background: transparent; }
@@ -1300,6 +1308,7 @@ public enum ConversationShellAssets {
       function measure(card) {
         var doc = frameDocument(card);
         if (!doc || !doc.body) { return 0; }
+        holdQuoteRow(card, doc);
         var height = contentHeight(card, doc);
         // Before its own document loads a frame measures 0 and says nothing; once loaded, 0 is the body's height: a
         // message whose own words are empty (all of it folded quote, or only attachments) has nothing to show above
@@ -1397,6 +1406,8 @@ public enum ConversationShellAssets {
         card.frameLoaded = false;
         card.zoom = 1;
         card.wide = false;
+        card.qhold = null;
+        releaseQuoteRow(card);
       }
 
       // `kind` is 'ss-delayed' for a body fetch in flight, 'ss-held' for a frame loading under its provisional height.
@@ -3161,6 +3172,96 @@ public enum ConversationShellAssets {
           card.animateFit = true;
           measure(card);
         }
+      }
+
+      // Show quoted text and Hide quoted text stand in one place (spec §5.15). Shown, the quoted text opens below the
+      // mark, which stays exactly where it stood with the quote folded: a gap at the head of the quoted text (`.ss-qgap`)
+      // keeps the mark's room in the body, and the mark stands over it, out of the flow. Where the mark stood folded is
+      // measured once per frame and width (`card.qhold`): with the quote folded, then shown with an empty gap. The
+      // message's own text after the quoted text (a reply written below or between quotes) would leave a hole where that
+      // text stood folded, so then the mark stands at the head of the quoted text, as far below the text before it as it
+      // stands below a body.
+      var QROW_GAP = 12;
+      var QROW_HEIGHT = 24;
+
+      function holdQuoteRow(card, doc) {
+        var row = card.qrow;
+        var gap = card.quotesShown && card.expanded && card.frameLoaded && row && row.offsetParent ? quoteGap(doc) : null;
+        if (!gap) { releaseQuoteRow(card); return; }
+        var key = heightKey(card);
+        if (!card.qhold || card.qhold.key !== key) {
+          card.qhold = { key: key, offset: foldedRowOffset(card, doc, gap) };
+        }
+        var offset = card.qhold.offset;
+        // The gap's height is the body's own px, which its zoom scales; positions read back already scaled.
+        gap.style.height = Math.max(0, (offset + QROW_HEIGHT + QROW_GAP) / (card.zoom || 1)) + 'px';
+        var top = card.iframe.getBoundingClientRect().top + gap.getBoundingClientRect().top + offset
+          - card.element.getBoundingClientRect().top;
+        row.classList.add('ss-held');
+        row.style.top = Math.round(top) + 'px';
+      }
+
+      function releaseQuoteRow(card) {
+        if (!card.qrow) { return; }
+        card.qrow.classList.remove('ss-held');
+        card.qrow.style.top = '';
+      }
+
+      // The gap before the first quoted block, made the first time its quoted text shows. Folded, CSS hides it.
+      function quoteGap(doc) {
+        var gap = doc.querySelector('.ss-qgap');
+        if (gap) { return gap; }
+        var quote = doc.querySelector('.ss-quote');
+        if (!quote || !quote.parentNode) { return null; }
+        gap = doc.createElement('div');
+        gap.className = 'ss-qgap';
+        gap.setAttribute('aria-hidden', 'true');
+        quote.parentNode.insertBefore(gap, quote);
+        return gap;
+      }
+
+      // How far below the gap's top the mark stood with the quoted text folded, read from both layouts in turn (no
+      // paint comes between them). The frame and the mark are put back as they were.
+      function foldedRowOffset(card, doc, gap) {
+        var row = card.qrow;
+        if (textAfterQuotes(doc)) { return QROW_GAP; }
+        var frameHeight = card.iframe.style.height;
+        releaseQuoteRow(card);
+        doc.body.classList.remove('ss-show-quotes');
+        card.iframe.style.height = contentHeight(card, doc) + 'px';
+        var folded = row.getBoundingClientRect().top;
+        doc.body.classList.add('ss-show-quotes');
+        gap.style.height = '0px';
+        var gapTop = card.iframe.getBoundingClientRect().top + gap.getBoundingClientRect().top;
+        card.iframe.style.height = frameHeight;
+        return folded - gapTop;
+      }
+
+      // Whether anything of the message's own shows after its first quoted block, between or after the quoted blocks:
+      // words, or a picture larger than a pixel.
+      function textAfterQuotes(doc) {
+        var node = doc.querySelector('.ss-quote');
+        if (!node) { return false; }
+        var outer = node.parentElement && node.parentElement.closest('.ss-quote');
+        while (outer) { node = outer; outer = node.parentElement && node.parentElement.closest('.ss-quote'); }
+        while (node && node !== doc.body && !node.nextSibling) { node = node.parentNode; }
+        if (!node || node === doc.body) { return false; }
+        node = node.nextSibling;
+        var walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+          acceptNode: function (n) {
+            return n.nodeType === 1 && n.classList.contains('ss-quote') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+          }
+        });
+        walker.currentNode = node;
+        for (var n = node; n; n = walker.nextNode()) {
+          if (n.nodeType === 3) {
+            if (/\S/.test(n.data) && n.parentElement && n.parentElement.getClientRects().length) { return true; }
+          } else if (n.tagName === 'IMG') {
+            var box = n.getBoundingClientRect();
+            if (box.width > 3 && box.height > 3) { return true; }
+          }
+        }
+        return false;
       }
 
       // The body is already laid out and measured under the fold, so the sheet animates straight to its height.
