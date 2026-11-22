@@ -162,13 +162,23 @@ final class IdentityMigrationTests: XCTestCase {
 
     /// With the mailbox moved, the old app open again (on an empty folder of its own) does not hold Paper's launch up.
     func testTheOldAppRunningHoldsTheLaunchOnlyWhileItsFolderHasSomethingToMove() throws {
+        try write("mailbox", "Library/Application Support/SuperSparrow/mail.sqlite")
+        XCTAssertEqual(migration().run(), .ran)
+        XCTAssertEqual(defaults.domains["app.paperinbox.mac"]?[IdentityMigration.mailboxMovedKey] as? Bool, true)
         try write("fresh", "Library/Application Support/SuperSparrow/mail.sqlite")
-        try write("moved", "Library/Application Support/app.paperinbox.mac/mail.sqlite")
         XCTAssertEqual(migration(running: true).run(), .deferred(applicationSupportWaiting: false))
         try write("draft", "Library/Application Support/SuperSparrow/Drafts/1.json")
         XCTAssertEqual(migration(running: true).run(), .deferred(applicationSupportWaiting: true))
         try FileManager.default.removeItem(at: legacySupport)
         XCTAssertEqual(migration(running: true).run(), .deferred(applicationSupportWaiting: false))
+    }
+
+    /// A mailbox in each folder, the old one never moved: the old app open on it holds the launch up as well, since what
+    /// Paper would open is not the user's mail.
+    func testTheOldAppRunningOnAMailboxNeverMovedHoldsTheLaunch() throws {
+        try write("mailbox", "Library/Application Support/SuperSparrow/mail.sqlite")
+        try write("", "Library/Application Support/app.paperinbox.mac/mail.sqlite")
+        XCTAssertEqual(migration(running: true).run(), .deferred(applicationSupportWaiting: true))
     }
 
     // MARK: Everything, from the old app alone
@@ -298,6 +308,187 @@ final class IdentityMigrationTests: XCTestCase {
                        .init(moves: [["-wal"]], kept: 1))
     }
 
+    // MARK: A mailbox that cannot move
+
+    /// The new folder holds a mailbox the move did not put there (a development build's, or a bare binary run on the
+    /// real store before the first launch as Paper): the launch opens nothing and changes nothing of the old app's,
+    /// every time, until one of the two mailboxes is moved out; then the move goes ahead.
+    func testAMailboxTheNewFolderAlreadyHasHoldsTheLaunchAndMovesNothing() throws {
+        try makeLegacy()
+        try write("", "Library/Application Support/app.paperinbox.mac/mail.sqlite")
+        try write("", "Library/Application Support/app.paperinbox.mac/mail.sqlite-wal")
+        let before = tree()
+        let settings = defaults.domains
+        for _ in 0..<2 {
+            XCTAssertEqual(migration().run(), .leftBehind(.mailboxInBothFolders))
+            XCTAssertEqual(tree(), before, "nothing moved: not the OAuth clients or drafts either, which go with the mailbox")
+            XCTAssertEqual(defaults.domains as NSDictionary, settings as NSDictionary, "the old app keeps its settings")
+            XCTAssertEqual(defaults.writes, 0)
+        }
+
+        // The user moves Paper's mailbox out: the old one comes in whole.
+        for suffix in ["", "-wal"] {
+            try FileManager.default.removeItem(at: newSupport.appending(path: "mail.sqlite" + suffix))
+        }
+        XCTAssertEqual(migration().run(), .ran)
+        XCTAssertFalse(exists("Library/Application Support/SuperSparrow"))
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite"), "mailbox")
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite-wal"), "mailbox log")
+        XCTAssertEqual(defaults.domains["app.paperinbox.mac"]?["theme"] as? String, "dusk")
+        XCTAssertEqual(defaults.domains["app.paperinbox.mac"]?[IdentityMigration.mailboxMovedKey] as? Bool, true)
+    }
+
+    /// Part of a mailbox in the new folder (its log, from two launches that raced before the lock) holds the launch too:
+    /// the app would open an empty database over the old mailbox's log.
+    func testAMailboxsLogAloneInTheNewFolderHoldsTheLaunch() throws {
+        try write("mailbox", "Library/Application Support/SuperSparrow/mail.sqlite")
+        try write("mailbox log", "Library/Application Support/app.paperinbox.mac/mail.sqlite-wal")
+        XCTAssertEqual(migration().run(), .leftBehind(.mailboxInBothFolders))
+        XCTAssertEqual(text("Library/Application Support/SuperSparrow/mail.sqlite"), "mailbox")
+    }
+
+    /// Once the mailbox has moved, one the old app starts later in its own folder stays there and holds nothing up.
+    func testAMailboxTheOldAppStartsAfterTheMoveStaysAndHoldsNothingUp() throws {
+        try makeLegacy()
+        XCTAssertEqual(migration().run(), .ran)
+        try write("fresh", "Library/Application Support/SuperSparrow/mail.sqlite")
+        XCTAssertEqual(migration().run(), .ran)
+        XCTAssertEqual(text("Library/Application Support/SuperSparrow/mail.sqlite"), "fresh")
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite"), "mailbox")
+    }
+
+    /// The one rename of the old folder fails (another volume, a locked item): the launch opens nothing and changes
+    /// nothing else of the old app's, and the next launch, with the rename working, moves everything.
+    func testAFolderRenameThatFailsHoldsTheLaunchAndTheNextLaunchMovesIt() throws {
+        try makeLegacy()
+        let before = tree()
+        let settings = defaults.domains
+        var failing = IdentityMigration.FileOperations.system
+        failing.move = { source, destination in
+            if source.lastPathComponent == "SuperSparrow" { throw POSIXError(.EXDEV) }
+            try IdentityMigration.FileOperations.system.move(source, destination)
+        }
+        XCTAssertEqual(migration(files: failing).run(), .leftBehind(.moveFailed))
+        XCTAssertEqual(tree(), before, "no new folder, no caches moved, no leftovers removed")
+        XCTAssertEqual(defaults.domains as NSDictionary, settings as NSDictionary)
+
+        XCTAssertEqual(migration().run(), .ran)
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite"), "mailbox")
+        XCTAssertNil(defaults.domains["io.supersparrow.mac"])
+    }
+
+    /// A companion that fails to move takes its database back with it: the three stay together in the old folder, the
+    /// new folder gets none of them, and the launch opens nothing.
+    func testACompanionThatFailsToMoveTakesItsDatabaseBack() throws {
+        try makeLegacy()
+        try write("new demo", "Library/Application Support/app.paperinbox.mac/demo.sqlite")
+        var failing = IdentityMigration.FileOperations.system
+        failing.move = { source, destination in
+            if source.lastPathComponent == "mail.sqlite-wal" { throw POSIXError(.EPERM) }
+            try IdentityMigration.FileOperations.system.move(source, destination)
+        }
+        XCTAssertEqual(migration(files: failing).run(), .leftBehind(.moveFailed))
+        for name in ["mail.sqlite", "mail.sqlite-wal", "mail.sqlite-shm"] {
+            XCTAssertTrue(exists("Library/Application Support/SuperSparrow/" + name), name)
+            XCTAssertFalse(exists("Library/Application Support/app.paperinbox.mac/" + name), name)
+        }
+        XCTAssertEqual(text("Library/Application Support/SuperSparrow/mail.sqlite"), "mailbox")
+
+        XCTAssertEqual(migration().run(), .ran)
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite-wal"), "mailbox log")
+    }
+
+    /// A companion gone since the plan (SQLite removes a log it has checkpointed) is not waited for: the database and
+    /// the rest move on, since taking the database back would bring nothing back with it.
+    func testACompanionGoneBeforeItsMoveDoesNotHoldItsDatabaseBack() throws {
+        try makeLegacy()
+        try write("new demo", "Library/Application Support/app.paperinbox.mac/demo.sqlite")
+        var vanishing = IdentityMigration.FileOperations.system
+        vanishing.move = { source, destination in
+            if source.lastPathComponent == "mail.sqlite-wal" { try FileManager.default.removeItem(at: source) }
+            try IdentityMigration.FileOperations.system.move(source, destination)
+        }
+        XCTAssertEqual(migration(files: vanishing).run(), .ran)
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite"), "mailbox")
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite-shm"), "mailbox index")
+        XCTAssertFalse(exists("Library/Application Support/SuperSparrow/mail.sqlite"))
+    }
+
+    /// A move never replaces what is already there, a file or a folder, empty or not: it fails and changes neither side.
+    func testAMoveNeverReplacesAnything() throws {
+        try write("source", "a/file")
+        try write("there", "b/file")
+        try write("source", "a/folder/x")
+        try write("there", "b/folder/y")
+        try FileManager.default.createDirectory(at: root.appending(path: "b/empty"), withIntermediateDirectories: true)
+        try write("source", "a/toEmpty")
+        let before = tree()
+        let move = IdentityMigration.FileOperations.system.move
+        for (from, to) in [("a/file", "b/file"), ("a/folder", "b/folder"), ("a/toEmpty", "b/empty"), ("a/folder", "b/file")] {
+            XCTAssertThrowsError(try move(root.appending(path: from), root.appending(path: to)), "\(from) -> \(to)") { error in
+                XCTAssertEqual((error as? POSIXError)?.code, .EEXIST)
+            }
+        }
+        XCTAssertEqual(tree(), before)
+        try move(root.appending(path: "a/file"), root.appending(path: "b/new"))
+        XCTAssertEqual(text("b/new"), "source")
+        XCTAssertFalse(exists("a/file"))
+    }
+
+    /// Two copies of the app launched at once (`open -n`, or two copies of Paper.app): the second waits for the first's
+    /// move of the old folder, then finds it done and moves nothing. Without the lock it would move the mailbox's log
+    /// while the first moved the database, under it.
+    func testASecondLaunchAtTheSameMomentWaitsForTheFirstsMove() throws {
+        // Application Support alone: the two would otherwise race over the caches, harmlessly but not the point here.
+        for (path, text) in [("SuperSparrow/mail.sqlite", "mailbox"), ("SuperSparrow/mail.sqlite-wal", "mailbox log"),
+                             ("SuperSparrow/mail.sqlite-shm", "mailbox index"), ("SuperSparrow/demo.sqlite", "old demo"),
+                             ("SuperSparrow/oauth-clients.json", "clients"), ("app.paperinbox.mac/demo.sqlite", "new demo")] {
+            try write(text, "Library/Application Support/" + path)
+        }
+        let locations = locations!
+        let second = Second()
+        let system = IdentityMigration.FileOperations.system
+        var first = system
+        first.move = { source, destination in
+            try system.move(source, destination)
+            guard source.lastPathComponent == "mail.sqlite", !second.started else { return }
+            second.started = true
+            Thread.detachNewThread {
+                var other = IdentityMigration(bundleIdentifier: "app.paperinbox.mac", locations: locations, defaults: FakeDefaults()) {
+                    second.reachedTheMove.signal()
+                    return false
+                }
+                other.files.move = { source, destination in
+                    second.moves += 1
+                    try system.move(source, destination)
+                }
+                second.outcome = other.run()
+                second.done.signal()
+            }
+            // Long enough for the second to run its whole move if nothing held it back.
+            second.reachedTheMove.wait()
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        XCTAssertEqual(migration(files: first).run(), .ran)
+        XCTAssertEqual(second.done.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(second.outcome, .ran)
+        XCTAssertEqual(second.moves, 0, "the second found the move done")
+        for name in ["mail.sqlite", "mail.sqlite-wal", "mail.sqlite-shm"] {
+            XCTAssertTrue(exists("Library/Application Support/app.paperinbox.mac/" + name), name)
+            XCTAssertFalse(exists("Library/Application Support/SuperSparrow/" + name), name)
+        }
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite"), "mailbox")
+        XCTAssertEqual(text("Library/Application Support/app.paperinbox.mac/mail.sqlite-wal"), "mailbox log")
+    }
+
+    private final class Second: @unchecked Sendable {
+        var started = false
+        var moves = 0
+        var outcome: IdentityMigration.Outcome?
+        let reachedTheMove = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+    }
+
     // MARK: Settings
 
     func testSettingsTheNewDomainHoldsWinAndTheOldDomainGoes() throws {
@@ -343,6 +534,23 @@ final class IdentityMigrationTests: XCTestCase {
         XCTAssertEqual(text("Library/Caches/app.paperinbox.mac/attachments/b"), "new attachment")
         XCTAssertEqual(text("Library/Caches/app.paperinbox.mac/demo-attachments/c"), "old demo attachment")
         XCTAssertEqual(text("Library/Caches/SuperSparrow/attachments/a"), "old attachment", "what both hold stays")
+    }
+
+    /// Of the old attachment caches' folder, only the attachment caches move: it was also the old bare binary's own
+    /// caches folder, whose web caches are a developer's and never become the app's. The folder stays while they are in it.
+    func testOnlyTheAttachmentCachesMove() throws {
+        try write("attachment", "Library/Caches/SuperSparrow/attachments/a")
+        try write("demo attachment", "Library/Caches/SuperSparrow/demo-attachments/b")
+        try write("network", "Library/Caches/SuperSparrow/WebKit/NetworkCache/x")
+        try write("hsts", "Library/Caches/SuperSparrow/WebKit/HSTS/y")
+        try write("url cache", "Library/Caches/SuperSparrow/Cache.db")
+        XCTAssertEqual(migration().run(), .ran)
+        XCTAssertEqual(text("Library/Caches/app.paperinbox.mac/attachments/a"), "attachment")
+        XCTAssertEqual(text("Library/Caches/app.paperinbox.mac/demo-attachments/b"), "demo attachment")
+        XCTAssertFalse(exists("Library/Caches/app.paperinbox.mac/WebKit"))
+        XCTAssertFalse(exists("Library/Caches/app.paperinbox.mac/Cache.db"))
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: legacyAttachmentCaches.path)), ["WebKit", "Cache.db"])
+        XCTAssertEqual(text("Library/Caches/SuperSparrow/WebKit/NetworkCache/x"), "network")
     }
 
     /// Exactly the old app's four per-bundle leftovers, nothing beside them.

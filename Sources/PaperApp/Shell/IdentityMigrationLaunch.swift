@@ -19,22 +19,31 @@ enum IdentityMigrationLaunch {
             }
         ).run()
     }
-
-    /// Whether this launch must only ask for the old app to be quit: it is open on a mailbox not moved yet, and opening
-    /// Paper would start an empty one in the new folder, beside which a later move would leave the old one where it is.
-    static func mustWait(for outcome: IdentityMigration.Outcome) -> Bool {
-        outcome == .deferred(applicationSupportWaiting: true)
-    }
 }
 
-/// The delegate of a launch that only asks for the old app to be quit (`IdentityMigrationLaunch.mustWait`): no store,
-/// no settings, no crash reports or analytics, just the alert, and the app quits when it closes. The next launch, with
-/// the old app quit, moves everything.
+/// The delegate of a launch that opens nothing (`AppAlert.identityHold`): the old app is open on a mailbox not moved yet,
+/// or the move could not bring the mailbox over, and opening Paper would start an empty one in the new folder, beside
+/// which the old one would stay for good. No store, no settings, no crash reports or analytics, just the alert, and the
+/// app quits when it closes; the next launch tries again.
 @MainActor
-final class LegacyAppOpenDelegate: NSObject, NSApplicationDelegate {
+final class IdentityHoldDelegate: NSObject, NSApplicationDelegate {
+    private let outcome: IdentityMigration.Outcome
+    private let alert: AppAlert
+
+    init(outcome: IdentityMigration.Outcome, alert: AppAlert) {
+        self.outcome = outcome
+        self.alert = alert
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.activate()
-        AppAlert.legacyAppOpen.present(on: nil)
+        let outcome = outcome
+        alert.present(on: nil) { choice in
+            // Show in Finder: Paper's own mailbox, the one to move out for the old one to come in.
+            if outcome == .leftBehind(.mailboxInBothFolders), choice == 0 {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: SQLiteMailStore.defaultPath)])
+            }
+        }
         NSApp.terminate(nil)
     }
 }

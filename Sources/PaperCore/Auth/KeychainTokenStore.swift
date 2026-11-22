@@ -8,8 +8,9 @@ import os
 ///
 /// An account signed in before the app was Paper has its item under the old service (`LegacyIdentity`). The first read
 /// that finds none under the new service reads the old one, writes what it found under the new service and then deletes
-/// the old item, so each account moves the first time it is used (docs/ARCHITECTURE.md, "Identity"). `delete` removes
-/// both. Only the bundled app reads the old service (`defaultLegacyService`).
+/// the old item, so each account moves the first time it is used (docs/ARCHITECTURE.md, "Identity"). `save` deletes any
+/// old item too, so a move cut off before its delete is finished by the next token refresh; `delete` removes both. Only
+/// the bundled app reads the old service (`defaultLegacyService`).
 public final class KeychainTokenStore: TokenStore, Sendable {
     public static let defaultService = AppIdentity.tokensKeychainService
 
@@ -56,7 +57,7 @@ public final class KeychainTokenStore: TokenStore, Sendable {
         }
         guard case .found(let tokens) = try read(accountID, from: legacyService) else { return nil }
         do {
-            try save(tokens, for: accountID)
+            try write(tokens, for: accountID)
         } catch {
             // Still under the old service, where the next read finds it and tries again.
             Self.logger.error("An account's tokens could not be moved to the new Keychain item: \(String(describing: error), privacy: .public)")
@@ -72,7 +73,21 @@ public final class KeychainTokenStore: TokenStore, Sendable {
         return tokens
     }
 
+    /// Writes the tokens under the new service and then deletes any item left under the old one: a move cut off between
+    /// its write and its delete, or whose delete failed, would otherwise leave a live refresh token there until the
+    /// account is removed, since every later read stops at the new item.
     public func save(_ tokens: OAuthTokens, for accountID: AccountID) throws {
+        try write(tokens, for: accountID)
+        guard let legacyService else { return }
+        let status = access.delete(baseQuery(for: accountID, service: legacyService))
+        if status == errSecSuccess {
+            Self.logger.info("An account's old Keychain item deleted on save")
+        } else if status != errSecItemNotFound {
+            Self.logger.error("An account's old Keychain item could not be deleted (status \(status, privacy: .public))")
+        }
+    }
+
+    private func write(_ tokens: OAuthTokens, for accountID: AccountID) throws {
         let data: Data
         do {
             data = try JSONEncoder().encode(tokens)

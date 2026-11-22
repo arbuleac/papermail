@@ -9,9 +9,11 @@ import os
 ///
 /// It runs only in the bundled app (the new bundle identifier), never in the bare binary or a test: agents render with
 /// the bare binary while the old app is open on the live data. And never while the old app runs, which would go on
-/// writing where it always did; that launch defers to the next. Each step is idempotent and leaves, wherever it is cut
-/// off, a state the next launch finishes: files only ever move by an exclusive rename on the same volume (never a copy,
-/// never a replace), a folder is removed only once empty, and a data file is never deleted or opened.
+/// writing where it always did; that launch defers to the next. The mailbox moves first, and the rest of the old app's
+/// state only once it has: a launch whose mailbox could not move (`Outcome.leftBehind`) opens nothing and changes nothing
+/// else. Each step is idempotent and leaves, wherever it is cut off, a state the next launch finishes: files only ever
+/// move by an exclusive rename on the same volume (never a copy, never a replace), a folder is removed only once empty,
+/// and a data file is never deleted or opened.
 ///
 /// The folders, the defaults and the running-app check are injected, so the tests run it on temporary folders and a
 /// dictionary; only the app passes the user's own (`Locations.user`, `UserDefaults.standard`).
@@ -55,11 +57,34 @@ public struct IdentityMigration {
         case deferred(applicationSupportWaiting: Bool)
         /// Every step ran; one with nothing left to do did nothing.
         case ran
+        /// The old folder in Application Support still holds the mailbox, or something else the move could not bring
+        /// over: this launch must open nothing, since a mailbox started in the new folder would leave the old one where
+        /// it is for good. Nothing else of the old app's changed (its settings, caches and leftovers stay with its
+        /// mailbox), and the next launch tries again.
+        case leftBehind(LeftBehind)
+    }
+
+    /// Why the old folder in Application Support could not be brought over.
+    public enum LeftBehind: Equatable, Sendable {
+        /// A move failed (the volume refused a rename, say). Nothing was lost; the next launch tries again.
+        case moveFailed
+        /// The new folder already holds a mailbox (or part of one) that the move did not put there, made before the
+        /// first launch as Paper (by a development build, say). The move never puts one mailbox beside another, nor
+        /// chooses between them: it waits until one of them is moved out.
+        case mailboxInBothFolders
     }
 
     /// Set in the new defaults domain once the old domain's settings were copied in, so a later launch never copies
     /// them over the user's changes again.
     public static let migratedKey = "identity.migrated"
+
+    /// Set in the new defaults domain once the mailbox is in the new folder and none is left in the old one. A mailbox
+    /// found in the old folder after that is one the old app started since, opened again on a folder of its own: it
+    /// stays there and holds no launch up.
+    public static let mailboxMovedKey = "identity.mailboxMoved"
+
+    /// The mailbox's database in either folder (`SQLiteMailStore.defaultPath`).
+    static let mailboxName = "mail.sqlite"
 
     /// The names SQLite gives a database's companion files. A database moves with them as one, never one of them
     /// beside another database.
@@ -95,8 +120,8 @@ public struct IdentityMigration {
         applies(toBundleIdentifier: Bundle.main.bundleIdentifier)
     }
 
-    /// Runs every step that has something to do, in order: the defaults, Application Support, the caches, the old
-    /// app's leftovers.
+    /// Runs every step that has something to do, in order: Application Support, then, once the mailbox is in the new
+    /// folder, the defaults, the caches and the old app's leftovers.
     @discardableResult
     public func run() -> Outcome {
         guard Self.applies(toBundleIdentifier: bundleIdentifier) else { return .notThisApp }
@@ -105,8 +130,10 @@ public struct IdentityMigration {
             Self.log.info("the old app is running; its data moves on a launch without it (mailbox waiting: \(waiting, privacy: .public))")
             return .deferred(applicationSupportWaiting: waiting)
         }
+        // The mailbox first. While it cannot move, the old app keeps all the rest too (its settings, the crash reports'
+        // queue, its leftovers), so it still works if the user goes back to it.
+        if let reason = moveApplicationSupport() { return .leftBehind(reason) }
         moveDefaults()
-        moveApplicationSupport()
         moveCaches()
         removeLeftovers()
         return .ran
@@ -138,29 +165,75 @@ public struct IdentityMigration {
 
     // MARK: Application Support
 
+    private var legacySupport: URL { LegacyIdentity.applicationSupportDirectory(in: locations.applicationSupport) }
+    private var newSupport: URL { AppIdentity.applicationSupportDirectory(in: locations.applicationSupport) }
+
     /// The mailbox (`mail.sqlite` with its companions), the demo's, the OAuth clients, the drafts and anything else the
-    /// old folder holds.
-    func moveApplicationSupport() {
-        moveOrMerge(LegacyIdentity.applicationSupportDirectory(in: locations.applicationSupport),
-                    into: AppIdentity.applicationSupportDirectory(in: locations.applicationSupport),
-                    what: "application support")
+    /// old folder holds. Nil when the mailbox is in the new folder, or there is none to bring: the launch may open it.
+    /// Otherwise why it is not, with nothing moved when the new folder has a mailbox of its own.
+    ///
+    /// Under an exclusive lock on the old folder, so a second copy of the app launched at the same moment waits for this
+    /// one's move and then finds it done, instead of moving a database's companions while this one moves the database.
+    func moveApplicationSupport() -> LeftBehind? {
+        Self.whileLocking(legacySupport) {
+            if mailboxInBothFolders {
+                Self.log.error("the old mailbox not moved: the new folder already has one; nothing moved")
+                return .mailboxInBothFolders
+            }
+            moveOrMerge(legacySupport, into: newSupport, what: "application support")
+            if applicationSupportHasMovesLeft {
+                Self.log.error("application support not wholly moved; the next launch tries again")
+                return .moveFailed
+            }
+            markMailboxMoved()
+            return nil
+        }
     }
 
-    /// Whether the old Application Support folder holds something the move would take: the old app is open on it, so
-    /// this launch must not start a mailbox in the new folder.
+    /// Whether the old Application Support folder holds something the move would take, or a mailbox it would not move
+    /// beside the new folder's: the old app is open on it, so this launch must not start a mailbox in the new folder.
     var applicationSupportWaiting: Bool {
-        let legacy = LegacyIdentity.applicationSupportDirectory(in: locations.applicationSupport)
-        let new = AppIdentity.applicationSupportDirectory(in: locations.applicationSupport)
-        guard let legacyNames = try? Self.names(in: legacy), !legacyNames.isEmpty else { return false }
-        guard Self.exists(new) else { return true }
-        guard let newNames = try? Self.names(in: new) else { return true }
+        applicationSupportHasMovesLeft || mailboxInBothFolders
+    }
+
+    /// Whether the old folder holds something the move would take: before the move, what it would do; after it, what
+    /// failed.
+    var applicationSupportHasMovesLeft: Bool {
+        guard let legacyNames = try? Self.names(in: legacySupport), !legacyNames.isEmpty else { return false }
+        guard Self.exists(newSupport) else { return true }
+        guard let newNames = try? Self.names(in: newSupport) else { return true }
         return !Self.plan(legacy: legacyNames, new: Set(newNames)).moves.isEmpty
+    }
+
+    /// Whether the old folder's mailbox never moved and the new folder holds a mailbox, or part of one, of its own: the
+    /// move would keep the old one where it is, and the app would open the other.
+    var mailboxInBothFolders: Bool {
+        guard !mailboxMoved, Self.exists(legacySupport.appending(path: Self.mailboxName)) else { return false }
+        let unit = [Self.mailboxName] + Self.databaseCompanionSuffixes.map { Self.mailboxName + $0 }
+        return unit.contains { Self.exists(newSupport.appending(path: $0)) }
+    }
+
+    /// Whether an earlier launch saw the mailbox in the new folder with none left in the old one.
+    private var mailboxMoved: Bool {
+        defaults.persistentDomain(forName: AppIdentity.bundleIdentifier)?[Self.mailboxMovedKey] != nil
+    }
+
+    /// Marks the mailbox moved once it is in the new folder and none is in the old one. Cut off before the write, the
+    /// next launch finds the same and writes it then.
+    private func markMailboxMoved() {
+        guard !mailboxMoved, Self.exists(newSupport.appending(path: Self.mailboxName)),
+              !Self.exists(legacySupport.appending(path: Self.mailboxName)) else { return }
+        var domain = defaults.persistentDomain(forName: AppIdentity.bundleIdentifier) ?? [:]
+        domain[Self.mailboxMovedKey] = true
+        defaults.setPersistentDomain(domain, forName: AppIdentity.bundleIdentifier)
+        Self.log.info("mailbox marked moved")
     }
 
     // MARK: Caches
 
-    /// The crash reporter's queue, so reports not sent yet still go, then the old bundle's caches folder (what else is in
-    /// it the system rebuilds); and the old attachment caches, so nothing is downloaded again.
+    /// The crash reporter's queue, so reports not sent yet still go (when the crash reporter's DSN is the old one: it
+    /// keeps its queue under the DSN's hash), then the old bundle's caches folder (what else is in it the system
+    /// rebuilds); and the old attachment caches, so nothing is downloaded again.
     func moveCaches() {
         let legacyBundleCaches = LegacyIdentity.cachesDirectory(in: locations.caches)
         if Self.exists(legacyBundleCaches) {
@@ -179,9 +252,35 @@ public struct IdentityMigration {
                 Self.log.error("old caches not moved (\(Self.describe(error), privacy: .public))")
             }
         }
-        moveOrMerge(LegacyIdentity.attachmentCachesDirectory(in: locations.caches),
-                    into: AppIdentity.cachesDirectory(in: locations.caches),
-                    what: "attachment caches")
+        moveAttachmentCaches()
+    }
+
+    /// Exactly the old attachment caches' folders, each into the new caches folder when that has none of its own;
+    /// nothing else of the old folder's, which was also the old bare binary's own caches folder (its web caches are a
+    /// developer's, as its defaults domain is). The old folder goes once empty.
+    private func moveAttachmentCaches() {
+        let legacy = LegacyIdentity.attachmentCachesDirectory(in: locations.caches)
+        guard Self.exists(legacy) else { return }
+        let new = AppIdentity.cachesDirectory(in: locations.caches)
+        var moved = 0
+        for name in LegacyIdentity.attachmentCacheFolderNames {
+            let source = legacy.appending(path: name, directoryHint: .isDirectory)
+            let destination = new.appending(path: name, directoryHint: .isDirectory)
+            guard Self.exists(source), !Self.exists(destination) else { continue }
+            do {
+                if !Self.exists(new) { try files.makeDirectory(new) }
+                try files.move(source, destination)
+                moved += 1
+            } catch {
+                Self.log.error("an attachment cache not moved (\(Self.describe(error), privacy: .public))")
+            }
+        }
+        do {
+            let removed = try files.removeIfEmpty(legacy)
+            Self.log.info("attachment caches: \(moved, privacy: .public) moved, old folder \(removed ? "removed" : "kept", privacy: .public)")
+        } catch {
+            Self.log.error("old attachment caches' folder not removed (\(Self.describe(error), privacy: .public))")
+        }
     }
 
     // MARK: Leftovers
@@ -236,7 +335,8 @@ public struct IdentityMigration {
     }
 
     /// Moves one unit in order, the database first. A companion that fails takes the files moved before it back, so a
-    /// database never opens without its write-ahead log.
+    /// database never opens without its write-ahead log. A companion gone since the plan (SQLite removes a log it has
+    /// checkpointed) is not waited for: putting the database back would bring nothing back with it.
     private func move(_ unit: [String], from legacy: URL, to new: URL) -> Bool {
         var done: [String] = []
         for name in unit {
@@ -244,6 +344,10 @@ public struct IdentityMigration {
                 try files.move(legacy.appending(path: name), new.appending(path: name))
                 done.append(name)
             } catch {
+                if !done.isEmpty, (error as? POSIXError)?.code == .ENOENT, !Self.exists(legacy.appending(path: name)) {
+                    Self.log.info("a database's companion gone before it moved")
+                    continue
+                }
                 Self.log.error("an item not moved (\(Self.describe(error), privacy: .public))")
                 for name in done.reversed() {
                     try? files.move(new.appending(path: name), legacy.appending(path: name))
@@ -315,6 +419,22 @@ public struct IdentityMigration {
     static func describe(_ error: Error) -> String {
         let error = error as NSError
         return "\(error.domain) \(error.code)"
+    }
+
+    /// Runs `body` holding an exclusive `flock` on `folder`, which waits while another process holds it. The lock is the
+    /// folder's own, so it follows the folder through a rename and never leaves a file behind. A folder that is not
+    /// there, or will not lock (a file system without `flock`), runs `body` unlocked, as nothing then needs keeping apart.
+    static func whileLocking<T>(_ folder: URL, _ body: () -> T) -> T {
+        let descriptor = open(folder.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard descriptor >= 0 else { return body() }
+        defer { close(descriptor) }
+        var status = flock(descriptor, LOCK_EX)
+        while status != 0, errno == EINTR { status = flock(descriptor, LOCK_EX) }
+        if status != 0 {
+            let code = errno
+            log.error("the old folder not locked (POSIX \(code, privacy: .public)); moving unlocked")
+        }
+        return body()
     }
 }
 

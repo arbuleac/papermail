@@ -8,12 +8,13 @@ MainActor.assumeIsolated {
     let options = LaunchOptions()
     // The subclass reports what AppKit catches; asked for first, it is the one `NSApp` holds.
     let app = PaperApplication.shared
-    // The old app is open on a mailbox not moved yet: this launch only asks for it to be quit.
-    if IdentityMigrationLaunch.mustWait(for: identity) {
-        let waiting = LegacyAppOpenDelegate()
-        app.delegate = waiting
+    // The old app is open on a mailbox not moved yet, or the move could not bring it over: this launch opens nothing (a
+    // mailbox started in the new folder would leave the old one where it is for good), it only says why, and quits.
+    if let alert = AppAlert.identityHold(for: identity) {
+        let holding = IdentityHoldDelegate(outcome: identity, alert: alert)
+        app.delegate = holding
         app.setActivationPolicy(.regular)
-        withExtendedLifetime(waiting) {
+        withExtendedLifetime(holding) {
             app.run()
         }
         return

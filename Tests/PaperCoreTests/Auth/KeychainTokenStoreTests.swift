@@ -202,6 +202,26 @@ final class KeychainTokenStoreTests: XCTestCase {
         XCTAssertTrue(keychain.contains(service: newService, account: accountID.rawValue))
     }
 
+    /// A move cut off after its write and before its delete (a crash, or a delete that failed) leaves the old item; every
+    /// later read stops at the new one, so the next save (a token refresh) deletes it.
+    func testASaveDeletesAnOldItemAMoveLeftBehind() throws {
+        let keychain = FakeKeychain()
+        keychain.set(try encoded(tokens("old-at")), service: oldService, account: accountID.rawValue)
+        keychain.set(try encoded(tokens("moved-at")), service: newService, account: accountID.rawValue)
+        let store = KeychainTokenStore(service: newService, legacyService: oldService, access: keychain.access)
+        XCTAssertEqual(try store.tokens(for: accountID), tokens("moved-at"))
+        XCTAssertTrue(keychain.contains(service: oldService, account: accountID.rawValue), "a read alone never reaches it")
+
+        try store.save(tokens("refreshed-at"), for: accountID)
+        XCTAssertFalse(keychain.contains(service: oldService, account: accountID.rawValue))
+        XCTAssertEqual(try store.tokens(for: accountID), tokens("refreshed-at"))
+
+        // Without an old service (the bare binary, the tests), a save never touches the old item.
+        keychain.set(try encoded(tokens("old-at")), service: oldService, account: accountID.rawValue)
+        try KeychainTokenStore(service: newService, access: keychain.access).save(tokens("again-at"), for: accountID)
+        XCTAssertTrue(keychain.contains(service: oldService, account: accountID.rawValue))
+    }
+
     /// The bare binary and the tests have no old service: they never take an item from under the old app.
     func testWithoutAnOldServiceTheOldItemIsNeverRead() throws {
         let keychain = FakeKeychain()

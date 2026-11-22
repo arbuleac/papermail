@@ -52,6 +52,11 @@ public enum LegacyIdentity {
         caches.appending(path: attachmentCachesFolderName, directoryHint: .isDirectory)
     }
 
+    /// The attachment caches in that folder, which the move takes, each under the same name. Nothing else of the folder's
+    /// moves: it was also the old bare binary's own caches folder (a process without a bundle caches under its name), and
+    /// its web caches are a developer's.
+    public static let attachmentCacheFolderNames = ["attachments", "demo-attachments"]
+
     // MARK: Keychain
 
     /// The old account tokens' service.

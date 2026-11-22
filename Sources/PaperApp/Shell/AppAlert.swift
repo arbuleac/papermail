@@ -105,6 +105,38 @@ struct AppAlert {
                         buttons: [Button(title: "Quit")])
     }
 
+    /// Launch, before anything is opened, when the first launch's move could not bring the old app's mailbox over
+    /// (docs/ARCHITECTURE.md, "Identity"): a move failed. App-modal, and the app quits when it closes; the next launch
+    /// tries again.
+    static var mailboxNotMoved: AppAlert {
+        let old = LegacyIdentity.name
+        return AppAlert(title: "Paper couldn't bring over your mail",
+                        body: "Your mailbox, accounts and drafts from \(old) are still in ~/Library/Application Support/\(LegacyIdentity.applicationSupportFolderName), and nothing was lost. Paper quits rather than start an empty mailbox beside them. Open Paper again to try once more.",
+                        buttons: [Button(title: "Quit")])
+    }
+
+    /// Launch, before anything is opened, when Paper's folder already holds a mailbox the move did not put there and the
+    /// old app's never moved (docs/ARCHITECTURE.md, "Identity"): the move puts one beside the other no more than it
+    /// chooses between them. Show in Finder selects Paper's; either button quits.
+    static var mailboxInBothFolders: AppAlert {
+        let old = LegacyIdentity.name
+        let folder = AppIdentity.applicationSupportFolderName
+        return AppAlert(title: "Paper already has a mailbox",
+                        body: "Your mail from \(old) is in ~/Library/Application Support/\(LegacyIdentity.applicationSupportFolderName), but a mailbox made before Paper first opened, by a development build perhaps, is already in ~/Library/Application Support/\(folder). Paper quits rather than choose between them. To bring your mail over, move mail.sqlite and the files that begin with its name out of \(folder), then open Paper again.",
+                        buttons: [Button(title: "Show in Finder"), Button(title: "Quit", role: .cancel)])
+    }
+
+    /// What a launch shows instead of opening anything after the first launch's move (`IdentityMigration.run`), or nil
+    /// when it opens as usual: the old app open on a mailbox not moved yet, or a mailbox the move could not bring over.
+    static func identityHold(for outcome: IdentityMigration.Outcome) -> AppAlert? {
+        switch outcome {
+        case .deferred(applicationSupportWaiting: true): legacyAppOpen
+        case .leftBehind(.moveFailed): mailboxNotMoved
+        case .leftBehind(.mailboxInBothFolders): mailboxInBothFolders
+        case .notThisApp, .ran, .deferred(applicationSupportWaiting: false): nil
+        }
+    }
+
     static func remove(_ account: Account) -> AppAlert {
         AppAlert(title: "Remove \(account.email)?",
                  body: "Mail from this account is removed from this Mac. Nothing changes on the server.",
@@ -279,6 +311,8 @@ struct AppAlert {
             wrongAccount(expected: "alex@fabrikam.test", actual: "sam@contoso.test"),
             databaseUnavailable(reason: "The disk is full."),
             legacyAppOpen,
+            mailboxNotMoved,
+            mailboxInBothFolders,
             leaveDemo,
             replaceDemo,
             saveSenderRules(.gmail, action: .archive),
