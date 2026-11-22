@@ -121,7 +121,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 |---|---|---|
 | `App.launched` | Once a launch, when the first main window is on screen. Its number is the launch's seconds. | `launchTime`, `gmailAccounts`, `microsoftAccounts`, `theme`, `appearance`, `density`, `textSize`, `font` |
 | `Settings.opened` | The Settings window opens. | none |
-| `Settings.changed` | A setting changes, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows); At login and Mail links once macOS has done what was asked. A value set again is no change, and reader mode turned on or off with its experiment (Settings › Experimental) is that toggle's change alone. | `setting`, `value` |
+| `Settings.changed` | A setting changes, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows); At login and Mail links once macOS has done what was asked; Settings › AI's Provider once turned on (or Off); an account's Face in Settings › Accounts. A value set again is no change. Reader mode switched from the reader is `ReaderMode.switched`, and moved with its experiment (Settings › Experimental) it is that toggle's change alone. | `setting`, `value` |
 | `Mail.action` | Archive, Move to Trash, Mark as Spam, Move to Inbox, Star, Mark as Read or Unread, Later, Mute, Unsubscribe, Always Archive or Block a sender, from any window. | `action`, `trigger`, `conversations` |
 | `Compose.started` | A composer window opens: New Message, Reply, Reply All, Forward, a kept draft opened again (Continue Editing, or Reply or Forward on a conversation whose reply or forward was kept), a mail link, the Services menu. A composer already open and only brought forward is none, nor a send undone and reopened (that is `Compose.sendUndone`). | `kind`, `origin`, `trigger` (the app's own ways in only) |
 | `Compose.sent` | A composer's message goes to the outbox (its Undo window still to run). | `kind`, `archives` |
@@ -139,7 +139,15 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
 | `Account.added` | An account is added (the demo replaced included). | `provider` |
 | `Account.removed` | An account is removed. | `provider` |
-| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the reply going away) or it failed. One per write (⌘J, Write, a chip, Try again), never as the field is focused, and none for a reply the demo makes up on this Mac (its sheet says nothing is sent). | `aiProvider`, `ending` |
+| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the reply going away) or it failed. One per write (⌘J, Write, a chip, Try again), never as the field is focused, and none for a reply the demo makes up on this Mac (its sheet says nothing is sent). With it, what the write worked from and how it was asked for, by kind, and where. | `aiProvider`, `ending`, `draft`, `instruction`, `retry`, `source` |
+| `ReaderMode.switched` | Reader mode is switched on or off from the reader: the header's switch, ⇧⌘R, View › Reader Mode (a reader window's too). Never when Settings › Experimental's Offer reader mode moves it. | `value`, `trigger` |
+| `ReaderMode.versionSwitched` | Show original or Show text on one message in reader mode. | `readerLine` |
+| `Reader.quotedText` | A message's quoted text is shown or hidden: its Show quoted text mark, or “.”. Find opening it to show a match is none. | `state`, `trigger` |
+| `Trackers.blocked` | Block trackers held trackers back in a conversation the reader shows (a message shown as its text version holds none). Once a conversation per window and run. | `trackers` |
+| `Trackers.linkCleaned` | A link opened from a message, with Block trackers on, went without its tracking parameters. | none |
+| `Attachment.used` | An attachment is opened in Quick Look (a click on its chip, Space) or its app (a double click, Open), saved (Download, Download all, Save As…), copied, or dragged out of the reader and dropped where it was taken (the Finder, a composer, the quick reply). | `attachmentAction`, `trigger` |
+| `Account.permission` | The sign-in that asks an account for a permission on top of its mail ends: the server's sender rules (Allow… in Senders, a rule's Continue, Reconnect) or its calendar (the day column's Connect). | `permission`, `result`, `provider` |
+| `SenderRule.removed` | A sender rule is removed with Settings › Accounts › Senders…'s −. | `provider` |
 | `Performance.listRefresh` | The list applies a change from the store (`list.refresh`). One in 20, at most 20 of each kind an hour. Its number is milliseconds. | `duration` |
 | `Performance.conversationOpen` | A conversation shows in the reader (`conversation.show`). Sampled as above. | `duration` |
 | `Performance.search` | A search's first page is in the list (`list.search`). Sampled as above. | `duration` |
@@ -156,26 +164,34 @@ Every value a parameter can take:
 | `density` | `standard`, `compact` |
 | `textSize` | `small`, `default`, `large`, `larger` |
 | `font` | `newYork`, `sfPro` |
-| `setting` | `listDensity`, `accountFaces`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp`, `offerReaderMode`, `readerMode`, `blockTrackers` |
-| `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off` (Mail links only `on`: the app cannot hand the role back); `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send` |
+| `setting` | `listDensity`, `accountFaces`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp`, `offerReaderMode`, `blockTrackers`, `aiProvider`, `accountFace` |
+| `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off` (Mail links only `on`: the app cannot hand the role back); `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send`; the values of `aiProvider` below, or `off` (Settings › AI's Provider); `automatic`, `monogram`, `paper` (an account's Face: never which paper face, nor whose account). For `ReaderMode.switched`, `on` or `off` |
 | `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
-| `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar), `swipe`, `drag` (rows dropped on a rail folder or the calendar, files or a message's attachments dropped on the quick reply), `click` (a double-click), `rail` (a click on the account rail), `toast`, `notification` |
+| `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar, the reader header's Reader switch, a message's own controls: an attachment's chip and Download, Show quoted text), `swipe`, `drag` (rows dropped on a rail folder or the calendar, files or a message's attachments dropped on the quick reply, an attachment dragged out of the reader), `click` (a double-click: a row, an attachment's chip), `rail` (a click on the account rail), `toast`, `notification` |
 | `conversations` | `1`, `2-5`, `6-20`, `21+` |
 | `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` (a kept draft opened again) |
 | `origin` | `app`, `mailLink`, `service` |
 | `archives` | `on`, `off` (Send and Archive) |
-| `source` | `composer`, `quickReply`, `sendLater` |
+| `source` | `composer`, `quickReply`, `sendLater` (Help me write: `composer` or `quickReply`, where the write ran) |
 | `operators` | `0`, `1`, `2`, `3+` (every term but a plain word or phrase, and every negated term; the words are counted, never sent) |
 | `results` | `0`, `1-10`, `11-50`, `51-199`, `200+` (a search's first page holds 200; for the server, the conversations it added) |
 | `outcome` | `found`, `nothing`, `failed` |
 | `searchTime` | `<0.5s`, `0.5-1s`, `1-2s`, `2-5s`, `5-10s`, `10s+` |
 | `view` | `inbox`, `starred`, `sent`, `drafts`, `trash`, `all`, `later`, `outbox` |
 | `scope` | `unified` (All Inboxes), `account` (one account, never which) |
-| `state` | `shown`, `hidden` |
+| `state` | `shown`, `hidden` (the day column; a message's quoted text) |
 | `answer` | `accept`, `tentative`, `decline` |
 | `provider` | `gmail`, `microsoft` |
 | `aiProvider` | `claudeAPI`, `claudeCode`, `openAIAPI`, `codex` (the kind of provider chosen in Settings › AI, never the model) |
 | `ending` | `finished`, `stopped`, `failed` |
+| `draft` | `empty` (nothing typed: written from the conversation), `notes` (from the user's notes), `selection` (a selection rewritten) |
+| `instruction` | `on`, `off` (an instruction came with it: the prompt line's words or a chip; never the words) |
+| `retry` | `on`, `off` (Try again) |
+| `readerLine` | `text` (the sender's text part), `extracted` (the text taken from the design), `snippet` (the preview text): each switched to Show original; `original` (the message as sent, switched back with Show text) |
+| `trackers` | `1`, `2-5`, `6-20`, `21+` |
+| `attachmentAction` | `quickLook`, `open`, `download`, `downloadAll`, `saveAs`, `copy`, `drag` |
+| `permission` | `rules`, `calendar` |
+| `result` | `granted`, `notGranted` (refused, cancelled or failed) |
 | `duration` | `<16ms`, `16-50ms`, `50-100ms`, `100-250ms`, `250ms-1s`, `1s+` |
 
 `AnalyticsTests` holds every signal to this table and to the code's vocabulary.
@@ -195,7 +211,7 @@ TelemetryDeck says it stores no IP address ([privacy FAQ](https://telemetrydeck.
 
 ### What is never sent
 
-Mail of any kind (bodies, subjects, snippets, attachments, their names), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, anything of Help me write's but its provider's kind and how a write ended (no instruction, notes, reply, model, error words or API key), the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
+Mail of any kind (bodies, subjects, snippets, attachments, their names, types or sizes, links and their parameters, the trackers' addresses or senders), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, anything of Help me write's but its provider's kind and how a write ended (no instruction, notes, reply, model, error words or API key), the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
 
 ## 4. Check it end to end
 

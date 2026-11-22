@@ -108,6 +108,8 @@ final class AttachmentDragController: NSObject, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        // Dropped somewhere that took it (the Finder, a composer, the quick reply); a drag let go of goes uncounted.
+        if !operation.isEmpty { Analytics.send(.attachmentUsed(.drag, .drag)) }
         dragEnded()
     }
 

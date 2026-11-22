@@ -70,6 +70,21 @@ final class TrackerPayloadTests: XCTestCase {
         XCTAssertEqual(original.blockedRemoteImageCount, 3)
     }
 
+    /// What the page holds back in all, which analytics counts (`Trackers.blocked`): every design's trackers, none of a
+    /// text version's.
+    func testThePageHoldsBackItsDesignsTrackers() {
+        let first = F.message("m1")
+        let second = F.message("m2", date: F.utc(2025, 1, 4, 9, 0))
+        var stored = body(trackers: 2)
+        stored.body.text = "News\n\nShop the fall gear."
+        let bodies = [first.id: stored, second.id: body(trackers: 3)]
+        let designs = F.builder.build(messages: [first, second], bodies: bodies, accounts: F.accounts, blocksTrackers: true, now: now)
+        XCTAssertEqual(designs.heldTrackers, 5)
+        let reading = F.builder.build(messages: [first, second], bodies: bodies, accounts: F.accounts, blocksTrackers: true,
+                                      readerMode: ReaderModeRender(), now: now)
+        XCTAssertEqual(reading.heldTrackers, 0, "both read as text")
+    }
+
     // MARK: Print
 
     private func sheets(of html: String) -> String {

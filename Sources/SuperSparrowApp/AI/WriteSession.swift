@@ -453,10 +453,11 @@ final class WriteSession {
             run(instruction: instruction)
             return
         }
-        start(ask: ask, range: range, isRewrite: draft.isRewrite, previous: draft.reply, configuration: configuration)
+        start(ask: ask, range: range, isRewrite: draft.isRewrite, previous: draft.reply, configuration: configuration, retry: true)
     }
 
-    private func start(ask: WriteAsk, range: NSRange, isRewrite: Bool, previous: String?, configuration: AIProviderConfiguration) {
+    private func start(ask: WriteAsk, range: NSRange, isRewrite: Bool, previous: String?, configuration: AIProviderConfiguration,
+                       retry: Bool = false) {
         guard let context = field.writeContext() else {
             NSSound.beep()
             return
@@ -492,6 +493,8 @@ final class WriteSession {
         // The one place a write's user action is made: the user pressed ⌘J, the ghost, the pill, a menu item, the prompt
         // line's ↩ or a chip, Try again or Shorter.
         let action = AIUserAction(userPressed: .write)
+        center.writeDetails[fieldID] = AnalyticsSignal.WriteDetails(ask, retry: retry,
+                                                                    source: field is ComposerWriteField ? .composer : .quickReply)
         writeTask = Task { [weak self] in
             // Read and redacted off the main thread, only now that the user asked (§5.56: nothing before).
             let built = await Task.detached(priority: .userInitiated) { context.build(ask: ask) }.value

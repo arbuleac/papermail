@@ -861,7 +861,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let environment, signIn == nil, !isPreparingDemo,
               environment.isDemo || clientIsConfigured(account.kind, in: environment, origin: origin) else { return done(false) }
         beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, calendar: true)
-        signIn?.connected = done
+        let provider = AnalyticsSignal.Provider(account.kind)
+        signIn?.connected = { granted in
+            Analytics.send(.permissionAsked(.calendar, granted: granted, provider))
+            done(granted)
+        }
     }
 
     /// Allow… in Settings › Senders, Continue in a rule's alert, and the Settings row's and the sync line's Reconnect while
@@ -875,7 +879,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         beginSignIn(kind: account.kind, reconnecting: account, origin: origin, in: environment, replacement: nil, rules: true)
-        signIn?.connected = done
+        let provider = AnalyticsSignal.Provider(account.kind)
+        signIn?.connected = { granted in
+            Analytics.send(.permissionAsked(.rules, granted: granted, provider))
+            done?(granted)
+        }
     }
 
     /// No client: the welcome screen shows its info banner; elsewhere the alert offers Settings › OAuth with
@@ -1194,7 +1202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             model.leaveDemo = { [weak self] in self?.confirmLeavingDemo(origin: .settings) }
             model.setInkSlot = { [weak self] slot, account in self?.edit(account) { try $0.setInkSlot(slot, for: account.id) } }
             model.setMonogram = { [weak self] monogram, account in self?.edit(account) { try $0.setMonogram(monogram, for: account.id) } }
-            model.setFace = { [weak self] face, account in self?.edit(account) { try $0.setFace(face, for: account.id) } }
+            model.setFace = { [weak self] face, account in
+                self?.edit(account) { try $0.setFace(face, for: account.id) }
+                if face != account.face { Analytics.send(.settingChanged(.accountFace(face))) }
+            }
             model.setSignature = { [weak self, weak model] signature, id in
                 // A field saving as its account is removed has nothing left to save to.
                 guard let account = model?.accounts.first(where: { $0.id == id }) else { return }
@@ -1230,6 +1241,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let environment else { return }
         do {
             try environment.engine.setSenderRule(nil, for: rule.address, accountID: rule.accountID, performing: [])
+            if let account = ((try? environment.store.accounts()) ?? []).first(where: { $0.id == rule.accountID }) {
+                Analytics.send(.senderRuleRemoved(.init(account.kind)))
+            }
         } catch {
             Self.log.error("removing a sender rule failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()

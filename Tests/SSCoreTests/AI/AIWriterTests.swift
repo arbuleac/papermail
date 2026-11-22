@@ -79,7 +79,7 @@ final class AIWriterTests: XCTestCase {
 
     private func makeWriter(_ provider: (any AIProvider)?) -> AIWriter {
         AIWriter(resolve: { _ in provider }, hasConsent: { [unowned self] in self.consented.contains($0) },
-                 milestones: { [unowned self] milestone, kind in self.milestones.append("\(milestone.breadcrumbName) \(kind.rawValue)") })
+                 milestones: { [unowned self] milestone, kind, _ in self.milestones.append("\(milestone.breadcrumbName) \(kind.rawValue)") })
     }
 
     private func collect(_ stream: AsyncThrowingStream<AIWriteEvent, Error>) async -> ([AIWriteEvent], AIError?) {

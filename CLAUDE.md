@@ -29,3 +29,4 @@ Read `docs/ARCHITECTURE.md` before changing anything. `docs/DATA-MODEL.md` is th
 - Performance budgets in `docs/ARCHITECTURE.md` are requirements, not aspirations. Keep `os_signpost` markers around list refresh, conversation open, and search.
 - Comments explain why, not what. No barrel files. One type per file for public types.
 - Do not log message bodies, subjects, or addresses at levels above debug. Nor prompts, model output, CLI output or API keys (Help Me Write).
+- Every user-facing feature ships with its analytics, and so does a change to how one is used: a signal, a parameter or a setting value in `AnalyticsSignal`'s closed catalog, sent from the user's own step (with its `trigger` where there is more than one way in), its rows in docs/ANALYTICS-AND-REPORTS.md, and `AnalyticsTests`' samples. Kinds, closed sets and bucketed counts only: never mail, words, names, addresses, file names or URLs.

@@ -119,7 +119,7 @@ final class AnalyticsTests: XCTestCase {
         let changes: [S.SettingChange] = AppSettings.ListDensity.allCases.map(S.SettingChange.listDensity)
             + [true, false].flatMap { on in
                 [S.SettingChange.accountFaces(on), .remoteImages(on), .notifications(on), .notificationPreviews(on),
-                 .adaptMailColours(on), .launchAtLogin(on), .offerReaderMode(on), .readerMode(on), .blockTrackers(on)]
+                 .adaptMailColours(on), .launchAtLogin(on), .offerReaderMode(on), .blockTrackers(on)]
             }
             + [S.SettingChange.defaultMailApp]
             + ([5, 10, 20, 7, 0, -3, 1e9] as [TimeInterval]).map(S.SettingChange.undoSend)
@@ -129,6 +129,8 @@ final class AnalyticsTests: XCTestCase {
             + QuireFont.Typeface.allCases.map(S.SettingChange.font)
             + QuireFont.TextSize.allCases.map(S.SettingChange.textSize)
             + SendAction.allCases.map(S.SettingChange.sendAction)
+            + (S.Writer.allCases.map(Optional.some) + [nil]).map(S.SettingChange.aiProvider)
+            + [AccountFace.automatic, .monogram, .paper("fox")].map(S.SettingChange.accountFace)
         signals += changes.map(S.settingChanged)
         for action in S.MailAction.allCases {
             for trigger in S.Trigger.allCases {
@@ -165,14 +167,38 @@ final class AnalyticsTests: XCTestCase {
         signals += S.InvitationAnswer.allCases.map(S.invitationAnswered)
         for provider in S.Provider.allCases { signals += [.accountAdded(provider), .accountRemoved(provider)] }
         for writer in S.Writer.allCases {
-            for ending in S.WriteEnding.allCases { signals.append(.helpMeWriteUsed(writer, ending)) }
+            for ending in S.WriteEnding.allCases {
+                signals.append(.helpMeWriteUsed(writer, ending, nil))
+                for draft in S.WriteDraft.allCases {
+                    for source in S.SendSource.allCases {
+                        for flags in [(false, false), (true, false), (false, true), (true, true)] {
+                            signals.append(.helpMeWriteUsed(writer, ending, .init(draft: draft, instruction: flags.0, retry: flags.1,
+                                                                                  source: source)))
+                        }
+                    }
+                }
+            }
+        }
+        for trigger in S.Trigger.allCases {
+            signals += [.readerModeSwitched(on: true, trigger), .readerModeSwitched(on: false, trigger),
+                        .quotedText(shown: true, trigger), .quotedText(shown: false, trigger)]
+            signals += S.AttachmentAction.allCases.map { S.attachmentUsed($0, trigger) }
+        }
+        signals += S.ReaderLine.allCases.map(S.readerVersionSwitched)
+        signals += counts.map { S.trackersBlocked(count: $0) }
+        signals.append(.linkCleaned)
+        for provider in S.Provider.allCases {
+            signals.append(.senderRuleRemoved(provider))
+            for permission in S.Permission.allCases {
+                signals += [.permissionAsked(permission, granted: true, provider), .permissionAsked(permission, granted: false, provider)]
+            }
         }
         return signals
     }
 
     func testTheSamplesCoverEveryNameInTheCatalog() {
         XCTAssertEqual(Set(Self.everySignal.map(\.name)), Set(AnalyticsSignal.Name.allCases))
-        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 24, "the catalog the doc lists")
+        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 32, "the catalog the doc lists")
     }
 
     /// (a) Every parameter of every signal, `mode` included, is a key of the vocabulary and takes one of its values.
@@ -267,6 +293,43 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(script.requests.count, 2, "both writes reached the writer")
     }
 
+    /// A write's signal says what it worked from and where, as `WriteSession` set it when it started, by kind only, and the
+    /// field forgets it once the write is over.
+    func testAHelpMeWriteSaysWhatItWorkedFromAndWhere() throws {
+        try startAnalytics()
+        let script = DemoAIScript()
+        script.delay = .zero
+        script.reply = "Thursday works for me."
+        let center = HelpMeWrite(keys: InMemoryAIKeyStore(), isDemo: false, demoScript: script) { _ in DemoAIProvider(script: script) }
+        center.consentOverride = [.claudeAPI]
+        let field = AIFieldID(name: "analytics")
+        center.writeDetails[field] = .init(WriteAsk(instruction: "warmer", draft: .notes("yes thursday")), retry: true, source: .quickReply)
+        writesEnded = 0
+        write(center, AIProviderConfiguration(kind: .claudeAPI))
+        XCTAssertTrue(ListTestSupport.spin(until: { self.writesEnded == 1 && self.recorder.sent.count == 1 }, timeout: 5))
+        let sent = try XCTUnwrap(recorder.sent.first)
+        XCTAssertEqual(sent.parameters["draft"], "notes")
+        XCTAssertEqual(sent.parameters["instruction"], "on")
+        XCTAssertEqual(sent.parameters["retry"], "on")
+        XCTAssertEqual(sent.parameters["source"], "quickReply")
+        XCTAssertFalse(sent.parameters.values.contains { $0.contains("warmer") || $0.contains("thursday") }, "never the words")
+        XCTAssertNil(center.writeDetails[field], "forgotten once the write is over")
+    }
+
+    /// Block trackers' link cleaning (§5.60) counts a link only when it lost something, and only while the setting is on.
+    func testALinkCountsWhenItLosesItsTrackingParameters() throws {
+        try startAnalytics()
+        let policy = ConversationNavigationPolicy()
+        policy.stripsTrackingParameters = true
+        let tracked = try XCTUnwrap(URL(string: "https://shop.test/item?id=4&utm_source=news&fbclid=abc"))
+        XCTAssertEqual(policy.outgoing(tracked).absoluteString, "https://shop.test/item?id=4")
+        _ = policy.outgoing(try XCTUnwrap(URL(string: "https://shop.test/item?id=4")))
+        policy.stripsTrackingParameters = false
+        _ = policy.outgoing(tracked)
+        XCTAssertEqual(recorder.sent.map(\.name), ["Trackers.linkCleaned"])
+        XCTAssertEqual(recorder.sent.first?.parameters.keys.sorted(), ["mode"], "nothing of the link")
+    }
+
     /// The demo's sheet and Settings › AI say a reply it makes up sends nothing: such a write sends no signal, whichever
     /// provider the demo's Settings chose. A demo CLI run for real (`--live-ai-clis`) sends its conversation, and counts.
     func testAReplyTheDemoMakesUpSendsNoSignal() throws {
@@ -293,7 +356,7 @@ final class AnalyticsTests: XCTestCase {
         }
 
         let live = HelpMeWrite.demo(isDemo: true, liveCLIs: true)
-        XCTAssertEqual(live.analyticsSignal(.finished, .claudeCode), .helpMeWriteUsed(.claudeCode, .finished))
+        XCTAssertEqual(live.analyticsSignal(.finished, .claudeCode), .helpMeWriteUsed(.claudeCode, .finished, nil))
         XCTAssertNil(live.analyticsSignal(.finished, .claudeAPI), "the demo's API providers still make replies up")
         XCTAssertNil(live.analyticsSignal(.started, .claudeCode), "a write counts as it ends")
     }
@@ -594,20 +657,23 @@ final class AnalyticsTests: XCTestCase {
                        "a value set again is no change, and the seventh account's initials are not the user's")
     }
 
-    /// Settings › Experimental (§5.58): each experiment is sent with its new value only; reader mode moved by its gate is the
-    /// gate's change alone, and a value a snapshot holds in memory is never sent.
+    /// Settings › Experimental (§5.58): each experiment is sent with its new value only; reader mode switched from the reader
+    /// is a signal of its own with its way in, moved by its gate it is the gate's change alone, and a value a snapshot holds
+    /// in memory is never sent.
     func testTheExperimentsAreSentWithTheirNewValueOnly() throws {
         try startAnalytics()
         let settings = AppSettings(defaults: try throwawayDefaults())
         settings.offersReaderMode = true
         settings.readerModeOn = false
-        settings.readerModeOn = true
+        Analytics.from(.toolbar) { settings.readerModeOn = true }
         settings.offersReaderMode = false
         settings.blocksTrackers = true
         settings.blocksTrackers = true
-        XCTAssertEqual(recorder.sent.map(\.parameters).map { [$0["setting"], $0["value"]] },
-                       [["offerReaderMode", "on"], ["readerMode", "off"], ["readerMode", "on"], ["offerReaderMode", "off"],
-                        ["blockTrackers", "on"]])
+        XCTAssertEqual(recorder.sent.map(\.name), ["Settings.changed", "ReaderMode.switched", "ReaderMode.switched", "Settings.changed",
+                                                   "Settings.changed"])
+        XCTAssertEqual(recorder.sent.map(\.parameters).map { [$0["setting"], $0["value"], $0["trigger"]] },
+                       [["offerReaderMode", "on", nil], [nil, "off", "menu"], [nil, "on", "toolbar"], ["offerReaderMode", "off", nil],
+                        ["blockTrackers", "on", nil]])
 
         let held = AppSettings(defaults: try throwawayDefaults())
         held.keepsExperimentsInMemory = true

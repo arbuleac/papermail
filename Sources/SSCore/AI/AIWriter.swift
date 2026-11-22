@@ -22,8 +22,9 @@ public final class AIWriter {
     public typealias Resolve = @Sendable (AIProviderConfiguration) -> (any AIProvider)?
     /// Whether the user allowed this provider (AppSettings). Checked again here so no path can send without it.
     public typealias Consent = @MainActor (AIProviderKind) -> Bool
-    /// Where milestones go: the app's crash-report breadcrumbs.
-    public typealias Milestones = @MainActor (AIWriteMilestone, AIProviderKind) -> Void
+    /// Where milestones go: the app's crash-report breadcrumbs and analytics, with the field the write is in, so the app
+    /// can tell its writes apart.
+    public typealias Milestones = @MainActor (AIWriteMilestone, AIProviderKind, AIFieldID) -> Void
 
     private static let logger = Logger(subsystem: "io.supersparrow.mac", category: "ai")
     private static let signposter = OSSignposter(subsystem: "io.supersparrow.mac", category: "ai")
@@ -32,12 +33,14 @@ public final class AIWriter {
         // Main-actor state like the writer's own; only the gate is touched from the provider's task.
         let gate: AIStreamGate
         let kind: AIProviderKind
+        let field: AIFieldID
         let signpost: OSSignpostIntervalState
         var task: Task<Void, Never>?
 
-        init(gate: AIStreamGate, kind: AIProviderKind, signpost: OSSignpostIntervalState) {
+        init(gate: AIStreamGate, kind: AIProviderKind, field: AIFieldID, signpost: OSSignpostIntervalState) {
             self.gate = gate
             self.kind = kind
+            self.field = field
             self.signpost = signpost
         }
     }
@@ -51,7 +54,7 @@ public final class AIWriter {
     /// Set by `shutDown()`: the environment is going away, and no write or check starts after it.
     public private(set) var isShutDown = false
 
-    public init(resolve: @escaping Resolve, hasConsent: @escaping Consent, milestones: @escaping Milestones = { _, _ in }) {
+    public init(resolve: @escaping Resolve, hasConsent: @escaping Consent, milestones: @escaping Milestones = { _, _, _ in }) {
         self.resolve = resolve
         self.hasConsent = hasConsent
         self.milestones = milestones
@@ -93,10 +96,10 @@ public final class AIWriter {
             return stream
         }
 
-        let run = Run(gate: gate, kind: kind, signpost: Self.signposter.beginInterval("ai.write"))
+        let run = Run(gate: gate, kind: kind, field: field, signpost: Self.signposter.beginInterval("ai.write"))
         runs[field] = run
         Self.logger.debug("Write started: \(kind.rawValue, privacy: .public), prompt \(request.promptVersion, privacy: .public), \(request.transcript.count, privacy: .public)+\(request.task.count, privacy: .public) characters")
-        milestones(.started, kind)
+        milestones(.started, kind, field)
 
         continuation.onTermination = { [weak self] termination in
             guard case .cancelled = termination else { return }
@@ -238,6 +241,6 @@ public final class AIWriter {
     private func end(_ run: Run, _ milestone: AIWriteMilestone) {
         Self.signposter.endInterval("ai.write", run.signpost)
         Self.logger.debug("Write ended: \(run.kind.rawValue, privacy: .public), \(String(describing: milestone), privacy: .public)")
-        milestones(milestone, run.kind)
+        milestones(milestone, run.kind, run.field)
     }
 }
