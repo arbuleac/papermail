@@ -7,7 +7,7 @@
 # SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT in the environment or in ~/.sentryclirc.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSYM="$ROOT/dist/SuperSparrow.app.dSYM"
+DSYM="$ROOT/dist/Paper.app.dSYM"
 if [ ! -d "$DSYM" ]; then
   echo "error: $DSYM is missing; run scripts/build-app.sh first" >&2
   exit 1

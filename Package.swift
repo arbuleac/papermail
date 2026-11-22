@@ -7,15 +7,15 @@ let settings: [SwiftSetting] = [
 ]
 
 let package = Package(
-    name: "SuperSparrow",
+    name: "Paper",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "SuperSparrow", targets: ["SuperSparrowApp"]),
-        .library(name: "SSCore", targets: ["SSCore"]),
-        .library(name: "SSGmail", targets: ["SSGmail"]),
-        .library(name: "SSGraph", targets: ["SSGraph"]),
-        .library(name: "SSDesign", targets: ["SSDesign"]),
-        .library(name: "SSAI", targets: ["SSAI"]),
+        .executable(name: "Paper", targets: ["PaperApp"]),
+        .library(name: "PaperCore", targets: ["PaperCore"]),
+        .library(name: "PaperGmail", targets: ["PaperGmail"]),
+        .library(name: "PaperGraph", targets: ["PaperGraph"]),
+        .library(name: "PaperDesign", targets: ["PaperDesign"]),
+        .library(name: "PaperAI", targets: ["PaperAI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1"),
@@ -27,22 +27,22 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "SSCore",
+            name: "PaperCore",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
             ],
             swiftSettings: settings
         ),
-        .target(name: "SSGmail", dependencies: ["SSCore"], swiftSettings: settings),
-        .target(name: "SSGraph", dependencies: ["SSCore"], swiftSettings: settings),
+        .target(name: "PaperGmail", dependencies: ["PaperCore"], swiftSettings: settings),
+        .target(name: "PaperGraph", dependencies: ["PaperCore"], swiftSettings: settings),
         // Help Me Write's adapters (docs/ARCHITECTURE.md, "AI"): the Anthropic and OpenAI APIs over URLSession, and
         // the user's Claude Code and Codex CLIs as processes. Foundation only, like the mail adapters.
-        .target(name: "SSAI", dependencies: ["SSCore"], swiftSettings: settings),
+        .target(name: "PaperAI", dependencies: ["PaperCore"], swiftSettings: settings),
         // The Quire design runtime. Kept out of the executable so it can be unit-tested, and free of
-        // SSCore, GRDB and WebKit so tokens never pull the mail stack into a test or a preview.
+        // PaperCore, GRDB and WebKit so tokens never pull the mail stack into a test or a preview.
         .target(
-            name: "SSDesign",
+            name: "PaperDesign",
             swiftSettings: settings,
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -51,9 +51,9 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "SuperSparrowApp",
+            name: "PaperApp",
             dependencies: [
-                "SSCore", "SSGmail", "SSGraph", "SSDesign", "SSAI",
+                "PaperCore", "PaperGmail", "PaperGraph", "PaperDesign", "PaperAI",
                 .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "TelemetryDeck", package: "SwiftSDK"),
             ],
@@ -67,17 +67,17 @@ let package = Package(
                 .linkedFramework("UserNotifications"),
             ]
         ),
-        .testTarget(name: "SSCoreTests", dependencies: ["SSCore"], swiftSettings: settings),
-        .testTarget(name: "SSGmailTests", dependencies: ["SSGmail"], swiftSettings: settings),
-        .testTarget(name: "SSGraphTests", dependencies: ["SSGraph"], swiftSettings: settings),
-        .testTarget(name: "SSDesignTests", dependencies: ["SSDesign"], swiftSettings: settings),
+        .testTarget(name: "PaperCoreTests", dependencies: ["PaperCore"], swiftSettings: settings),
+        .testTarget(name: "PaperGmailTests", dependencies: ["PaperGmail"], swiftSettings: settings),
+        .testTarget(name: "PaperGraphTests", dependencies: ["PaperGraph"], swiftSettings: settings),
+        .testTarget(name: "PaperDesignTests", dependencies: ["PaperDesign"], swiftSettings: settings),
         // Recorded CLI runs and API error bodies live in Fixtures/ as files (redacted; see Fixtures/README.md), read
         // through Bundle.module: SSE and JSONL fixtures must keep their exact bytes, which string constants would not.
-        .testTarget(name: "SSAITests", dependencies: ["SSAI", "SSCore"], resources: [.copy("Fixtures")], swiftSettings: settings),
-        // The app's own views (the message list): behaviour always, timings with SS_PERF=1, state renders with
-        // SS_UI_TESTS=1. SwiftPM lets a test target import an executable target.
-        .testTarget(name: "SuperSparrowAppTests", dependencies: [
-            "SuperSparrowApp", "SSCore", "SSDesign", .product(name: "Sentry", package: "sentry-cocoa"),
+        .testTarget(name: "PaperAITests", dependencies: ["PaperAI", "PaperCore"], resources: [.copy("Fixtures")], swiftSettings: settings),
+        // The app's own views (the message list): behaviour always, timings with PAPER_PERF=1, state renders with
+        // PAPER_UI_TESTS=1. SwiftPM lets a test target import an executable target.
+        .testTarget(name: "PaperAppTests", dependencies: [
+            "PaperApp", "PaperCore", "PaperDesign", .product(name: "Sentry", package: "sentry-cocoa"),
         ], swiftSettings: settings),
     ],
     swiftLanguageModes: [.v5]

@@ -31,7 +31,7 @@ def wordmark(cap):
     left, right = min(nums[0::2]), max(nums[0::2])
     scale = cap / T.LAYOUT['brand']['capHeight']
     width, height = right - left, W['bottom'] - W['top']
-    return ('<svg class="wordmark" viewBox="%g %g %g %g" style="width:%gpx;height:%gpx" role="img" aria-label="SuperSparrow">'
+    return ('<svg class="wordmark" viewBox="%g %g %g %g" style="width:%gpx;height:%gpx" role="img" aria-label="Paper">'
             '<path fill="currentColor" d="%s"/></svg>') % (left, W['top'], width, height, width * scale, height * scale, W['path'])
 def app_icon(px, appearance='default'):
     """The app icon (spec §5.42) as inline SVG over its 824 body: the tile in one colour, then the brand mark's plane in
@@ -139,7 +139,7 @@ def rail_accounts(height, tiles, unified='sel', unified_badge=None, scroll_end=F
     edges = (' edge-top' if offset > 0 else '') + (' edge-bottom' if content - offset > visible + 0.5 else '')
     mr = '<i class="mr%s"></i>' % (' idle' if unified == 'idle' else '') if unified in ('sel', 'idle') else ''
     b = '<span class="badge">%s</span>' % unified_badge if unified_badge else ''
-    out = ['<span class="rt%s" style="top:%dpx" title="All Inboxes  ⌘0">%s%s%s</span>' % (' sel' if unified in ('sel', 'idle') else '', unified_top, mr, g('ss.quire', R['unifiedGlyph']), b),
+    out = ['<span class="rt%s" style="top:%dpx" title="All Inboxes  ⌘0">%s%s%s</span>' % (' sel' if unified in ('sel', 'idle') else '', unified_top, mr, g('paper.quire', R['unifiedGlyph']), b),
            '<i class="rdiv" style="top:%dpx"></i>' % divider,
            '<div class="rclip%s" style="top:%dpx;height:%dpx">' % (edges, clip_top, visible)]
     for i, (cls, inner, title) in enumerate(tiles):
@@ -154,7 +154,7 @@ def row(sender, subject, snippet, time, av, initials, acct=None, unread=False, s
     if failed:
         tm += '<span class="rg fail" title="Couldn\'t archive. Restored.">%s</span>' % s('exclamationmark.triangle.fill', 12)
     elif pending:
-        tm += '<span class="rg queued" title="Waiting to sync">%s</span>' % g('ss.queued', 12)
+        tm += '<span class="rg queued" title="Waiting to sync">%s</span>' % g('paper.queued', 12)
     if tag:
         tm += '<span class="tag">%s</span>' % tag
     if initial_tile and acct:
@@ -263,7 +263,7 @@ def avatar_tints():
     return out
 
 FAM = {'sf': 'var(--q-sans)', 'serif': 'var(--q-serif)', 'rounded': 'var(--q-rounded)', 'mono': 'var(--q-mono)'}
-SAMPLE = {'display': 'SuperSparrow', 'headline': 'Contoso rollout: go-live checklist', 'masthead': 'Inbox', 'title': 'Keyboard Shortcuts',
+SAMPLE = {'display': 'Paper', 'headline': 'Contoso rollout: go-live checklist', 'masthead': 'Inbox', 'title': 'Keyboard Shortcuts',
           'reading': 'Tested with three accounts this afternoon, all good.', 'subject': 'Lisbon in March?', 'composeSubject': 'Re: Contoso rollout',
           'aside': 'Nothing left to read.', 'writing': 'Thanks Ben, I will forward it to IT.', 'body': 'Alex Morgan <alex@contoso.test>',
           'sender': 'Priya Raman, Alex Morgan', 'label': 'Show quoted text', 'snippet': 'Booked the flat near Príncipe Real.', 'meta': '23:39 · 240 KB',
@@ -287,7 +287,7 @@ def icon_grid():
         if v == T.ICON['brand']:
             # the brand mark is never drawn under 24 px: below that its folds close (§4.11, docs/brand)
             ic = g(v, 24)
-        elif v.startswith('ss.'):
+        elif v.startswith('paper.'):
             ic = g(v, 18)
         elif v in SYM:
             ic = s(v, 16)

@@ -1,13 +1,13 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="lockup-horizontal-white.svg">
-  <img src="lockup-horizontal.svg" alt="SuperSparrow" width="420">
+  <img src="lockup-horizontal.svg" alt="Paper" width="420">
 </picture>
 
-# SuperSparrow brand marks
+# Paper brand marks
 
 The mark is a **paper plane**: one sheet of white paper folded into a dart and drawn on an isometric grid. The trailing edge, the spine and the keel run on the grid's 1:2 lines, and the near wing and the keel share one straight 45° edge, so the outline is a single clean shape cut by two folds. It sits white on a black tile, paper on ink, so the app that sends your mail reads as a paper plane in the Dock at every size down to 16 pixels. It is black and white only, every edge a straight line, every corner sharp. The wordmark is drawn from straight strokes, mitred joins and 45° chamfers to match, never set in a font.
 
-Everything here except this README and `source/` is built by `swift scripts/tools/brand-assets.swift` from the mark in `docs/design/tokens.json` (`ss.paperPlane`, the inks and lockup metrics in `layout.brand`, the icon grid in `layout.appIcon`) and the wordmark's outlines in `source/wordmark.svg`. Change those and run it again; never edit the files by hand. `--check` writes nothing and lists every file here that no longer matches what the script draws; `scripts/test.sh` runs it. The app icon is built separately (`scripts/tools/app-icon.swift`, spec §5.42) from the same mark and palette.
+Everything here except this README and `source/` is built by `swift scripts/tools/brand-assets.swift` from the mark in `docs/design/tokens.json` (`paper.paperPlane`, the inks and lockup metrics in `layout.brand`, the icon grid in `layout.appIcon`) and the wordmark's outlines in `source/wordmark.svg`. Change those and run it again; never edit the files by hand. `--check` writes nothing and lists every file here that no longer matches what the script draws; `scripts/test.sh` runs it. The app icon is built separately (`scripts/tools/app-icon.swift`, spec §5.42) from the same mark and palette.
 
 ## Construction
 
@@ -53,7 +53,7 @@ Each comes as SVG (use it wherever you can) and PNG: the symbol at 1 px per pixe
 
 ## The wordmark
 
-`source/wordmark.svg` is the master: “SuperSparrow” in straight strokes 100 units wide, cap height 700, x-height 520, descender 190, each letter built from centreline polylines stroked with mitred joins and butt caps and then unioned. Corners are chamfered at 45°, and the S's spine runs at the plane's 1:2 slope. It is 6042 units from its origin to its advance. Outer contours run anticlockwise on screen and counters clockwise, so it fills the same under nonzero and even-odd.
+`source/wordmark.svg` is the master: “Paper” in straight strokes 100 units wide, cap height 700, x-height 520, descender 190, each letter built from centreline polylines stroked with mitred joins and butt caps and then unioned. Corners are chamfered at 45°, and the S's spine runs at the plane's 1:2 slope. It is 6042 units from its origin to its advance. Outer contours run anticlockwise on screen and counters clockwise, so it fills the same under nonzero and even-odd.
 
 ## Colour
 
@@ -77,7 +77,7 @@ There is no other colour, no gradient and no sheen. Grey appears only where the 
 
 The interface draws the mark in one colour, as a template image, from the token file's path (spec §4.11), never in a theme's ink:
 
-- **Welcome screen**: the plane across a 64 pt square in ink (`#0A0A0A`) on a light page and paper (`#FFFFFF`) on a dark one, in every theme, with the wordmark under it in the same colour at a 24 pt cap height: the one place the app shows the name with the mark, so it is the drawn wordmark (`layout.brand.wordmark`, read from `source/wordmark.svg`). “Welcome to SuperSparrow” is what VoiceOver says the screen is; the wordmark reads as “SuperSparrow”.
+- **Welcome screen**: the plane across a 64 pt square in ink (`#0A0A0A`) on a light page and paper (`#FFFFFF`) on a dark one, in every theme, with the wordmark under it in the same colour at a 24 pt cap height: the one place the app shows the name with the mark, so it is the drawn wordmark (`layout.brand.wordmark`, read from `source/wordmark.svg`). “Welcome to Paper” is what VoiceOver says the screen is; the wordmark reads as “Paper”.
 - **Inbox zero**: 40 pt in the system's secondary label grey, which tints the one-colour mark (it is not a brand colour).
 - **App icon**: the white plane on the near-black tile, by default and in dark; on black for the system to tint, the white plane its luminance.
 

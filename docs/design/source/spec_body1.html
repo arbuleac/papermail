@@ -4,7 +4,7 @@
 
 <header class="cover">
   <div>
-    <div class="k">{{PY: g('ss.paperPlane', 25)}} SuperSparrow design language · Quire {{version}} · 7 November 2026</div>
+    <div class="k">{{PY: g('paper.paperPlane', 25)}} Paper design language · Quire {{version}} · 7 November 2026</div>
     <h1>Quire <em>— mail, set like a page.</em></h1>
     <p>Each conversation is a gathering of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, Iron Gall. The list is a still index; the reader gets the room of a page. Every colour, size and duration on this sheet is a custom property generated from <code>docs/design/tokens.json</code>.</p>
   </div>
@@ -34,12 +34,12 @@
     <div class="lh">
       <div class="mast">Inbox</div>
       <div class="search">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div>
-      <div class="ib compose">{{PY: g('ss.nib', 18)}}</div>
+      <div class="ib compose">{{PY: g('paper.nib', 18)}}</div>
     </div>
     {{PY: running_head('Today')}}
     {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts this afternoon, all good. We are green for the 14th.', '23:39', 'slate', 'BC', acct='C', state='sel', clip=True, count=4)}}
     {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real. Sam wants to come for the weekend too.', '22:10', 'heather', 'PR', acct='G', unread=True, star=True, count=3)}}
-    {{PY: row('Forge', '[sparrow-sync] PR #2657: Coalesce history pages', 'maya-c commented: Looks good, one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', unread=True)}}
+    {{PY: row('Forge', '[paper-sync] PR #2657: Coalesce history pages', 'maya-c commented: Looks good, one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', unread=True)}}
     {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake from the bakery on Rua Augusta.', '19:02', 'rose', 'LM', acct='G', pending=True, star=True, count=4, cls='pre')}}
     {{PY: row('Hannah Weiss', 'Lease renewal: sign by Friday', 'The new terms are attached. Back to me by the end of the week if you can.', '09:00', 'fern', 'HW', acct='C', unread=True, clip=True, tag='Back')}}
     {{PY: running_head('Yesterday')}}
@@ -71,7 +71,7 @@
           <div class="who"><div class="nl">Ben Carter<span class="ad">ben@contoso.test</span></div><div class="rc">to me · cc Tom Hughes</div></div>
           <div class="dt">Yesterday 23:39</div></div>
         <div class="bd"><p>Hi Alex,</p><p>Tested with three accounts this afternoon, all good. SSO signs in cleanly on staging and Tom’s metadata matches production, so we’re green for the 14th.</p><p>The final checklist and the cut-over runbook are attached.</p><p>Ben</p></div>
-        <div class="ind" style="margin-top:12px"><span class="qt">{{PY: g('ss.elide', 14)}}Show quoted text</span></div>
+        <div class="ind" style="margin-top:12px"><span class="qt">{{PY: g('paper.elide', 14)}}Show quoted text</span></div>
         <div class="ind atts" style="margin-top:16px">
           <div class="ach">{{PY: fm('pdf', 'PDF')}}<div><div class="nm">go-live-checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></div>
           <div class="ach">{{PY: fm('document', 'DOC')}}<div><div class="nm">cutover-runbook.docx</div><div class="mt">Word · 88 KB</div></div></div>

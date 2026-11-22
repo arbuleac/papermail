@@ -288,7 +288,7 @@ func svg(_ art: Artwork) -> String {
         body += "<path\(transform)\(paint)\(opacity) d=\"\(shape.data)\"/>"
     }
     return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(fixed(art.width * art.svgScale))\" height=\"\(fixed(art.height * art.svgScale))\" "
-        + "viewBox=\"0 0 \(fixed(art.width)) \(fixed(art.height))\" role=\"img\" aria-label=\"SuperSparrow\">" + body + "</svg>\n"
+        + "viewBox=\"0 0 \(fixed(art.width)) \(fixed(art.height))\" role=\"img\" aria-label=\"Paper\">" + body + "</svg>\n"
 }
 
 func cgColor(_ hex: String, alpha: CGFloat = 1) -> CGColor {

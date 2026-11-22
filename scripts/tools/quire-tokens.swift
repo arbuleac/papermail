@@ -183,7 +183,7 @@ let swiftKeywords: Set<String> = [
 let reservedTypeNames: Set<String> = ["String", "Bool", "Int", "Double", "CGFloat", "Array", "Optional", "Type", "Protocol", "Self", "Any", "NSColor", "Color"]
 
 /// Maps a tokens.json key to a Swift identifier deterministically: runs of characters that are not
-/// letters or digits become word breaks (`ss.quire` → `ssQuire`), a leading digit gains `_`.
+/// letters or digits become word breaks (`paper.quire` → `paperQuire`), a leading digit gains `_`.
 func identifierWords(_ key: String) -> [String] {
     var words: [String] = []
     var current = ""
@@ -769,7 +769,7 @@ func emitPalettes(_ t: Tokens) -> String {
     out += "        AvatarTint(rawValue: avatarTintIndex(forAddress: address))!\n"
     out += "    }\n\n"
     out += "    /// The file inks (spec §5.57): the band of a file mark, one per family of file types, by the family's name in\n"
-    out += "    /// lower case (SSCore's `FileFamily` raw values). Fixed across themes and Graphite, like the account inks.\n"
+    out += "    /// lower case (PaperCore's `FileFamily` raw values). Fixed across themes and Graphite, like the account inks.\n"
     out += "    public enum FileInk: String, CaseIterable, Sendable {\n"
     for f in t.fileInks {
         out += docComment(upperFirst(f.use) + ".", indent: "        ")
@@ -1045,7 +1045,7 @@ func emitContent(_ t: Tokens) -> String {
     out += "    public static let version = \(swiftString(t.root["version"]?.string ?? ""))\n\n"
     // Icons
     guard let icons = t.root.require("icon", "").object else { fail("icon must be an object") }
-    out += "    /// Every symbol the app draws, by action (spec §4.11). `ss.` names are custom glyphs (`QuireGlyph`).\n"
+    out += "    /// Every symbol the app draws, by action (spec §4.11). `paper.` names are custom glyphs (`QuireGlyph`).\n"
     out += "    public enum Icon {\n"
     var seen = Set<String>()
     for (k, v) in icons {
@@ -1331,7 +1331,7 @@ func emitCSS(_ t: Tokens) -> String {
 func emitContrastTests(_ t: Tokens) -> String {
     let groups: [(String, String, [Pair])] = [("contrastPairs", "testContrastPairs", t.pairs("contrastPairs")),
                                               ("graphiteContrastPairs", "testGraphiteContrastPairs", t.pairs("graphiteContrastPairs"))]
-    var out = header + "\nimport XCTest\n@testable import SSDesign\n\n"
+    var out = header + "\nimport XCTest\n@testable import PaperDesign\n\n"
     out += "/// Every pair of `contrastPairs` and `graphiteContrastPairs` in all four modes and in every theme (spec §7, §8.7,\n"
     out += "/// §4.16): colours come from the generated providers, with the theme set as an override (Graphite forced off: the\n"
     out += "/// Graphite pairs already name the substituted tokens), and are composited exactly as docs/design/source/build.py\n"
@@ -1382,7 +1382,7 @@ func emitAccountPaletteTests(_ t: Tokens) -> String {
     }
     let accountPairs = t.pairs("contrastPairs").filter { $0.fg.count == 1 && $0.fg[0].hasPrefix("account:") }
     guard let inklessFloor = t.root.require("themeRules", "")["inklessAccentVsAccountMinDE00"]?.double else { fail("themeRules.inklessAccentVsAccountMinDE00 is missing") }
-    var out = header + "\nimport XCTest\n@testable import SSDesign\n\n"
+    var out = header + "\nimport XCTest\n@testable import PaperDesign\n\n"
     out += "/// The account palette's rules (`accountRules`, spec §4.2, §8.7) in every theme (§4.16): Machado 2009 colour-vision\n"
     out += "/// simulation at full severity in linear sRGB, then CIEDE2000, mirroring docs/design/source/build.py. Inks come from\n"
     out += "/// the generated providers, resolved per mode with the theme set as an override.\n"
@@ -1471,7 +1471,7 @@ func emitThemeRuleTests(_ t: Tokens) -> String {
         }.joined(separator: ", ") + "]"
     }
     let ratioLock = (lookup["ratioLock"]?.object ?? fail("themeRules.ratioLock must be an object")).map { "(\(swiftString($0.0)), \(swiftString($0.1.string ?? fail("themeRules.ratioLock"))))" }
-    var out = header + "\nimport XCTest\n@testable import SSDesign\n\n"
+    var out = header + "\nimport XCTest\n@testable import PaperDesign\n\n"
     out += "/// The theme rules (`themeRules`, spec §4.16) for every theme, beside the pairs `DesignContrastTests` asserts in every\n"
     out += "/// theme: the light sheet is the page, the fill stays near the accent asset, the luminance lock and the ratio lock,\n"
     out += "/// the ink against info, the account inks and the meanings, banners, selection, avatar faces, both link flags and the\n"
@@ -1540,7 +1540,7 @@ func emitRadiusTests(_ t: Tokens) -> String {
     for (path, _) in radiusExceptions where !metrics.contains(where: { $0.path == path }) {
         fail("radius exception \(path) is not a layout metric any more: update radiusExceptions in the generator")
     }
-    var out = header + "\nimport XCTest\nimport SSDesign\n\n"
+    var out = header + "\nimport XCTest\nimport PaperDesign\n\n"
     out += "/// Every `radius` metric under `layout` is on the radius scale or a listed exception (spec §4.6, §8.7). The values\n"
     out += "/// are read from the generated `Quire.Layout`, so the test covers what the app draws.\n"
     out += "final class RadiusScaleTests: XCTestCase {\n"
@@ -1619,7 +1619,7 @@ func emitMetricTests(_ t: Tokens) -> String {
             functions.append((upperFirst(top), lines))
         }
     }
-    var out = header + "\nimport XCTest\nimport SSDesign\n\n"
+    var out = header + "\nimport XCTest\nimport PaperDesign\n\n"
     out += "/// Every metric of `layout`, `border` and `platform` equals its value in docs/design/tokens.json (spec §8.7):\n"
     out += "/// the generated Swift is compared with the file at test time, so editing tokens.json without regenerating fails.\n"
     out += "final class MetricDriftTests: XCTestCase {\n"
@@ -1739,8 +1739,8 @@ guard let data = FileManager.default.contents(atPath: root.appendingPathComponen
 var parser = JSONParser(data)
 let tokens = Tokens(parser.parse())
 
-let designGenerated = "Sources/SSDesign/Generated"
-let testsGenerated = "Tests/SSDesignTests/Generated"
+let designGenerated = "Sources/PaperDesign/Generated"
+let testsGenerated = "Tests/PaperDesignTests/Generated"
 let outputs: [(String, String)] = [
     ("\(designGenerated)/QuireTokensColors.swift", emitColors(tokens)),
     ("\(designGenerated)/QuireTokensPalettes.swift", emitPalettes(tokens)),
@@ -1750,7 +1750,7 @@ let outputs: [(String, String)] = [
     ("\(designGenerated)/QuireTokensContent.swift", emitContent(tokens)),
     ("\(designGenerated)/QuireTokensThemes.swift", emitThemes(tokens)),
     ("\(designGenerated)/QuireTokensPaperFaces.swift", emitPaperFaces(tokens)),
-    ("Sources/SSCore/ConversationSupport/QuireCSS.swift", emitCSS(tokens)),
+    ("Sources/PaperCore/ConversationSupport/QuireCSS.swift", emitCSS(tokens)),
     ("\(testsGenerated)/DesignContrastTests.swift", emitContrastTests(tokens)),
     ("\(testsGenerated)/AccountPaletteTests.swift", emitAccountPaletteTests(tokens)),
     ("\(testsGenerated)/RadiusScaleTests.swift", emitRadiusTests(tokens)),

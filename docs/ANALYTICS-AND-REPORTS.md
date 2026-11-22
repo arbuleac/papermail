@@ -1,6 +1,6 @@
 # Analytics and reports
 
-SuperSparrow sends two things to two services, under one switch, **Settings → General → Analytics and reports**:
+Paper sends two things to two services, under one switch, **Settings → General → Analytics and reports**:
 
 - **Crash reports**: crashes, exceptions and hangs, to [Sentry](https://sentry.io) through Sentry's Cocoa SDK ("Crash reports" below; why and how in [ARCHITECTURE.md](ARCHITECTURE.md), "Crash reports").
 - **Analytics**: which features are used, and how fast, never what they were used on, to [TelemetryDeck](https://telemetrydeck.com) through its Swift SDK ("Analytics" below; why and how in [ARCHITECTURE.md](ARCHITECTURE.md), "Analytics").
@@ -21,9 +21,9 @@ A build without a Sentry project or a TelemetryDeck app still runs and sends not
 ## 1. Create the project (once)
 
 1. Sign in at [sentry.io](https://sentry.io) and create an organization. Choose the **EU** data region if you want reports kept in the EU. The region cannot be changed later.
-2. **Projects → Create Project**, platform **Apple → macOS**, name it `supersparrow-macos`.
-3. Under **Settings → Projects → supersparrow-macos → Client Keys (DSN)**, copy the DSN. It looks like `https://<key>@o<org>.ingest.<region>.sentry.io/<project>`. A DSN only lets an app send reports, so it is not a secret, but keep it out of a public repository so strangers cannot fill your quota.
-4. Optional, recommended: under **Settings → Projects → supersparrow-macos → Security & Privacy**, turn on **Data Scrubber** and **Prevent Storing of IP Addresses**. The app already scrubs reports before they leave; this is a second net on the server. Sentry still works out a city and country from the sender's IP address before it drops the address, so also add an **Advanced Data Scrubbing** rule: **Remove**, **Anything**, from `$user.geo.**`.
+2. **Projects → Create Project**, platform **Apple → macOS**, name it `paper-macos`. (A project made before the app was called Paper keeps its DSN when renamed, under **Settings → Projects → the project → General Settings**; its old releases keep their old bundle identifier.)
+3. Under **Settings → Projects → paper-macos → Client Keys (DSN)**, copy the DSN. It looks like `https://<key>@o<org>.ingest.<region>.sentry.io/<project>`. A DSN only lets an app send reports, so it is not a secret, but keep it out of a public repository so strangers cannot fill your quota.
+4. Optional, recommended: under **Settings → Projects → paper-macos → Security & Privacy**, turn on **Data Scrubber** and **Prevent Storing of IP Addresses**. The app already scrubs reports before they leave; this is a second net on the server. Sentry still works out a city and country from the sender's IP address before it drops the address, so also add an **Advanced Data Scrubbing** rule: **Remove**, **Anything**, from `$user.geo.**`.
 
 ## 2. Build with it
 
@@ -34,7 +34,7 @@ echo 'https://<key>@o<org>.ingest.<region>.sentry.io/<project>' > Resources/Sent
 scripts/build-app.sh debug        # or release; SENTRY_DSN=… scripts/build-app.sh also works
 ```
 
-`scripts/build-app.sh` writes it into the bundle's Info.plist as `SentryDSN` and writes the build's debug symbols to `dist/SuperSparrow.app.dSYM`.
+`scripts/build-app.sh` writes it into the bundle's Info.plist as `SentryDSN` and writes the build's debug symbols to `dist/Paper.app.dSYM`.
 
 ## 3. Upload symbols (each build you run)
 
@@ -70,8 +70,8 @@ Debug builds take `--crash-test=<kind>`, which acts two seconds after launch:
 | `hang` | The main thread blocked for 5 s. The app goes on. | "App hanging for at least 2000 ms", at once |
 
 ```sh
-dist/SuperSparrow.app/Contents/MacOS/SuperSparrow --demo --crash-test=crash
-open dist/SuperSparrow.app --args --demo     # the next launch sends the crash
+dist/Paper.app/Contents/MacOS/Paper --demo --crash-test=crash
+open dist/Paper.app --args --demo     # the next launch sends the crash
 ```
 
 Use `--demo` so a test never touches your real mailbox. To look at exactly what would leave the Mac without sending anything to Sentry, run the bare binary against a local listener with `--sentry-dsn=http://key@127.0.0.1:8977/1` (`NSAllowsLocalNetworking` lets it use plain http to 127.0.0.1). The listener should store every POST to `/api/1/envelope/`; the SDK gzips them.
@@ -90,16 +90,16 @@ Use `--demo` so a test never touches your real mailbox. To look at exactly what 
   - **An exception AppKit catches during layout or a Core Animation commit.** It ends the app through a private AppKit method, so Sentry shows the SIGABRT and its stack but not the exception's reason.
   - **A force quit, or the system ending the app for memory.** These leave no crash report (MetricKit may report the cause later).
   - **Crashes in WebKit's own processes.** The reader recovers from those by itself.
-- **Turning it off:** **Settings → General → Analytics and reports**. This takes effect at once, the current run included, and deletes reports still queued on disk (`~/Library/Caches/io.supersparrow.mac/Sentry`), so none goes later.
+- **Turning it off:** **Settings → General → Analytics and reports**. This takes effect at once, the current run included, and deletes reports still queued on disk (`~/Library/Caches/app.paperinbox.mac/Sentry`), so none goes later.
 
 # Analytics
 
-SuperSparrow counts which features are used, from where (a key, a menu, a swipe…) and how fast, through TelemetryDeck's Swift SDK (`TelemetryDeck`, `from: "2.14.2"`). Every signal comes from a closed catalog in the code (`AnalyticsSignal`): each parameter value is one of a fixed set of words, a count put in a range, or a duration put in a range, so nothing a user wrote or received can be sent.
+Paper counts which features are used, from where (a key, a menu, a swipe…) and how fast, through TelemetryDeck's Swift SDK (`TelemetryDeck`, `from: "2.14.2"`). Every signal comes from a closed catalog in the code (`AnalyticsSignal`): each parameter value is one of a fixed set of words, a count put in a range, or a duration put in a range, so nothing a user wrote or received can be sent.
 
 ## 1. Create the app (once)
 
 1. Sign in at [telemetrydeck.com](https://telemetrydeck.com) and create an organization.
-2. **Create App**, name it `SuperSparrow`. Its **App ID** (a UUID) is under the app's settings. An app ID only lets an app send signals, so it is not a secret, but keep it out of a public repository so strangers cannot fill your quota.
+2. **Create App**, name it `Paper`. Its **App ID** (a UUID) is under the app's settings. An app ID only lets an app send signals, so it is not a secret, but keep it out of a public repository so strangers cannot fill your quota.
 3. Debug builds send TelemetryDeck's *test* signals, which the dashboard shows only with **Test Mode** on; release builds send live ones.
 
 ## 2. Build with it
@@ -203,7 +203,7 @@ The SDK adds to every signal, on its own:
 - **The app and the Mac:** app version and build; macOS version; the Mac's model identifier (for example `Mac16,11`) and architecture; screen resolution and scale; time zone; locale, region and languages; light or dark; Reduce Motion and Invert Colors; whether it is a debug, TestFlight or App Store build; the SDK's name and version.
 - **When:** the exact time of each signal (UTC, to the second, as `receivedAt`), and the hour, day of week, day of month and year, week, month and quarter. With the session identifier (below), TelemetryDeck can line up one launch's signals in order, second by second.
 - **Use over time:** the day of the first session, the number of sessions and distinct days used, and average and previous session lengths, counted on this Mac.
-- **Who, anonymously:** a random identifier the SDK makes on first use and keeps in its own defaults (`com.telemetrydeck.<12 hex digits>`), hashed with SHA-256 on the Mac and hashed again with TelemetryDeck's own salt on its server; a random session identifier each launch. SuperSparrow never gives it an account's address or name.
+- **Who, anonymously:** a random identifier the SDK makes on first use and keeps in its own defaults (`com.telemetrydeck.<12 hex digits>`), hashed with SHA-256 on the Mac and hashed again with TelemetryDeck's own salt on its server; a random session identifier each launch. Paper never gives it an account's address or name.
 - **Its own signals:** `TelemetryDeck.Session.started` at each launch, `TelemetryDeck.Acquisition.newInstallDetected` at the first, each with `mode`.
 - **Each request:** the Mac's IP address, as any connection does, and in its headers the app's name and version and the CFNetwork and Darwin versions (`User-Agent`), and the preferred languages (`Accept-Language`).
 
@@ -220,23 +220,23 @@ Without a TelemetryDeck account: debug builds take `--telemetry-url=<url>`, whic
 ```sh
 swift build
 # with a listener on 127.0.0.1:8978 that stores every POST body and answers 200:
-.build/debug/SuperSparrow --demo --telemetry-app-id=LOCAL-CHECK --telemetry-url=http://127.0.0.1:8978 --analytics-check
+.build/debug/Paper --demo --telemetry-app-id=LOCAL-CHECK --telemetry-url=http://127.0.0.1:8978 --analytics-check
 ```
 
-The SDK posts a JSON array of signals (`type`, `appID`, `clientUser`, `sessionID`, `floatValue`, `payload`, `isTestMode`, `receivedAt`) to `<url>/v2/`. Search what it stored for the demo accounts' addresses and names: none may appear. (The bare binary has no Info.plist, so its signals say version 0, build 0. The locale TelemetryDeck sends can hold an `@`, as in `en_US@rg=gbzzzz`, a region chosen apart from the language.) The run's switch is saved in the bare binary's own defaults (`SuperSparrow`), so turn it back on afterwards (`defaults delete SuperSparrow sendsCrashReports`).
+The SDK posts a JSON array of signals (`type`, `appID`, `clientUser`, `sessionID`, `floatValue`, `payload`, `isTestMode`, `receivedAt`) to `<url>/v2/`. Search what it stored for the demo accounts' addresses and names: none may appear. (The bare binary has no Info.plist, so its signals say version 0, build 0. The locale TelemetryDeck sends can hold an `@`, as in `en_US@rg=gbzzzz`, a region chosen apart from the language.) The run's switch is saved in the bare binary's own defaults (`Paper`), so turn it back on afterwards (`defaults delete Paper sendsCrashReports`).
 
 ## Turning it off
 
-**Settings → General → Analytics and reports.** At once, the current run included: nothing more is queued, the SDK and the signals it held in memory are dropped (a request already on its way finishes), SuperSparrow's own signals are deleted from the SDK's queue file (`~/Library/Caches/telemetrysignalcache`, written as the app quits and shared, by name, with every unsandboxed app embedding the SDK, so other apps' signals stay), and the SDK's defaults (its random identifier and session counts) are deleted, and once more 1.5 s later, after any write the SDK had begun.
+**Settings → General → Analytics and reports.** At once, the current run included: nothing more is queued, the SDK and the signals it held in memory are dropped (a request already on its way finishes), Paper's own signals are deleted from the SDK's queue file (`~/Library/Caches/telemetrysignalcache`, written as the app quits and shared, by name, with every unsandboxed app embedding the SDK, so other apps' signals stay), and the SDK's defaults (its random identifier and session counts) are deleted, and once more 1.5 s later, after any write the SDK had begun.
 
 **On again** in the same run, crash reports start at once, and analytics at the next launch, with a new identifier and no session history. The SDK keeps the run's session counts in an object that lives as long as the process and that stopping it does not reset: started again in the same run, it would send them under the new identifier, and write them back into the defaults just deleted. Turned on before analytics had started in the run (it starts when the app is first active), it starts at once.
 
 **Leftovers.** A launch that finds the switch off deletes what an earlier run left for the build's app ID and for the one analytics last started with (kept in the app's defaults as `analyticsStartedAppID`): a stop that came as the app quit, or a write of the SDK's that landed after a stop. A build that sends to another app ID, or to none, deletes what the last one left.
 
-**Other apps' signals.** The SDK reads the whole queue file as it starts, deletes it and sends every signal in it, whichever app queued it, and its write as the app quits replaces the file. So before it starts, SuperSparrow leaves only its own signals in the file and puts the others back once the SDK has read it; as SuperSparrow quits, what other apps have in the file then goes back beside the SDK's write. SuperSparrow never sends another app's signals. (This leans on NotificationCenter calling a notification's observers in the order they were added, as the stop as the app quits does; if it ever did not, those signals would be lost, never sent.)
+**Other apps' signals.** The SDK reads the whole queue file as it starts, deletes it and sends every signal in it, whichever app queued it, and its write as the app quits replaces the file. So before it starts, Paper leaves only its own signals in the file and puts the others back once the SDK has read it; as Paper quits, what other apps have in the file then goes back beside the SDK's write. Paper never sends another app's signals. (This leans on NotificationCenter calling a notification's observers in the order they were added, as the stop as the app quits does; if it ever did not, those signals would be lost, never sent.)
 
 ## What it costs
 
-Starting it reads the queue file (usually absent) on the main thread: about 0.3 ms (release, M4 Pro), and a signal costs the main thread about 0.1 ms before it is built off it. Signals are sent every 60 s. While SuperSparrow is the active app, the SDK keeps a 1 s timer on the main thread that records the session's length in its defaults (TelemetryDeck 2.x has no way to turn it off); it stops whenever the app goes behind. Once analytics has started in a run, the timer stays for the run: switched off, it keeps ticking while the app is active but writes nothing.
+Starting it reads the queue file (usually absent) on the main thread: about 0.3 ms (release, M4 Pro), and a signal costs the main thread about 0.1 ms before it is built off it. Signals are sent every 60 s. While Paper is the active app, the SDK keeps a 1 s timer on the main thread that records the session's length in its defaults (TelemetryDeck 2.x has no way to turn it off); it stops whenever the app goes behind. Once analytics has started in a run, the timer stays for the run: switched off, it keeps ticking while the app is active but writes nothing.
 
-The SDK starts the first time SuperSparrow is the active app, not at launch: 2.x starts its session half a second after it starts, and when that session begins behind other apps, the timer it starts then is replaced without being stopped the next time the app comes to the front, and the old one then ticks every second for the rest of the run, behind other apps too. Starting while active avoids that for a launch at login, a launch behind other apps, or one the user clicked away from. Signals before then (the launch, a notification's Archive) are held, at most 100, and sent as it starts. One case is left: switching to another app within that half second after SuperSparrow first comes to the front. The fix belongs in the SDK (stop the timer before replacing it).
+The SDK starts the first time Paper is the active app, not at launch: 2.x starts its session half a second after it starts, and when that session begins behind other apps, the timer it starts then is replaced without being stopped the next time the app comes to the front, and the old one then ticks every second for the rest of the run, behind other apps too. Starting while active avoids that for a launch at login, a launch behind other apps, or one the user clicked away from. Signals before then (the launch, a notification's Archive) are held, at most 100, and sent as it starts. One case is left: switching to another app within that half second after Paper first comes to the front. The fix belongs in the SDK (stop the timer before replacing it).

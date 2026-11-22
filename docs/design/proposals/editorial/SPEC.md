@@ -2,7 +2,7 @@
 
 > **Historical proposal.** Its sparrow mark (`ss.sparrow`) and laid-paper app icon are retired. The brand is in [`docs/brand`](../../../brand/README.md), and the design language in [`docs/DESIGN-LANGUAGE.md`](../../../DESIGN-LANGUAGE.md).
 
-**A design language for SuperSparrow.** Editorial direction · proposal · 2 November 2026
+**A design language for Paper.** Editorial direction · proposal · 2 November 2026
 
 A quire is a gathering of folded sheets, the unit a book is sewn from. Quire treats mail the same way: each conversation is a tight stack of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, **Iron Gall**, the blue-black ink letters were written in for a thousand years. The list stays compact and still, like an index. The reader gets the room of a page.
 
@@ -943,7 +943,7 @@ Badges do not animate when counts change.
 | 48 | contact popover | 20 |
 | 64 | welcome (account added), About | 27 |
 
-Face = avatar tint (§4.3) or photo; initials New York Semibold, max 2 letters, from the display name (first + last word), else the first letter of the address; non-letter names ("[sparrow-sync]") use the first alphanumeric. **Account ring**: 1.5 pt gap in the surface colour + 1.5 pt ring in the account ink, drawn outside the face; unified views only. Groups (several senders) show the most recent sender. States: none (avatars are not interactive in rows); in the reader, hover shows the address tooltip.
+Face = avatar tint (§4.3) or photo; initials New York Semibold, max 2 letters, from the display name (first + last word), else the first letter of the address; non-letter names ("[paper-sync]") use the first alphanumeric. **Account ring**: 1.5 pt gap in the surface colour + 1.5 pt ring in the account ink, drawn outside the face; unified views only. Groups (several senders) show the most recent sender. States: none (avatars are not interactive in rows); in the reader, hover shows the address tooltip.
 
 ### 5.29 Toast
 
@@ -988,7 +988,7 @@ System `NSToolTip` on every icon-only control and on truncated text. Content: ac
 
 Main menu (system), with Quire content:
 
-- **SuperSparrow**: About SuperSparrow · Settings… ⌘, · Services · Hide/Quit.
+- **Paper**: About Paper · Settings… ⌘, · Services · Hide/Quit.
 - **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments…
 - **Edit**: standard, plus Find… ⌘F (focus search).
 - **View**: Inbox / Starred / Sent / Drafts / Trash / All Mail (G-sequences shown) · All / Focused / Other ⌥1–3 · All Inboxes ⌘0 · Account 1–9 ⌘1–9 · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O · Show Quoted Text .
@@ -1040,7 +1040,7 @@ Fills the main window until the first account is added; the rail and list are hi
 |---|---|
 | Block | centred, max width 360 |
 | Mark | `ss.sparrow` 52 pt in `accent` |
-| Title | "SuperSparrow" in `display` (New York 34/40 Semibold), 14 below the mark |
+| Title | "Paper" in `display` (New York 34/40 Semibold), 14 below the mark |
 | Tagline | "Your mail, quietly fast." New York Italic 17/24 `ink2`, 4 below |
 | Actions | 28 below; two large secondary buttons, 328 wide, 10 apart: `envelope` 18 + "Add Gmail account" (trailing "Google" in `snippet` `ink3`), "Add Microsoft account" (trailing "365 · Outlook") |
 | Footnote | 20 below, `meta` 11/15 `ink3`, max 330 wide: "Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft. No analytics, ever." |
@@ -1243,8 +1243,8 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt, WCAG 
 
 **Files.**
 
-- `Sources/SuperSparrowApp/Design/quire-tokens.json`: the single source (colours in four modes, type roles, spacing, radii, motion, elevation).
-- `scripts/tools/quire-tokens.swift`: a SwiftPM-friendly generator (no Node) that writes `QuireTokens.swift` (NSColor providers, `NSFont` role factories, `CGFloat` metrics, `CAMediaTimingFunction`s), the CSS head inside `ConversationShellAssets.css`, and `Tests/SSCoreTests/QuireContrastTests.swift`, which asserts every pair in §6.
+- `Sources/PaperApp/Design/quire-tokens.json`: the single source (colours in four modes, type roles, spacing, radii, motion, elevation).
+- `scripts/tools/quire-tokens.swift`: a SwiftPM-friendly generator (no Node) that writes `QuireTokens.swift` (NSColor providers, `NSFont` role factories, `CGFloat` metrics, `CAMediaTimingFunction`s), the CSS head inside `ConversationShellAssets.css`, and `Tests/PaperCoreTests/QuireContrastTests.swift`, which asserts every pair in §6.
 - `QuireFont.swift`: `static func role(_ role: QuireTypeRole) -> NSFont`, using `NSFontDescriptor.withDesign(.serif / .rounded / .monospaced)` and cached per text-size setting.
 
 **AppKit.** Rows: build `NSAttributedString`s with role fonts, `.kern` and fixed-line-height paragraph styles; draw pip, margin rule, account ring and count badge in `draw(_:)` with `NSBezierPath`; never set layer shadows on row views. Rail: `NSVisualEffectView(.sidebar)` behind a plain view; tiles draw themselves. Focus rings: override `drawFocusRingMask()` and `focusRingMaskBounds`, and set the ring colour via `NSColor.qFocus` in a custom `focusRingType` drawing (or draw the ring in `draw(_:)` when `window?.firstResponder === self`).
