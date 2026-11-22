@@ -7,8 +7,8 @@
 
 A native macOS mail client for Gmail and Microsoft 365 / Outlook.com. One unified inbox, no folders or labels in the way, and every interaction answered from a local SQLite store, so it stays fast: Sparrow's simplicity with Superhuman's speed.
 
-![Paper main window](docs/screenshot.png)
-<!-- Screenshot placeholder: the three-column window (account strip, message list, reader). -->
+<!-- Screenshot placeholder: the three-column window (account strip, message list, reader). Once it is at
+docs/screenshot.png, show it here: ![Paper main window](docs/screenshot.png) -->
 
 Its website is [paperinbox.app](https://paperinbox.app) (paperinboxapp.com leads there too).
 

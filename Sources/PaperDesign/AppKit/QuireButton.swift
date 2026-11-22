@@ -27,7 +27,7 @@ public final class QuireButton: QuireControl {
         didSet { if oldValue != size { contentDidChange() } }
     }
 
-    /// A leading symbol (any `Quire.Icon` name: SF Symbol or `ss.` glyph), at the size's glyph size.
+    /// A leading symbol (any `Quire.Icon` name: SF Symbol or `paper.` glyph), at the size's glyph size.
     public var symbolName: String? {
         didSet { if oldValue != symbolName { contentDidChange() } }
     }

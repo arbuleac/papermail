@@ -255,8 +255,8 @@ private struct Pass {
             let id = element.id()
             if id.isEmpty { try element.removeAttr("id") } else { try element.attr("id", "ss-" + id) }
         }
-        // A named <img> becomes a property of the frame's document, where it would shadow the expandos the
-        // shell keeps there (`doc.ssLinksHooked`); the prefix keeps message names out of that namespace too.
+        // A named <img> becomes a property of the frame's document, where it would shadow the document's own
+        // properties the shell reads (`doc.body`, `doc.images`); the prefix keeps message names out of that namespace.
         for element in named {
             let name = try element.attr("name")
             if !name.isEmpty { try element.attr("name", "ss-" + name) }

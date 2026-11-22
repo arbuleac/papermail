@@ -15,7 +15,7 @@ public struct QuireButtonLabel: View {
     @Environment(\.quireButtonSize) private var size
 
     /// - Parameters:
-    ///   - glyph: a name from `Quire.Icon` (an SF Symbol or an `ss.` glyph).
+    ///   - glyph: a name from `Quire.Icon` (an SF Symbol or a `paper.` glyph).
     ///   - glyphSize: overrides the size's glyph metric, for the named exceptions (+/− at 11 pt).
     ///   - loadingTitle: the gerund shown while `isLoading`; the title stays when nil.
     public init(_ title: String, glyph: String? = nil, glyphSize: CGFloat? = nil, isLoading: Bool = false,

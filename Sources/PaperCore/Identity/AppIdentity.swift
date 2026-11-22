@@ -1,11 +1,13 @@
 import Foundation
 
 /// Who the app is: its name, its bundle identifier, its website, and the places on this Mac it keeps things under its
-/// own name (docs/ARCHITECTURE.md, "Identity"). The one source for each; nothing spells them out again, so a log's
-/// subsystem, the mailbox's folder and the Keychain items always agree. What the app was called before is
-/// `LegacyIdentity`'s, for moving the user's data on the first launch alone.
+/// own name (docs/ARCHITECTURE.md, "Identity"). The one source for each identifier; nothing spells one out again, so
+/// a log's subsystem, the mailbox's folder and the Keychain items always agree. The copy (menus, window titles,
+/// alerts, Settings) writes "Paper" as words. What the app was called before is `LegacyIdentity`'s, for moving the
+/// user's data on the first launch alone.
 public enum AppIdentity {
-    /// The product's name, as windows, menus, alerts and Settings say it.
+    /// The product's name where it is an identifier: the bundle's name and executable (`BundleIdentityTests`), the
+    /// Keychain labels and the quarantine record's agent.
     public static let name = "Paper"
 
     /// The bundle identifier (Info.plist's `CFBundleIdentifier`), and the subsystem of every log and signpost.

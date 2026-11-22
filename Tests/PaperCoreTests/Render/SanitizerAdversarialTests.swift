@@ -155,11 +155,11 @@ final class SanitizerAdversarialTests: XCTestCase {
 
     // MARK: DOM clobbering
 
-    /// Named images become properties of the frame's document; `doc.ssLinksHooked` is how the shell knows it
-    /// already installed its link handler.
+    /// Named images become properties of the frame's document, and would shadow its own: the shell reads
+    /// `doc.images` to watch a body's pictures load.
     func testImageNamesArePrefixedToAvoidClobberingTheShell() {
-        let out = RenderTestSupport.sanitize(##"<img name="ssLinksHooked" src="cid:a"><map name="m"><area href="https://good.example/"></map><img usemap="#m" src="cid:b">"##)
-        assertContains(out.html, #"name="ss-ssLinksHooked""#)
+        let out = RenderTestSupport.sanitize(##"<img name="images" src="cid:a"><map name="m"><area href="https://good.example/"></map><img usemap="#m" src="cid:b">"##)
+        assertContains(out.html, #"name="ss-images""#)
         assertContains(out.html, #"<map name="ss-m">"#)
         assertContains(out.html, ##"usemap="#ss-m""##)
     }

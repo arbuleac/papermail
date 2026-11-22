@@ -1,6 +1,6 @@
 # Quire
 
-> **Historical proposal.** Its sparrow mark (`ss.sparrow`) and laid-paper app icon are retired. The brand is in [`docs/brand`](../../../brand/README.md), and the design language in [`docs/DESIGN-LANGUAGE.md`](../../../DESIGN-LANGUAGE.md).
+> **Historical proposal.** Its sparrow mark (`ss.sparrow`) and laid-paper app icon are retired. Its other glyphs are named here as the app names them today (`paper.quire`, `paper.nib`, `paper.elide`); the retired mark keeps the name it had. The brand is in [`docs/brand`](../../../brand/README.md), and the design language in [`docs/DESIGN-LANGUAGE.md`](../../../DESIGN-LANGUAGE.md).
 
 **A design language for Paper.** Editorial direction · proposal · 2 November 2026
 
@@ -347,7 +347,7 @@ SF Symbols, **Regular** weight, **scale small** in rows and medium elsewhere. Si
 | Reply | `arrowshape.turn.up.left` | R |
 | Reply All | `arrowshape.turn.up.left.2` | A |
 | Forward | `arrowshape.turn.up.right` | F |
-| New Message | custom `ss.nib` | C |
+| New Message | custom `paper.nib` | C |
 | Search | `magnifyingglass` | / or ⌘F |
 | Undo | `arrow.uturn.backward` | Z or ⌘Z |
 | Send | `paperplane` (button), `paperplane.fill` (panel) | ⌘↩ |
@@ -356,8 +356,8 @@ SF Symbols, **Regular** weight, **scale small** in rows and medium elsewhere. Si
 | Open in composer | `arrow.up.left.and.arrow.down.right` | ⇧⌘R |
 | Load images | `photo` | ⇧⌘I |
 | Original colors | `circle.lefthalf.filled` | ⇧⌘O |
-| Show / Hide quoted text | custom `ss.elide` | . (period, focused message) |
-| Unified inbox | custom `ss.quire` | ⌘0 |
+| Show / Hide quoted text | custom `paper.elide` | . (period, focused message) |
+| Unified inbox | custom `paper.quire` | ⌘0 |
 | Account N | monogram | ⌘1…⌘9 |
 | Add account | `plus` | — |
 | Settings | `gearshape` | ⌘, |
@@ -378,7 +378,7 @@ SF Symbols, **Regular** weight, **scale small** in rows and medium elsewhere. Si
 
 **Custom glyphs (four of the six allowed).** All are drawn on the stated grid at the stated stroke, round caps and joins, in `currentColor`. They scale with the symbol point size (grid units × pointSize / 16). Exact path data:
 
-`ss.quire`: unified inbox (a gathering of letters). 16 × 16 grid, stroke 1.5, no fill.
+`paper.quire`: unified inbox (a gathering of letters). 16 × 16 grid, stroke 1.5, no fill.
 ```
 M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z
 M2.1 7 8 10.6 13.9 7
@@ -386,7 +386,7 @@ M3.5 3.75h9
 M5.25 1.5h5.5
 ```
 
-`ss.nib`: new message (a pen nib at 45°). 16 × 16 grid, stroke 1.5, plus one filled circle (the vent).
+`paper.nib`: new message (a pen nib at 45°). 16 × 16 grid, stroke 1.5, plus one filled circle (the vent).
 ```
 M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z
 M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z
@@ -394,7 +394,7 @@ M2.91 13.09 L6.66 9.34
 fill: circle cx 7.47 cy 8.53 r 0.9
 ```
 
-`ss.elide`: quoted text, the editor's `[…]`. 16 × 16 grid, stroke 1.5, plus three filled dots.
+`paper.elide`: quoted text, the editor's `[…]`. 16 × 16 grid, stroke 1.5, plus three filled dots.
 ```
 M4.75 2.75h-2v10.5h2
 M11.25 2.75h2v10.5h-2
@@ -486,7 +486,7 @@ Anatomy, top to bottom: title-bar zone (52) · unified inbox tile · 20 pt hairl
 |---|---|
 | Width | 76 pt; hidden in minimal mode (⌃⌘S, View › Hide Account Rail) |
 | Tile | 38 × 38 visual, 44 × 44 hit, centred at x = 38 |
-| Unified tile | first tile top at y = 62; `ss.quire` 18 pt; radius 11 |
+| Unified tile | first tile top at y = 62; `paper.quire` 18 pt; radius 11 |
 | Divider | 20 × hairline at y = 116, centred |
 | Account tiles | first at y = 130, pitch 50; avatar face 30 pt with 1.5 pt gap and 1.5 pt account-ink ring (38 pt overall); monogram New York Semibold 12.5 pt, or the account photo |
 | Badge | count badge (§5.27), top −5, trailing −8 relative to the tile, 2 pt `spine` cut-out ring |
@@ -520,7 +520,7 @@ Height 92 = row 1 (52, title-bar zone) + row 2 (40). Bottom hairline `rule` span
 |---|---|
 | Masthead | x 16, vertically centred on y 26 (aligned with the traffic lights); `masthead` (New York 20/24 Semibold); followed 6 pt later by `chevron.down` 9 pt Semibold `ink2`. Hit area: text + chevron + 6 pt padding, radius 6 |
 | Account suffix | when narrowed to one account: " · alex@contoso.test" in `snippet` `ink3`, truncates first |
-| Compose | 28 × 28 icon button, `ss.nib` 18 pt, trailing 12, top 12 |
+| Compose | 28 × 28 icon button, `paper.nib` 18 pt, trailing 12, top 12 |
 | Tabs (Inbox only) | row 2, x 16, gap 18 (§5.5) |
 | Search | row 2, trailing 12, top 58, 168 × 26 (§5.6); full width (x 12…352) in views without tabs |
 
@@ -743,7 +743,7 @@ Dark mode and HTML mail: bodies render with `color-scheme: light dark`. If a bod
 | Part | Metric |
 |---|---|
 | Shape | 24 pt high, radius 6, padding 0 9 0 6, gap 6 |
-| Glyph | `ss.elide` 14 pt |
+| Glyph | `paper.elide` 14 pt |
 | Label | `label` (12 Medium): "Show quoted text" / "Hide quoted text" |
 
 | State | Fill | Text / glyph |

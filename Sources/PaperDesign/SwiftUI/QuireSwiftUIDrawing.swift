@@ -156,7 +156,7 @@ struct QuireParagraph: ViewModifier {
     }
 }
 
-/// A symbol from `Quire.Icon` at a Quire size, tinted by the foreground style. SF Symbols and `ss.` glyphs go
+/// A symbol from `Quire.Icon` at a Quire size, tinted by the foreground style. SF Symbols and `paper.` glyphs go
 /// through `QuireSymbol`, so SwiftUI draws exactly the images AppKit does.
 struct QuireSymbolImage: View {
     let name: String

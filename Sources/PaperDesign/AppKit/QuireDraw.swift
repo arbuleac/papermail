@@ -50,7 +50,7 @@ public enum QuireDraw {
 
     private static let symbols = LockedCache<SymbolKey, NSImage?>()
 
-    /// The template image for a symbol (SF Symbol or `ss.` glyph), cached: building a configured symbol image
+    /// The template image for a symbol (SF Symbol or `paper.` glyph), cached: building a configured symbol image
     /// is too slow to repeat in every `draw(_:)`.
     static func symbolImage(_ name: String, size: QuireSymbolSize) -> NSImage? {
         symbols.value(for: SymbolKey(name: name, pointSize: size.pointSize, weight: size.weight.rawValue)) {

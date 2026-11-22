@@ -1,7 +1,7 @@
 import AppKit
 
 /// Symbol images at Quire's sizes (spec §4.11). Takes any name from `Quire.Icon`: SF Symbols come from the
-/// system, `ss.` names are the custom glyphs, so call sites never care which kind an action uses.
+/// system, `paper.` names are the custom glyphs, so call sites never care which kind an action uses.
 public enum QuireSymbol {
     /// A template image for `name` at `size`, or nil when the system has no such symbol.
     public static func image(_ name: String, size: QuireSymbolSize = .inText, accessibilityDescription: String? = nil) -> NSImage? {
