@@ -180,11 +180,21 @@ final class QuickReplyView: NSView, QuirePointerTarget {
     /// A block (the prompt line, the afterline) opened, closed or moved in the text: the text view holds it, and the field
     /// grows by it.
     func writeSpaceDidChange() {
-        let block = madeWriteLayer?.blockRect != nil
-        textView.minSize = NSSize(width: 0, height: block ? madeWriteLayer?.contentHeight ?? 0 : 0)
-        textView.sizeToFit()
+        holdWriteSpace()
         updateHeight(animated: false)
         needsLayout = true
+    }
+
+    /// The text view as tall as the text and a block that hangs below its last line, and never shorter than the field's
+    /// text area, whose empty part is the text's to click. The scroll view sets the text's least height to its own each
+    /// time it resizes, which drops the block's room: below a reply longer than the field the block would lie past the
+    /// text's end, where no scroll reaches. The layout holds it again after every resize.
+    private func holdWriteSpace() {
+        let block = madeWriteLayer?.blockRect != nil ? madeWriteLayer?.contentHeight ?? 0 : 0
+        let least = max(block, scrollView.contentSize.height)
+        guard abs(textView.minSize.height - least) > 0.5 || textView.frame.height < least - 0.5 else { return }
+        textView.minSize = NSSize(width: 0, height: least)
+        textView.sizeToFit()
     }
 
     /// The layer, once Help me write has made it (the bar never makes it for nothing).
@@ -636,6 +646,10 @@ final class QuickReplyView: NSView, QuirePointerTarget {
         textView.frame.size.width = scrollView.contentSize.width
         scrollView.hasVerticalScroller = looksFocused && lineCount >= Int(m.maxLines)
         if rewrapped, isFocused { textView.scrollRangeToVisible(textView.selectedRange()) }
+        // A prompt line or afterline that just opened shows whole, now that the field has its room: a reply longer than
+        // five lines would otherwise leave it under the last line in view.
+        if madeWriteLayer != nil { holdWriteSpace() }
+        if extra > 0 { madeWriteLayer?.revealBlockIfNeeded() }
         let placeholderHeight = ReaderFonts.fieldHeight(placeholder)
         placeholder.frame = NSRect(x: field.minX + m.textX - 2, y: (field.minY + m.fieldPadTop + (lineHeight - placeholderHeight) / 2).rounded(),
                                    width: textWidth + 4, height: placeholderHeight)
@@ -1181,10 +1195,20 @@ private final class QuickReplyTextView: NSTextView {
 
     /// ⌘↩, ⇧⌘↩ and ⇧⌘L are taken here, before the main menu sees them: a menu item carrying one (the composer's hidden
     /// Send, Send and Archive and Send Later…) claims the key even while it is hidden or disabled, so `keyDown` would
-    /// never get it.
+    /// never get it. ⇧⌘R too: while the reply is typed in it opens the composer, though View › Reader Mode carries it
+    /// (§5.59, §6).
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, sendKey(event) { return true }
+        if window?.firstResponder === self, isOpenInComposerKey(event) {
+            onOpenInComposer?()
+            return true
+        }
         return super.performKeyEquivalent(with: event)
+    }
+
+    private func isOpenInComposerKey(_ event: NSEvent) -> Bool {
+        ReaderShortcuts.chord(event.modifierFlags.rawValue) == ReaderShortcuts.shift | ReaderShortcuts.command
+            && event.charactersIgnoringModifiers?.lowercased() == "r"
     }
 
     /// ⌘↩ sends as Send does, ⇧⌘↩ sends and archives, ⇧⌘L shows Send Later's times (§5.23); false for any other key.
@@ -1210,7 +1234,7 @@ private final class QuickReplyTextView: NSTextView {
         defer { handlingRepeat = false }
         if sendKey(event) { return }
         let chord = ReaderShortcuts.chord(event.modifierFlags.rawValue)
-        if chord == ReaderShortcuts.shift | ReaderShortcuts.command, event.charactersIgnoringModifiers?.lowercased() == "r" {
+        if isOpenInComposerKey(event) {
             onOpenInComposer?()
             return
         }

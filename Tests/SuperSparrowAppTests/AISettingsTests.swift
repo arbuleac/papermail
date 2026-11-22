@@ -64,7 +64,7 @@ final class AISettingsTests: XCTestCase {
         window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
         controller.show(tab: .ai)
         let tabs = try XCTUnwrap(window.contentViewController as? NSTabViewController)
-        XCTAssertEqual(tabs.tabViewItems.last?.label, "AI", "appended, so no tab a user knows moves")
+        XCTAssertEqual(tabs.tabViewItems[4].label, "AI", "appended after Appearance, so no tab a user knows moves")
         XCTAssertEqual(tabs.selectedTabViewItemIndex, 4)
         XCTAssertNotNil(tabs.tabViewItems[4].image, "the tab's symbol draws")
         tabs.selectedTabViewItemIndex = 2

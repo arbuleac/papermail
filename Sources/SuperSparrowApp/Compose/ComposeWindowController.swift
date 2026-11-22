@@ -812,10 +812,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         // Built off the main actor: the quote re-serializes the whole stored body with SwiftSoup, which on
         // a long thread takes long enough to drop keystrokes in the editor that is already on screen.
         let isForward = mode.isForward
+        // Block trackers (spec §5.60) as the reply starts: the quote leaves the original's trackers out, so neither the
+        // recipients nor the reader's copy of the draft load them.
+        let dropsTrackers = AppSettings.shared.blocksTrackers
         let rendering = await Task.detached(priority: .userInitiated) {
             isForward
-                ? QuotedReply.forward(original: original, body: body)
-                : QuotedReply.reply(original: original, body: body)
+                ? QuotedReply.forward(original: original, body: body, dropsTrackers: dropsTrackers)
+                : QuotedReply.reply(original: original, body: body, dropsTrackers: dropsTrackers)
         }.value
         guard !Task.isCancelled else { return }
         quoted = rendering

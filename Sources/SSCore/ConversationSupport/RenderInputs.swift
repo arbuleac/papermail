@@ -60,16 +60,21 @@ public struct RenderInputs: Hashable, Sendable {
     /// change this slot hears of, so the reader checks it against these: the words come from the calendar, the cards from
     /// the bodies and metadata above.
     public private(set) var invitationOverlaps: InvitationOverlaps = .none
+    /// Reader mode as the slot was rendered under it (spec §5.59): nil while it is off; while it is on, the messages of
+    /// this conversation shown as sent. A switch of either renders again; an evicted body shown from its kept text counts
+    /// as no body here, so the download that brings it back refreshes the slot.
+    public var readerMode: Set<MessageID>?
 
     public static let empty = RenderInputs(messages: []) { _ in false }
 
     /// - Parameter hasBody: asked once per visible message, in order.
     public init(messages: [MessageMetadata], sendLater: [MessageID: SendLaterState] = [:], outbox: [MessageID: OutboxState] = [:],
-                invitationOverlaps: InvitationOverlaps = .none, hasBody: (MessageID) -> Bool) {
+                invitationOverlaps: InvitationOverlaps = .none, readerMode: Set<MessageID>? = nil, hasBody: (MessageID) -> Bool) {
         self.init(messages: messages, hasBody: hasBody)
         self.sendLater = sendLater
         self.outbox = outbox
         self.invitationOverlaps = invitationOverlaps
+        self.readerMode = readerMode
     }
 
     /// - Parameter hasBody: asked once per visible message, in order.
@@ -93,10 +98,12 @@ public struct RenderInputs: Hashable, Sendable {
     /// stay for the life of their message, so one this slot already rendered is taken as read; `probe`
     /// runs only for messages that had none, which keeps the staleness check away from body bytes. The overlap lines are
     /// kept as rendered: they follow the calendar, which the reader watches apart, and a change to the cards they hang on
-    /// (an answer, a body) changes the messages or bodies compared here.
+    /// (an answer, a body) changes the messages or bodies compared here. Reader mode is kept as rendered too: the reader
+    /// sets what it is now (`readerMode`) when it asks.
     public func refreshed(with messages: [MessageMetadata], probe: (MessageID) -> Bool) -> RenderInputs {
         var fresh = RenderInputs(messages: messages) { id in bodyIDs.contains(id) || probe(id) }
         fresh.invitationOverlaps = invitationOverlaps
+        fresh.readerMode = readerMode
         return fresh
     }
 
@@ -104,7 +111,7 @@ public struct RenderInputs: Hashable, Sendable {
     /// moved; nil when anything else changed and the slot needs a payload.
     public func flagPatches(to fresh: RenderInputs) -> [RenderPayload.FlagPatch]? {
         guard messages.count == fresh.messages.count, bodyIDs == fresh.bodyIDs, sendLater == fresh.sendLater,
-              outbox == fresh.outbox, invitationOverlaps == fresh.invitationOverlaps else { return nil }
+              outbox == fresh.outbox, invitationOverlaps == fresh.invitationOverlaps, readerMode == fresh.readerMode else { return nil }
         var patches: [RenderPayload.FlagPatch] = []
         for (old, new) in zip(messages, fresh.messages) {
             var comparable = new

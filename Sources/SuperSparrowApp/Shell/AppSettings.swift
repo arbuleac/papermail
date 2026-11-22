@@ -21,6 +21,13 @@ final class AppSettings: ObservableObject {
     /// alone follows it; the app-wide size is `QuireEnvironment`'s.
     static let readerTextSizeChanged = Notification.Name("AppSettings.readerTextSizeChanged")
 
+    /// Posted after `offersReaderMode` or `readerModeOn` changes (spec §5.58), once per change: turning the experiment on
+    /// or off moves reader mode with it and still posts once. The reader shows or hides its controls and renders again.
+    static let readerModeChanged = Notification.Name("AppSettings.readerModeChanged")
+
+    /// Posted after `blocksTrackers` changes (spec §5.58), so what the reader shows follows it without a relaunch.
+    static let trackerBlockingChanged = Notification.Name("AppSettings.trackerBlockingChanged")
+
     /// Spec §5.7: standard rows are 68 pt, compact rows 48 pt.
     enum ListDensity: String, CaseIterable {
         case standard
@@ -78,6 +85,10 @@ final class AppSettings: ObservableObject {
         static let demoAIProvider = "aiProvider.demo"
         static let demoAIModelPrefix = "demoAIModel."
         static let demoAICLIPathPrefix = "demoAICLIPath."
+        /// Settings › Experimental (§5.58): the reader-mode experiment's gate, reader mode itself, and tracker blocking.
+        static let offersReaderMode = "experimental.readerMode"
+        static let readerModeOn = "readerMode.on"
+        static let blocksTrackers = "experimental.blockTrackers"
     }
 
     /// Account ids are UUIDs, so this can never be one.
@@ -333,6 +344,83 @@ final class AppSettings: ObservableObject {
         didSet { if oldValue != hasCalendarAccess { defaults.set(hasCalendarAccess, forKey: Key.hasCalendarAccess) } }
     }
 
+    // MARK: Experimental (§5.58)
+
+    /// Settings › Experimental › Offer reader mode: the reader-mode experiment's gate, off by default. Turning it on turns
+    /// reader mode on too, so the user sees what they enabled; turning it off turns reader mode off and hides its controls.
+    @Published var offersReaderMode: Bool {
+        didSet {
+            guard oldValue != offersReaderMode else { return }
+            storeExperiment(offersReaderMode, forKey: Key.offersReaderMode)
+            reportExperiment(.offerReaderMode(offersReaderMode))
+            guard readerModeOn != offersReaderMode else { return postReaderModeChange() }
+            // Reader mode's own observer posts the one change; the report is the gate's alone.
+            isFollowingGate = true
+            readerModeOn = offersReaderMode
+            isFollowingGate = false
+        }
+    }
+
+    /// Reader mode (§5.59): the reader shows each message's text version. The state the reader's button and ⇧⌘R flip, kept
+    /// across launches; never on while the experiment is off, so this alone says whether the reader renders text.
+    @Published var readerModeOn: Bool {
+        didSet {
+            guard !isRefusingReaderMode else { return }
+            // Its controls are hidden while the gate is off, and a stray set must not turn it on behind them. Put back
+            // quietly: a wrapped property's observer runs again for a set inside it, and nothing changed.
+            if readerModeOn, !offersReaderMode {
+                isRefusingReaderMode = true
+                readerModeOn = false
+                isRefusingReaderMode = false
+                return
+            }
+            guard oldValue != readerModeOn else { return }
+            storeExperiment(readerModeOn, forKey: Key.readerModeOn)
+            if !isFollowingGate { reportExperiment(.readerMode(readerModeOn)) }
+            postReaderModeChange()
+        }
+    }
+
+    /// Settings › Experimental › Block trackers (§5.60): known tracking pixels never load, also when images do. Off by default.
+    @Published var blocksTrackers: Bool {
+        didSet {
+            guard oldValue != blocksTrackers else { return }
+            storeExperiment(blocksTrackers, forKey: Key.blocksTrackers)
+            reportExperiment(.blockTrackers(blocksTrackers))
+            NotificationCenter.default.post(name: AppSettings.trackerBlockingChanged, object: self)
+        }
+    }
+
+    /// Debug snapshots set this before turning an experiment on for their run (`--snapshot-state=…`): from then on the
+    /// experimental settings change in memory only, announced as ever but never saved or reported. `blocksTrackersNow`
+    /// reads what is saved, so it does not see a held value.
+    var keepsExperimentsInMemory = false
+
+    /// Set while the gate moves reader mode, so that move is not reported as the user's.
+    private var isFollowingGate = false
+
+    /// Set while reader mode is put back off because its gate is off.
+    private var isRefusingReaderMode = false
+
+    /// For code off the main actor, as `loadRemoteImagesNow` is: UserDefaults is safe to read from any thread.
+    nonisolated static func blocksTrackersNow(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: Key.blocksTrackers)
+    }
+
+    private func storeExperiment(_ on: Bool, forKey key: String) {
+        guard !keepsExperimentsInMemory else { return }
+        defaults.set(on, forKey: key)
+    }
+
+    private func reportExperiment(_ change: AnalyticsSignal.SettingChange) {
+        guard !keepsExperimentsInMemory else { return }
+        report(change)
+    }
+
+    private func postReaderModeChange() {
+        NotificationCenter.default.post(name: AppSettings.readerModeChanged, object: self)
+    }
+
     // MARK: Help Me Write (§5.56)
 
     /// Settings › AI › Provider: where Help Me Write sends a conversation when the user asks it to write. Nil is Off, the
@@ -494,6 +582,9 @@ final class AppSettings: ObservableObject {
             Key.adaptsMailColours: true,
             Key.showsDayColumn: true,
             Key.sendsAnalyticsAndReports: true,
+            Key.offersReaderMode: false,
+            Key.readerModeOn: false,
+            Key.blocksTrackers: false,
         ])
         notificationsEnabled = defaults.bool(forKey: Key.notifications)
         showPreviews = defaults.bool(forKey: Key.previews)
@@ -532,6 +623,11 @@ final class AppSettings: ObservableObject {
         aiConsent = Self.storedKinds(defaults, Key.aiConsent)
         demoAIConsent = Self.storedKinds(defaults, Key.demoAIConsent)
         liveDemoAIConsent = Self.storedKinds(defaults, Key.liveDemoAIConsent)
+        let offersReaderMode = defaults.bool(forKey: Key.offersReaderMode)
+        self.offersReaderMode = offersReaderMode
+        // Never on while the experiment is off, whatever was saved (a value written by hand).
+        readerModeOn = offersReaderMode && defaults.bool(forKey: Key.readerModeOn)
+        blocksTrackers = defaults.bool(forKey: Key.blocksTrackers)
         applyUndoSendDelay()
         ConversationViewController.loadRemoteImages = loadRemoteImages
     }

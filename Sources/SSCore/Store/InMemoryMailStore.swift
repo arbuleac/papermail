@@ -350,6 +350,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         return bodies[id]?.body.attachments
     }
 
+    /// An evicted body is held in its evicted form, which is what the eviction keeps.
+    public func keptBody(for id: MessageID) throws -> StoredBody? {
+        lock.lock(); defer { lock.unlock() }
+        return bodies[id]
+    }
+
     @discardableResult
     public func evictBodies(from start: Date?, limit: Int,
                             rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?) {

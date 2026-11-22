@@ -456,6 +456,7 @@ actor Hydrator {
                 hasQuotedContent: sanitized.hasQuotedContent,
                 // What the reader's "Load images" restores: parked <img> sources, not dropped backgrounds.
                 blockedRemoteImageCount: RenderPayloadBuilder.blockedRemoteImageCount(in: sanitized.html),
+                trackerImageCount: sanitized.trackerImageCount,
                 typesetting: sanitized.typesetting,
                 declaresColors: sanitized.declaresColors,
                 coveredByNewYork: sanitized.coveredByNewYork,

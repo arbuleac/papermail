@@ -26,8 +26,7 @@ public enum ConversationShellAssets {
     public static let symbols: [String] = [
         "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
         "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-        "doc", "doc.richtext", "tablecells", "doc.zipper", "film", "calendar", "checkmark", "info.circle", "arrow.down.circle",
-        "paperclip",
+        "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip", "doc.plaintext", "checkmark.shield",
     ]
 
     /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
@@ -375,6 +374,11 @@ public enum ConversationShellAssets {
     .ss-banner.ss-warn > .ss-sym, .ss-banner > .ss-sym.ss-warning { color: var(--q-warning); }
     .ss-banner.ss-bad { background: var(--q-dangerWash); }
     .ss-banner.ss-bad > .ss-sym { color: var(--q-danger); }
+    /* Reader mode's line (spec §5.59): a quiet line on the sheet at the body's edge, not a banner to act on. */
+    .ss-banner.ss-reader { background: none; padding-left: 0; margin-bottom: 4px; color: var(--q-ink2); }
+    /* doc.plaintext is rasterised centred on a square 1.3 em wide (ReaderSymbolSheet) and its ink starts 18 % in, about
+       0.23 em: the square steps back by that much, so the ink, not the square, meets the body's leading edge. */
+    .ss-banner.ss-reader > .ss-sym { color: var(--q-ink3); margin-left: -0.23em; }
     .ss-link {
       flex: none; height: 24px; padding: 0 4px; border: 0; border-radius: var(--q-r-sm); background: none;
       font: var(--q-font-label); color: var(--q-accent);
@@ -398,6 +402,10 @@ public enum ConversationShellAssets {
     }
     .ss-bx:hover { background: var(--q-hover); color: var(--q-ink); }
 
+    /* The trackers note (spec §5.60): the banner's box drawn in a hairline instead of a fill, its words and mark in ink2. */
+    .ss-banner.ss-quiet { background: none; box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule); color: var(--q-ink2); }
+    html.ss-ic .ss-banner.ss-quiet { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
+    @media (prefers-contrast: more) { .ss-banner.ss-quiet { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); } }
     .ss-banner.ss-info { background: var(--q-infoWash); }
     .ss-banner.ss-info > .ss-sym { color: var(--q-info); }
     .ss-banner.ss-wrap { align-items: flex-start; }
@@ -544,9 +552,21 @@ public enum ConversationShellAssets {
     .ss-atts-head .ss-link[aria-disabled="true"] { color: var(--q-inkDisabled); text-decoration: none; }
     .ss-atts-head.ss-loading .ss-atts-count { display: none; }
     .ss-atts-head.ss-loading .ss-dl { display: block; margin: 0 4px 0 0; }
+    /* A chip whose file could not be fetched shows the warning on a quiet tile where its file mark was (spec §5.17). */
     .ss-tile {
       flex: none; width: 28px; height: 28px; border-radius: var(--q-r-sm); background: var(--q-fill); color: var(--q-ink2);
       display: flex; align-items: center; justify-content: center; font-size: 15px;
+    }
+    /* The file mark (spec §5.57): a sheet of paper with its top trailing corner folded down and a band in the family's
+       file ink carrying the type, drawn from layout.fileMark (SS_FILE_MARK) as QuireFileMark draws it in AppKit: the
+       sheet's paper, the fold's face, then the edges, then the band and its label. */
+    .ss-fm { flex: none; width: 28px; height: 28px; overflow: visible; }
+    .ss-fm-sheet { fill: var(--q-raised); }
+    .ss-fm-fold { fill: var(--q-fill); }
+    .ss-fm-edge { fill: none; stroke: var(--q-ruleStrong); stroke-width: 1px; stroke-linejoin: round; }
+    .ss-fm-label {
+      font-family: var(--q-sans); font-size: 8px; font-weight: 700; font-stretch: 60%; letter-spacing: 0;
+      fill: var(--q-file-label); -webkit-user-select: none;
     }
     .ss-chip-text { display: flex; flex-direction: column; min-width: 0; }
     .ss-chip-name { display: flex; min-width: 0; font: var(--q-font-label); color: var(--q-ink); }
@@ -747,7 +767,17 @@ public enum ConversationShellAssets {
     }
     """#
 
-    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + script
+    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + trackerFiltersScript() + QuireCSS.fileMarkScript
+        + "\n" + script
+
+    /// `SS_TRACKER_FILTERS`: the known open-tracking endpoints' expressions (`TrackerRules.endpoints`, the content blocker's
+    /// `url-filter`s), which read the same as JavaScript regular expressions. A body stored before the sanitizer marked
+    /// trackers carries its known pixel unmarked, so while Block trackers is on the shell tells it by its address (spec
+    /// §5.60). `scheme` is `https?` in the app; the tests give their stand-in scheme for the network.
+    public static func trackerFiltersScript(scheme: String = "https?") -> String {
+        "var SS_TRACKER_FILTERS = [" + TrackerRules.endpoints.map { jsStringLiteral($0.urlFilter(scheme: scheme)) }.joined(separator: ", ")
+            + "];\n"
+    }
 
     /// Message bodies are loaded with `srcdoc` into `sandbox="allow-same-origin"` iframes: no scripts run
     /// inside them, not even listeners the shell adds, so the shell measures each document from the parent
@@ -761,7 +791,7 @@ public enum ConversationShellAssets {
       var loadRemote = false;
       // `adaptsColours` is the Dark Mode default (spec §5.14): styled mail that declares its own colours opens adapted (on)
       // or as sent on the white page (off).
-      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default', adaptsColours: true };
+      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default', adaptsColours: true, blocksTrackers: false };
       // Session memory that outlives a render: measured body heights per message and width, the colours each message was
       // switched to by hand (true for the sender's, false for adapted; a message never switched follows the default), and
       // the recipient blocks the user opened (spec §4.10, §5.14).
@@ -835,6 +865,55 @@ public enum ConversationShellAssets {
       }
 
       function kbd(legend) { return el('span', 'ss-kbd', legend); }
+
+      // MARK: File marks (spec §5.57)
+
+      var SVG_NS = 'http://www.w3.org/2000/svg';
+
+      function svgNode(tag, cls, attributes) {
+        var node = document.createElementNS(SVG_NS, tag);
+        if (cls) { node.setAttribute('class', cls); }
+        for (var key in attributes) { node.setAttribute(key, attributes[key]); }
+        return node;
+      }
+
+      // A file's mark from SS_FILE_MARK, the tokens' own numbers and paths: the sheet, the fold's face, the edges, and
+      // the band in the family's ink with the label on it. No label is a plain sheet. Decorative: the chip's name and
+      // meta already say what the file is.
+      function fileMark(family, label) {
+        var m = SS_FILE_MARK;
+        if (m.families.indexOf(family) < 0) { family = 'other'; }
+        var svg = svgNode('svg', 'ss-fm', { viewBox: '0 0 ' + m.grid + ' ' + m.grid, 'aria-hidden': 'true', 'data-family': family });
+        svg.appendChild(svgNode('path', 'ss-fm-sheet', { d: m.sheetPath }));
+        svg.appendChild(svgNode('path', 'ss-fm-fold', { d: m.foldPath }));
+        svg.appendChild(svgNode('path', 'ss-fm-edge', { d: m.sheetPath + ' ' + m.foldEdgePath }));
+        if (label) {
+          var band = svgNode('rect', 'ss-fm-band', { x: m.sheetX + m.edge, y: m.bandTop, width: m.sheetWidth - 2 * m.edge, height: m.bandHeight });
+          band.style.fill = 'var(--q-file-' + family + ')';
+          svg.appendChild(band);
+          var text = svgNode('text', 'ss-fm-label', { x: m.sheetX + m.sheetWidth / 2, y: m.labelBaseline, 'text-anchor': 'middle' });
+          text.textContent = String(label).slice(0, m.labelMax);
+          svg.appendChild(text);
+        }
+        return svg;
+      }
+
+      // A label wider than the band (an unknown four-letter type of wide letters) is squeezed to fit, as QuireFileMark
+      // squeezes it; it can only be measured once laid out, so this runs after the chips are in and when a card opens.
+      function fitFileLabels(root) {
+        var m = SS_FILE_MARK;
+        var room = m.sheetWidth - 2 * m.edge - 2 * m.labelPad;
+        var labels = root.querySelectorAll('.ss-fm-label:not([data-fit])');
+        for (var i = 0; i < labels.length; i++) {
+          var width = labels[i].getComputedTextLength();
+          if (!(width > 0)) { continue; }
+          labels[i].setAttribute('data-fit', '');
+          if (width > room) {
+            labels[i].setAttribute('textLength', room);
+            labels[i].setAttribute('lengthAdjust', 'spacingAndGlyphs');
+          }
+        }
+      }
 
       function isDark() { return !!(darkQuery && darkQuery.matches); }
 
@@ -1020,6 +1099,67 @@ public enum ConversationShellAssets {
       function adapts(card) { return offersOriginal(card) && !effectiveOriginal(card); }
       function showsInset(card) { return offersOriginal(card) && effectiveOriginal(card); }
 
+      // A known open-tracking endpoint (`SS_TRACKER_FILTERS`), for a body stored before the sanitizer marked trackers
+      // (spec §5.60); compiled the first time one is asked about.
+      var knownTrackerPatterns = null;
+      function isKnownTracker(address) {
+        if (!address || /^(data|ss-cid):/i.test(address)) { return false; }
+        if (!knownTrackerPatterns) {
+          knownTrackerPatterns = [];
+          var filters = window.SS_TRACKER_FILTERS || [];
+          for (var i = 0; i < filters.length; i++) {
+            // One JavaScript cannot read is left to the content blocker, which compiled it.
+            try { knownTrackerPatterns.push(new RegExp(filters[i], 'i')); } catch (e) { /* skipped */ }
+          }
+        }
+        // The address as WebKit hands it to the content blocker: the host lowercased, a backslash read as a slash.
+        var href = address;
+        try { href = new URL(address).href; } catch (e) { /* not a URL: matched as written */ }
+        for (var j = 0; j < knownTrackerPatterns.length; j++) { if (knownTrackerPatterns[j].test(href)) { return true; } }
+        return false;
+      }
+
+      // The stored HTML's parked sources, as the sanitizer writes them (SwiftSoup: double quotes, `&` escaped).
+      var PARKED_SOURCE = /\sdata-ss-src="([^"]*)"/g;
+      function attributeText(value) {
+        if (value.indexOf('&') < 0) { return value; }
+        return value.replace(/&(amp|quot|lt|gt|#39|#x27);/g, function (all, name) {
+          return name === 'amp' ? '&' : name === 'quot' ? '"' : name === 'lt' ? '<' : name === 'gt' ? '>' : "'";
+        });
+      }
+
+      // The known pixels parked in a body that carries no marks (spec §5.60): a body stored before the sanitizer marked
+      // trackers holds its known pixel parked like any picture, so while Block trackers is on it is told by its address,
+      // read from the stored HTML before the frame loads, so the banner's first count is already right. A body with
+      // marks has every known pixel marked, so it is not read. Asked only while Block trackers is on, or as it changes;
+      // remembered for the card's HTML.
+      function unmarkedTrackers(card) {
+        var m = card.message;
+        if (!m.hasBody || (m.trackerImageCount || 0) > 0 || !((m.blockedRemoteImageCount || 0) > 0)) { return 0; }
+        if (card.unmarkedFor === m.html) { return card.unmarked; }
+        var html = m.html || '';
+        var count = 0;
+        var match;
+        PARKED_SOURCE.lastIndex = 0;
+        while ((match = PARKED_SOURCE.exec(html)) !== null) { if (isKnownTracker(attributeText(match[1]))) { count++; } }
+        card.unmarkedFor = m.html;
+        card.unmarked = count;
+        return count;
+      }
+
+      // The live remote sources a frame under the blocking policy holds back, which Load images would bring in: while
+      // Block trackers is on, less a known pixel left live in a body stored before the marks, which the content blocker
+      // stops (spec §5.60).
+      function liveRemoteCount(doc) {
+        var live = doc.querySelectorAll(LIVE_REMOTE);
+        if (!prefs.blocksTrackers) { return live.length; }
+        var count = 0;
+        for (var i = 0; i < live.length; i++) {
+          if (!(live[i].tagName === 'IMG' && isKnownTracker(live[i].getAttribute('src')))) { count++; }
+        }
+        return count;
+      }
+
       function syncDocumentClasses(card) {
         var doc = frameDocument(card);
         if (!doc || !doc.documentElement) { return; }
@@ -1032,12 +1172,16 @@ public enum ConversationShellAssets {
         }
       }
 
-      // Puts parked remote sources back. Runs only in a frame built without the blocking policy.
+      // Puts parked remote sources back. Runs only in a frame built without the blocking policy. While Block trackers is on
+      // the images the sanitizer marked as trackers stay parked, and so does a known pixel in a body stored before the
+      // marks, told by its address (spec §5.60).
       function restoreRemote(card, doc) {
-        var images = doc.querySelectorAll('img[data-ss-src]');
+        var images = doc.querySelectorAll(prefs.blocksTrackers ? 'img[data-ss-src]:not([data-ss-tracker])' : 'img[data-ss-src]');
         for (var i = 0; i < images.length; i++) {
           var img = images[i];
-          img.src = img.getAttribute('data-ss-src');
+          var source = img.getAttribute('data-ss-src');
+          if (prefs.blocksTrackers && isKnownTracker(source)) { continue; }
+          img.src = source;
           img.removeAttribute('data-ss-src');
         }
         var backgrounds = doc.querySelectorAll('[data-ss-background]');
@@ -1055,9 +1199,12 @@ public enum ConversationShellAssets {
         var failedAlready = 0;
         var images = doc.images;
         for (var i = 0; i < images.length; i++) {
-          // Remote means what the blocking policy holds back: anything not served from this Mac.
+          // Remote means what the blocking policy holds back: anything not served from this Mac. A known pixel left live in
+          // a body stored before the marks is the content blocker's to stop while Block trackers is on, so it is neither
+          // waited for nor counted as a picture that failed (spec §5.60).
           var src = images[i].getAttribute('src') || '';
           if (!src || /^(data|ss-cid):/i.test(src)) { continue; }
+          if (prefs.blocksTrackers && isKnownTracker(src)) { continue; }
           // Sources live in the stored HTML load with the document, before its load event: count those that broke.
           if (!images[i].complete) { remote.push(images[i]); } else if (images[i].naturalWidth === 0) { failedAlready++; }
         }
@@ -1137,16 +1284,27 @@ public enum ConversationShellAssets {
         if (wasWide !== card.wide) { card.iframe.setAttribute('scrolling', card.wide ? 'auto' : 'no'); }
       }
 
-      // The inset's padding narrows the frame, so a body is measured apart on the white page.
+      // The inset's padding narrows the frame, so a body is measured apart on the white page; reader mode's text version
+      // is another document than the HTML, measured apart too (spec §5.59).
       function heightKey(card) {
-        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize + (card.inset ? ':inset' : '');
+        var m = card.message;
+        var version = isTextVersion(m) ? ':text' : '';
+        return m.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize + version + (card.inset ? ':inset' : '');
+      }
+
+      // Reader mode's text version of a message (spec §5.59), as against its HTML.
+      function isTextVersion(m) {
+        return m.reader === 'text' || m.reader === 'extracted' || m.reader === 'snippet';
       }
 
       function measure(card) {
         var doc = frameDocument(card);
         if (!doc || !doc.body) { return 0; }
         var height = contentHeight(card, doc);
-        if (height > 0) {
+        // Before its own document loads a frame measures 0 and says nothing; once loaded, 0 is the body's height: a
+        // message whose own words are empty (all of it folded quote, or only attachments) has nothing to show above
+        // Show quoted text, and its skeleton must go rather than wait for a height that never comes.
+        if (height > 0 || card.frameLoaded) {
           if (!card.measured) {
             card.measured = true;
             card.frameWrap.style.minHeight = '';
@@ -1167,6 +1325,7 @@ public enum ConversationShellAssets {
       // ResizeObserver, which never fires in a pooled view that is not on screen.
       function refitCard(card) {
         if (!card.expanded) { return; }
+        if (card.atts) { fitFileLabels(card.atts); }
         var animate = card.animateFit;
         card.animateFit = false;
         fit(card, animate);
@@ -1188,10 +1347,11 @@ public enum ConversationShellAssets {
           restoreRemote(card, doc);
           trackImageLoad(card, doc);
         } else {
-          var live = doc.querySelectorAll(LIVE_REMOTE).length;
+          var live = liveRemoteCount(doc);
           if (live !== card.liveRemote) { card.liveRemote = live; renderBanners(card); }
         }
         syncDocumentClasses(card);
+        card.frameLoaded = true;
         if (card.observer) { try { card.observer.disconnect(); } catch (e) {} card.observer = null; }
         // No listener runs inside a body document (see trackImageLoad), so images that change its size are caught
         // by a ResizeObserver, which reports to the shell, and by the timed measurements below. Link clicks are
@@ -1217,6 +1377,14 @@ public enum ConversationShellAssets {
 
       function dropFrame(card) {
         releaseFrame(card);
+        // A Load images under way waited on this document's images; the next frame's are waited on afresh, or the banner
+        // would say “Loading…” for good (a frame rebuilt by Block trackers, or a card folded mid-load).
+        if (card.imageLoad) {
+          if (card.imageLoad.timer) { clearTimeout(card.imageLoad.timer); }
+          card.imageLoad.timer = null;
+          card.imageLoad.tracking = false;
+          card.imageLoad.failed = 0;
+        }
         if (card.iframe) { card.iframe.remove(); card.iframe = null; }
         if (card.page) { card.page.remove(); card.page = null; }
         card.inset = false;
@@ -1226,6 +1394,7 @@ public enum ConversationShellAssets {
         for (var f = 0; f < found.length; f++) { found[f].marks = []; }
         card.height = 0;
         card.measured = false;
+        card.frameLoaded = false;
         card.zoom = 1;
         card.wide = false;
       }
@@ -1289,9 +1458,11 @@ public enum ConversationShellAssets {
       // Animate to a provisional height, then snap (spec §4.10): the last measured height at this width with the inset's
       // padding, or the skeleton's 58 pt with the skeleton drawn in it. True when it is the skeleton's.
       function provisionalHeight(card) {
+        // A cached 0 is a measured empty body, not a missing measurement.
         var cached = heights[heightKey(card)];
-        card.frameWrap.style.minHeight = (cached ? cached + (card.inset ? 24 : 0) : SKELETON_HEIGHT) + 'px';
-        return !cached;
+        var known = typeof cached === 'number';
+        card.frameWrap.style.minHeight = (known ? cached + (card.inset ? 24 : 0) : SKELETON_HEIGHT) + 'px';
+        return !known;
       }
 
       // The colours a body shows (spec §5.14, §5.16): the frame document's classes, and the white inset as a class on the
@@ -1335,11 +1506,53 @@ public enum ConversationShellAssets {
 
       function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
+      // Reader mode's line (spec §5.59): what the card shows of the message, and the way to the other version, for this
+      // message alone. The app keeps the choice for the session and renders the card again.
+      var READER_LINES = {
+        text: ['Text version', 'Show original', 'Show Original'],
+        extracted: ['Text from the email’s design', 'Show original', 'Show Original'],
+        snippet: ['Preview text', 'Show original', 'Show Original'],
+        original: ['Original', 'Show text', 'Show Text Version']
+      };
+      function readerLine(card) {
+        var m = card.message;
+        var line = READER_LINES[m.reader];
+        var node = bannerNode('ss-reader', 'doc.plaintext', line[0]);
+        var original = m.reader !== 'original';
+        var change = button('ss-link ss-reader-switch', line[1], line[2]);
+        change.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          post('ss', { kind: 'action', type: 'readerOriginal', messageID: m.id, attachmentID: null, on: original });
+        });
+        node.appendChild(change);
+        return node;
+      }
+
+      // The remote images Load images would bring in (spec §5.16): the parked and the live ones, less the trackers while
+      // Block trackers keeps them parked (spec §5.60), so a message whose only remote images are trackers offers nothing.
+      function heldBack(card) {
+        var m = card.message;
+        var count = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+        if (prefs.blocksTrackers) { count -= (m.trackerImageCount || 0) + unmarkedTrackers(card); }
+        return Math.max(0, count);
+      }
+
+      // The trackers the card says were blocked (spec §5.60): only while Block trackers is on, loaded images or not, since
+      // the sender meant to track either way. Never on reader mode's text version, whose page holds no image for blocking to
+      // stop; a message shown as its original says it like any other card (spec §5.59).
+      function blockedTrackers(card) {
+        var m = card.message;
+        if (!prefs.blocksTrackers || !m.hasBody || isTextVersion(m)) { return 0; }
+        return (m.trackerImageCount || 0) + unmarkedTrackers(card);
+      }
+
       function renderBanners(card) {
         var m = card.message;
         var list = [];
+        if (m.hasBody && READER_LINES[m.reader]) { list.push(readerLine(card)); }
         if (m.hasBody) {
-          var blocked = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+          var blocked = heldBack(card);
           if (card.imageLoad) {
             var loading = bannerNode('', null, 'Loading ' + plural(card.imageLoad.total || blocked, 'image', 'images') + '…');
             loading.insertBefore(el('span', 'ss-spin'), loading.firstChild);
@@ -1356,6 +1569,15 @@ public enum ConversationShellAssets {
             load.addEventListener('click', function (event) { stop(event); loadImages(card); });
             images.appendChild(load);
             list.push(images);
+          }
+          var trackers = blockedTrackers(card);
+          if (trackers > 0) {
+            // A quiet line, never a question: there is nothing to decide (spec §5.60).
+            var note = bannerNode('ss-quiet', 'checkmark.shield', plural(trackers, 'tracker', 'trackers') + ' blocked.');
+            note.classList.add('ss-trackers');
+            // What was held back, not a promise: the message's other remote images still load once images do.
+            note.title = 'These would have told the sender when and where you opened this message.';
+            list.push(note);
           }
           // The notice shows while a message is not as the Dark Mode default chose, and on every adapted message: with the
           // default off, a message shown as sent has none, since Settings chose it (spec §5.16).
@@ -2244,8 +2466,13 @@ public enum ConversationShellAssets {
         chip.dataset.mime = attachment.mime || '';
         var failed = !!(card.failedAttachments && card.failedAttachments[attachment.id]);
         chip.classList.toggle('ss-failed', failed);
-        var tile = el('span', 'ss-tile');
-        tile.appendChild(sym(failed ? 'exclamationmark.triangle.fill' : (attachment.symbol || 'doc')));
+        var tile;
+        if (failed) {
+          tile = el('span', 'ss-tile');
+          tile.appendChild(sym('exclamationmark.triangle.fill'));
+        } else {
+          tile = fileMark(attachment.family, attachment.label);
+        }
         var text = el('span', 'ss-chip-text');
         text.appendChild(chipName(attachment.name));
         var meta = el('span', 'ss-chip-meta');
@@ -2390,6 +2617,7 @@ public enum ConversationShellAssets {
           : focused ? list.querySelector(focusedKind + '[data-attachment-id="' + CSS.escape(focused) + '"]') : null;
         if (again) { again.focus(); }
         refitCard(card);
+        setTimeout(function () { fitFileLabels(list); }, 0);
       }
 
       // A chip's download, or Download all's on the count line (spec §5.17): fraction 0…1 fills the contrail, null
@@ -2518,11 +2746,22 @@ public enum ConversationShellAssets {
 
       // The body itself changed (hydration replaced the snippet fallback): the frame is rebuilt, and the
       // per-frame state goes with it because it described the old document.
-      function replaceBody(card) {
-        card.imagesLoaded = loadRemote;
+      function replaceBody(card, previous) {
+        // Reader mode trades a body's HTML for its text version and back (spec §5.59): what the user did to each version
+        // (its images loaded, its quoted text shown) waits with it while the other one shows, and comes back with it.
+        var m = card.message;
+        var held = null;
+        if (previous && previous.hasBody && m.hasBody && isTextVersion(previous) !== isTextVersion(m)) {
+          card.versions = card.versions || {};
+          card.versions[isTextVersion(previous) ? 'text' : 'html'] = {
+            imagesLoaded: card.imagesLoaded, quotesShown: card.quotesShown, messageShown: card.messageShown
+          };
+          held = card.versions[isTextVersion(m) ? 'text' : 'html'] || null;
+        }
+        card.imagesLoaded = loadRemote || !!(held && held.imagesLoaded);
         card.liveRemote = 0;
-        card.quotesShown = false;
-        card.messageShown = false;
+        card.quotesShown = !!(held && held.quotesShown);
+        card.messageShown = !!(held && held.messageShown);
         card.imageLoad = null;
         card.imageFailures = 0;
         markDesign(card);
@@ -2539,9 +2778,11 @@ public enum ConversationShellAssets {
         // An Outbox send that stops being held loses Continue editing (spec §5.53).
         if (JSON.stringify(previous.outbox || null) !== JSON.stringify(m.outbox || null)) { fillFooter(card); }
         if (previous.html !== m.html || previous.hasBody !== m.hasBody) {
-          replaceBody(card);
-        } else if (previous.bodyState !== m.bodyState) {
-          applyBodyState(card, m.bodyState);
+          replaceBody(card, previous);
+        } else {
+          if (previous.bodyState !== m.bodyState) { applyBodyState(card, m.bodyState); }
+          // The same text from another source (an evicted body's kept text, then its text part once it downloads).
+          if (previous.reader !== m.reader) { renderBanners(card); }
         }
         if (JSON.stringify(previous.attachments) !== JSON.stringify(m.attachments)) { fillAttachments(card); }
         // A click marks its answer before the store has it; one the store refused or gave up leaves the card's facts as
@@ -2902,7 +3143,7 @@ public enum ConversationShellAssets {
       // sources are restored once the new document has loaded.
       function loadImages(card) {
         if (!card || card.imagesLoaded) { return; }
-        var blocked = (card.message.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+        var blocked = heldBack(card);
         card.imagesLoaded = true;
         card.imageFailures = 0;
         card.imageLoad = blocked > 0 ? { total: blocked, failed: 0, pending: blocked, tracking: false, timer: null } : null;
@@ -3039,6 +3280,33 @@ public enum ConversationShellAssets {
         }
         if (defaultChanged) { coloursDefaultChanged(); }
         if (sizeChanged) { textSizeChanged(); }
+        if (typeof p.blocksTrackers === 'boolean' && p.blocksTrackers !== prefs.blocksTrackers) { setBlocksTrackers(p.blocksTrackers); }
+      }
+
+      // Block trackers changed (spec §5.60): every card's count and note follow, and a frame showing its images is built
+      // again, so its trackers are held back or put back; a frame under the blocking policy loads nothing either way.
+      function setBlocksTrackers(on) {
+        prefs.blocksTrackers = !!on;
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          // A frame under the blocking policy counts its live sources again, a known pixel among them coming or going.
+          var held = !card.imagesLoaded && card.frameLoaded ? frameDocument(card) : null;
+          if (held && held.body) { card.liveRemote = liveRemoteCount(held); }
+          // A Load images under way now waits for what the new frame brings in, and is over if that is nothing.
+          if (card.imageLoad) {
+            var total = heldBack(card);
+            if (total > 0) {
+              card.imageLoad.total = total;
+            } else {
+              if (card.imageLoad.timer) { clearTimeout(card.imageLoad.timer); }
+              card.imageLoad = null;
+            }
+          }
+          renderBanners(card);
+          if (card.imagesLoaded && card.iframe && ((card.message.trackerImageCount || 0) > 0 || unmarkedTrackers(card) > 0)) {
+            renderFrame(card);
+          }
+        }
       }
 
       // The app mirrors Increase Contrast, Reduce Motion, Reduce Transparency and Graphite onto the shell and
@@ -3631,6 +3899,7 @@ public enum ConversationShellAssets {
       // changed, for `update`, which keeps the cards.
       function readPayloadSettings(payload) {
         loadRemote = !!payload.loadRemoteImages;
+        prefs.blocksTrackers = !!payload.blocksTrackers;
         prefs.readingSans = !!payload.readingSans;
         prefs.noticeDismissed = !!payload.colorsNoticeDismissed;
         prefs.textSize = typeof payload.textSize === 'string' ? payload.textSize : 'default';
@@ -3715,7 +3984,7 @@ public enum ConversationShellAssets {
       function update(payload) {
         var messages = payload.messages || [];
         if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
-        if (!!payload.loadRemoteImages !== loadRemote) { return render(payload); }
+        if (!!payload.loadRemoteImages !== loadRemote || !!payload.blocksTrackers !== prefs.blocksTrackers) { return render(payload); }
         var defaultChanged = readPayloadSettings(payload);
         var parts = root.querySelector('.ss-parts');
         if (parts) {
@@ -3935,7 +4204,7 @@ public enum ConversationShellAssets {
           var m = card.message;
           return {
             id: m.id, offersOriginal: offersOriginal(card), original: showsInset(card),
-            imagesBlocked: m.hasBody && !card.imagesLoaded && ((m.blockedRemoteImageCount || 0) + (card.liveRemote || 0)) > 0,
+            imagesBlocked: m.hasBody && !card.imagesLoaded && heldBack(card) > 0,
             hasQuotes: !!(m.hasBody && m.hasQuotedContent), quotesShown: !!card.quotesShown, isStarred: !!m.isStarred
           };
         },
@@ -3957,7 +4226,8 @@ public enum ConversationShellAssets {
             states.push({
               id: card.message.id, expanded: card.expanded, imagesLoaded: card.imagesLoaded,
               quotesShown: card.quotesShown, hasFrame: !!card.iframe, folded: card.folded,
-              foldsMessage: foldsMessage(card), messageShown: !!card.messageShown, liveRemote: card.liveRemote || 0
+              foldsMessage: foldsMessage(card), messageShown: !!card.messageShown, liveRemote: card.liveRemote || 0,
+              trackers: blockedTrackers(card)
             });
           }
           return states;

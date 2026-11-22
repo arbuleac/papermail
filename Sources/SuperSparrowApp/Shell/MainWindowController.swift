@@ -1090,6 +1090,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func selectFirstConversation() -> ConversationID? {
         #if DEBUG
         applyDebugSnapshotStates()
+        applyDebugTrackerStates()
         #endif
         guard let newest = list.conversations.first?.id else { return nil }
         #if DEBUG
@@ -1101,6 +1102,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 ((try? store.messages(in: row.id)) ?? []).contains { UnsubscribeMethod(message: $0) != nil }
             }?.id ?? newest
         }
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("attachments") }) {
+            // The demo's hand-off pack, a file of every common family on its last message (§5.57).
+            let store = environment.store
+            first = list.conversations.first { row in
+                ((try? store.messages(in: row.id)) ?? []).contains { $0.subject == DemoComposerSample.handoffSubject }
+            }?.id ?? newest
+        }
+        if let sample = prepareDebugReaderMode() { first = sample }
+        if let sample = debugTrackerSampleConversation() { first = sample }
         #else
         let first = newest
         #endif
@@ -1117,6 +1127,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in self?.conversation.find.open(query: "the") }
         }
         applyDebugCalendarStates()
+        applyDebugReaderMode()
         applyDebugWriteStates()
         applyDebugSendStates()
         #endif
@@ -1132,6 +1143,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Debug aid for `--snapshot-compose`.
     func openReplyComposer() -> Bool {
         composeReply(all: false)
+    }
+
+    /// Debug aid for `--snapshot-compose` with `--snapshot-state=attachments`: forwards the selected conversation, so the
+    /// composer's strip holds its files.
+    func openForwardComposer() -> Bool {
+        composeForward()
     }
 
     // MARK: Notifications (§5.41)
@@ -3301,6 +3318,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func makeReaderTextBigger(_ sender: Any?) { settings.stepReaderTextSize(larger: true) }
     @objc func makeReaderTextSmaller(_ sender: Any?) { settings.stepReaderTextSize(larger: false) }
 
+    /// View › Reader Mode, ⇧⌘R (§5.59): reader mode for every reader at once, while Settings › Experimental offers it.
+    @objc func toggleReaderMode(_ sender: Any?) {
+        guard settings.offersReaderMode else { return }
+        settings.readerModeOn.toggle()
+    }
+
     private static let readerCommands: Set<Selector> = [
         #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
         #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)), #selector(downloadAttachments(_:)),
@@ -3421,6 +3444,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome && settings.readerSize.larger != nil
         case #selector(makeReaderTextSmaller(_:)):
             return !showingWelcome && settings.readerSize.smaller != nil
+        case #selector(toggleReaderMode(_:)):
+            menuItem.state = settings.readerModeOn ? .on : .off
+            return !showingWelcome && settings.offersReaderMode
         case #selector(searchServer(_:)):
             menuItem.title = ServerSearchRow.menuTitle(for: ServerSearchRow.target(scope: scope.accountIDs, accounts: accounts))
             let words = !listPane.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

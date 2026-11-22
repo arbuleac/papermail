@@ -8,7 +8,7 @@ import SSDesign
 /// are read from the generated `Quire.Layout`, so the test covers what the app draws.
 final class RadiusScaleTests: XCTestCase {
     /// The exceptions of spec §4.6, each pinned to its value.
-    let exceptions: [String: CGFloat] = ["rowCompact.accountSquareRadius": 1.5, "progress.barRadius": 2]
+    let exceptions: [String: CGFloat] = ["rowCompact.accountSquareRadius": 1.5, "progress.barRadius": 2, "fileMark.radius": 2, "fileMark.foldRadius": 1]
 
     func testEveryLayoutRadiusIsOnTheScale() {
         assertOnScale("layout.rail.tileRadius", Quire.Layout.Rail.tileRadius)
@@ -30,6 +30,8 @@ final class RadiusScaleTests: XCTestCase {
         assertOnScale("layout.attachmentChip.radius", Quire.Layout.AttachmentChip.radius)
         assertOnScale("layout.attachmentChip.tileRadius", Quire.Layout.AttachmentChip.tileRadius)
         assertOnScale("layout.attachmentChip.downloadRadius", Quire.Layout.AttachmentChip.downloadRadius)
+        assertOnScale("layout.fileMark.radius", Quire.Layout.FileMark.radius)
+        assertOnScale("layout.fileMark.foldRadius", Quire.Layout.FileMark.foldRadius)
         assertOnScale("layout.dragCard.radius", Quire.Layout.DragCard.radius)
         assertOnScale("layout.quickReply.fieldRadius", Quire.Layout.QuickReply.fieldRadius)
         assertOnScale("layout.composer.stripChipRadius", Quire.Layout.Composer.stripChipRadius)
@@ -60,8 +62,8 @@ final class RadiusScaleTests: XCTestCase {
     }
 
     func testTheRadiusMetricsAreAllCovered() {
-        // tokens.json has 46 radius metrics under layout; this file asserts each of them.
-        XCTAssertEqual(DesignTokensFile.shared.layoutRadiusPaths().count, 46)
+        // tokens.json has 48 radius metrics under layout; this file asserts each of them.
+        XCTAssertEqual(DesignTokensFile.shared.layoutRadiusPaths().count, 48)
     }
 
     private func assertOnScale(_ path: String, _ value: CGFloat, file: StaticString = #filePath, line: UInt = #line) {

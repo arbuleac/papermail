@@ -39,6 +39,13 @@ final class ConversationPrinter: NSObject, WKNavigationDelegate, WKScriptMessage
     }
 
     var destination: Destination = .panel
+    /// Block trackers (spec §5.60), set by the reader before each print: while on, the print view carries the content
+    /// blocker, as the reader's views do, and its document holds marked trackers back itself.
+    var blocksTrackers = false
+    /// Where the content blocker comes from: the app's, or a test's; reached only for a print while Block trackers is on.
+    lazy var trackerRules = TrackerContentRules.shared
+    /// The content blocker in the configuration now, if any.
+    private var installedTrackerRules: WKContentRuleList?
     /// Told when a print ends, whether it ran (false when it was cancelled, failed, or its window went away).
     var onFinish: ((Bool) -> Void)?
     private let configuration: WKWebViewConfiguration
@@ -84,16 +91,39 @@ final class ConversationPrinter: NSObject, WKNavigationDelegate, WKScriptMessage
         webView.navigationDelegate = self
         let job = Job(webView: webView, title: title, window: window, destination: destination)
         self.job = job
-        // The document says when it is ready, after two image waits at most (`PrintDocumentAssets.script`); this is for a
-        // page that never does (its script failed, its process ended).
-        job.fallback = Timer.scheduledTimer(withTimeInterval: 2 * imageWait + 2, repeats: false) { [weak self, weak job] _ in
-            MainActor.assumeIsolated {
-                guard let self, let job, self.job === job else { return }
-                self.runOperation(for: job)
+        withTrackerRules { [weak self, weak job] in
+            guard let self, let job, self.job === job else { return }
+            // The document says when it is ready, after two image waits at most (`PrintDocumentAssets.script`); this is for
+            // a page that never does (its script failed, its process ended).
+            job.fallback = Timer.scheduledTimer(withTimeInterval: 2 * imageWait + 2, repeats: false) { [weak self, weak job] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let job, self.job === job else { return }
+                    self.runOperation(for: job)
+                }
             }
+            webView.loadHTMLString(document, baseURL: nil)
         }
-        webView.loadHTMLString(document, baseURL: nil)
         return true
+    }
+
+    /// Puts the content blocker in the configuration while Block trackers is on, and takes it out while it is off, before
+    /// `then` loads the document. The list is almost always compiled already (the reader asked for it when the setting
+    /// came on); when it cannot be had the document still holds the marked trackers back.
+    private func withTrackerRules(_ then: @escaping () -> Void) {
+        let controller = configuration.userContentController
+        guard blocksTrackers else {
+            if let installed = installedTrackerRules { controller.remove(installed) }
+            installedTrackerRules = nil
+            return then()
+        }
+        guard installedTrackerRules == nil else { return then() }
+        trackerRules.list { [weak self] list in
+            if let self, let list, self.installedTrackerRules == nil {
+                controller.add(list)
+                self.installedTrackerRules = list
+            }
+            then()
+        }
     }
 
     // MARK: Printing

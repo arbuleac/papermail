@@ -6,15 +6,16 @@ import XCTest
 /// rename on either side fail here rather than render blank cards.
 final class RenderPayloadJSONTests: XCTestCase {
     static let expectedTopLevelKeys = [
-        "colorsNoticeDismissed", "inkSlot", "loadRemoteImages", "messages", "participants", "readingSans", "subject", "textSize",
+        "blocksTrackers", "colorsNoticeDismissed", "inkSlot", "loadRemoteImages", "messages", "participants", "readingSans", "subject",
+        "textSize",
     ]
     static let expectedMessageKeys = [
         "attachments", "blockedRemoteImageCount", "bodyState", "cancelsSendLater", "cc", "coveredByNewYork", "dateDisplay", "dateISO",
         "declaresColors", "from", "hasAttachments", "hasBody", "hasQuotedContent", "html", "id", "isDraft", "isPending", "isStarred", "isUnread",
-        "recipients", "snippet", "to", "typesetting", "unsubscribe",
+        "recipients", "snippet", "to", "trackerImageCount", "typesetting", "unsubscribe",
     ]
     static let expectedSenderKeys = ["address", "initials", "name", "tint"]
-    static let expectedAttachmentKeys = ["id", "kind", "mime", "name", "size", "symbol"]
+    static let expectedAttachmentKeys = ["family", "id", "kind", "label", "mime", "name", "size"]
     static let expectedRecipientFieldKeys = ["label", "people"]
     static let expectedPersonKeys = ["address", "name"]
 
@@ -38,7 +39,7 @@ final class RenderPayloadJSONTests: XCTestCase {
                     hasQuotedContent: false,
                     blockedRemoteImageCount: 0,
                     attachments: [RenderPayload.Attachment(id: "att-1", name: "plan.pdf", size: "1.2 MB", mime: "application/pdf",
-                                                           symbol: "doc", kind: "PDF")],
+                                                           family: .pdf, label: "PDF", kind: "PDF")],
                     typesetting: .unstyled,
                     declaresColors: false,
                     coveredByNewYork: true

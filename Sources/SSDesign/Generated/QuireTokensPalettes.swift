@@ -100,6 +100,76 @@ extension Quire {
     public static func avatarTint(forAddress address: String) -> AvatarTint {
         AvatarTint(rawValue: avatarTintIndex(forAddress: address))!
     }
+
+    /// The file inks (spec §5.57): the band of a file mark, one per family of file types, by the family's name in
+    /// lower case (SSCore's `FileFamily` raw values). Fixed across themes and Graphite, like the account inks.
+    public enum FileInk: String, CaseIterable, Sendable {
+        /// PDF.
+        case pdf = "pdf"
+        /// Word, Pages, rich text, OpenDocument text.
+        case document = "document"
+        /// Excel, Numbers, CSV and TSV, OpenDocument spreadsheets.
+        case spreadsheet = "spreadsheet"
+        /// PowerPoint, Keynote, OpenDocument presentations.
+        case presentation = "presentation"
+        /// Zip, rar, 7z, gzip, bzip2, xz, tar, disk images and installer packages.
+        case archive = "archive"
+        /// Photos and pictures.
+        case image = "image"
+        /// Films and screen recordings.
+        case video = "video"
+        /// Sound.
+        case audio = "audio"
+        /// Plain text, Markdown, logs and code: JSON, HTML, XML, scripts.
+        case text = "text"
+        /// Mail, calendar and contact files: eml, ics, vcf.
+        case mail = "mail"
+        /// Photoshop, Illustrator, Figma, Sketch, SVG.
+        case design = "design"
+        /// Any other type, and a file whose type is unknown.
+        case other = "other"
+
+        /// The family's name as the spec writes it.
+        public var name: String {
+            switch self {
+            case .pdf: return "PDF"
+            case .document: return "Document"
+            case .spreadsheet: return "Spreadsheet"
+            case .presentation: return "Presentation"
+            case .archive: return "Archive"
+            case .image: return "Image"
+            case .video: return "Video"
+            case .audio: return "Audio"
+            case .text: return "Text"
+            case .mail: return "Mail"
+            case .design: return "Design"
+            case .other: return "Other"
+            }
+        }
+        public var color: NSColor { Quire.fileInkColors[Self.allCases.firstIndex(of: self)!] }
+        public var values: QuireColorValues {
+            switch self {
+            case .pdf: return QuireColorValues(light: 0xAE4349FF, dark: 0xB95558FF, lightHC: 0x962F37FF, darkHC: 0xB55255FF)
+            case .document: return QuireColorValues(light: 0x006DA3FF, dark: 0x267AB2FF, lightHC: 0x005987FF, darkHC: 0x2177AEFF)
+            case .spreadsheet: return QuireColorValues(light: 0x367346FF, dark: 0x498056FF, lightHC: 0x225F34FF, darkHC: 0x467D53FF)
+            case .presentation: return QuireColorValues(light: 0x9E5221FF, dark: 0xAB6234FF, lightHC: 0x873F0DFF, darkHC: 0xA75F31FF)
+            case .archive: return QuireColorValues(light: 0x7E6235FF, dark: 0x8B7046FF, lightHC: 0x695023FF, darkHC: 0x886D43FF)
+            case .image: return QuireColorValues(light: 0x715D97FF, dark: 0x7E6BA2FF, lightHC: 0x5D4A82FF, darkHC: 0x7B689FFF)
+            case .video: return QuireColorValues(light: 0x8B557FFF, dark: 0x96648BFF, lightHC: 0x76426BFF, darkHC: 0x936188FF)
+            case .audio: return QuireColorValues(light: 0x9B4F66FF, dark: 0xA65F74FF, lightHC: 0x853C53FF, darkHC: 0xA25C71FF)
+            case .text: return QuireColorValues(light: 0x586974FF, dark: 0x677781FF, lightHC: 0x455661FF, darkHC: 0x64747EFF)
+            case .mail: return QuireColorValues(light: 0x646B38FF, dark: 0x727848FF, lightHC: 0x505825FF, darkHC: 0x6F7545FF)
+            case .design: return QuireColorValues(light: 0x50659DFF, dark: 0x6173A8FF, lightHC: 0x3B5289FF, darkHC: 0x5E70A4FF)
+            case .other: return QuireColorValues(light: 0x696664FF, dark: 0x767471FF, lightHC: 0x565351FF, darkHC: 0x73716EFF)
+            }
+        }
+    }
+
+    static let fileInkColors: [NSColor] = FileInk.allCases.map { NSColor.quire("file." + $0.rawValue, $0.values) }
+
+    /// The label on every file ink (spec §5.57).
+    public static let fileLabelValues = QuireColorValues(light: 0xFFFFFFFF, dark: 0xFFFFFFFF, lightHC: 0xFFFFFFFF, darkHC: 0xFFFFFFFF)
+    static let fileLabelColor = NSColor.quire("file.label", fileLabelValues)
 }
 
 extension NSColor {
@@ -118,6 +188,9 @@ extension NSColor {
         let n = Quire.avatarInkColors.count
         return Quire.avatarInkColors[((index % n) + n) % n]
     }
+
+    /// The label on a file mark's band (spec §5.57).
+    public static var qFileLabel: NSColor { Quire.fileLabelColor }
 }
 
 extension Color {

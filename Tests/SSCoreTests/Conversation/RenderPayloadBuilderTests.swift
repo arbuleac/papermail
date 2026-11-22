@@ -69,7 +69,8 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertEqual(m2.attachments.first?.name, "plan.pdf")
         XCTAssertEqual(m2.attachments.first?.size, "1.2 MB")
         XCTAssertEqual(m2.attachments.first?.mime, "application/pdf")
-        XCTAssertEqual(m2.attachments.first?.symbol, "doc")
+        XCTAssertEqual(m2.attachments.first?.family, .pdf)
+        XCTAssertEqual(m2.attachments.first?.label, "PDF")
         XCTAssertEqual(m2.attachments.first?.kind, "PDF")
         XCTAssertEqual(m2.recipients.map(\.label), ["To", "Cc"], "Bcc only on messages the user sent")
         XCTAssertEqual(payload.participants, "Ada Lovelace, Me, grace.hopper, Bob +1")
@@ -163,22 +164,27 @@ final class RenderPayloadBuilderTests: XCTestCase {
         XCTAssertTrue(ConversationShellAssets.symbols.contains("paperclip"), "the reader can draw the list's glyph")
     }
 
-    func testAttachmentTypesUseOnlyReaderSymbols() {
-        let cases: [(String, String, String, String)] = [
-            ("plan.pdf", "application/pdf", "doc", "PDF"),
-            ("cutover-runbook.docx", "application/octet-stream", "doc.richtext", "Word"),
-            ("capacity-plan.numbers", "", "tablecells", "Numbers"),
-            ("walkthrough.mov", "video/quicktime", "film", "QuickTime"),
-            ("logs.zip", "application/zip", "doc.zipper", "Archive"),
-            ("sunset.JPG", "image/jpeg", "photo", "JPEG"),
-            ("noextension", "image/png", "photo", "Image"),
-            ("sso-metadata.xml", "text/xml", "doc", "XML"),
+    /// The chip's mark and kind are `FileMark`'s (spec §5.57), the same words as before for the types the reader knew.
+    func testAttachmentsCarryTheirFileMark() {
+        let cases: [(String, String, FileFamily, String, String)] = [
+            ("plan.pdf", "application/pdf", .pdf, "PDF", "PDF"),
+            ("cutover-runbook.docx", "application/octet-stream", .document, "DOC", "Word"),
+            ("capacity-plan.numbers", "", .spreadsheet, "NUM", "Numbers"),
+            ("walkthrough.mov", "video/quicktime", .video, "MOV", "QuickTime"),
+            ("logs.zip", "application/zip", .archive, "ZIP", "Archive"),
+            ("sunset.JPG", "image/jpeg", .image, "JPG", "JPEG"),
+            ("noextension", "image/png", .image, "PNG", "PNG"),
+            ("sso-metadata.xml", "text/xml", .text, "XML", "XML"),
         ]
-        for (name, mime, symbol, kind) in cases {
-            let type = RenderPayloadBuilder.attachmentType(filename: name, mimeType: mime)
-            XCTAssertEqual(type.symbol, symbol, name)
-            XCTAssertEqual(type.kind, kind, name)
-            XCTAssertTrue(ConversationShellAssets.symbols.contains(type.symbol), name)
+        for (name, mime, family, label, kind) in cases {
+            let file = AttachmentInfo(id: name, filename: name, mimeType: mime, sizeBytes: 1_000, isInline: false)
+            let message = F.message("m-" + name)
+            let payload = builder.build(messages: [message], bodies: [message.id: F.body(html: "<p>x</p>", attachments: [file])],
+                                        accounts: F.accounts, now: now)
+            let chip = payload.messages.first?.attachments.first
+            XCTAssertEqual(chip?.family, family, name)
+            XCTAssertEqual(chip?.label, label, name)
+            XCTAssertEqual(chip?.kind, kind, name)
         }
     }
 

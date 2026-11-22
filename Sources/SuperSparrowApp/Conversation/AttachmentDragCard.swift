@@ -1,11 +1,11 @@
 import AppKit
 import SSCore
 import SSDesign
-import UniformTypeIdentifiers
 
 /// The picture a dragged attachment shows under the pointer (spec §5.17, Dragging out): a Quire file card
 /// (`layout.dragCard`). `sheet`, radius 8, a hairline `rule` edge (1 pt `ruleStrong` in Increase Contrast) and `e2`,
-/// which the image holds in a margin of its own; inside, the system's icon for the file's type at 32 pt, then the name
+/// which the image holds in a margin of its own; inside, the chip's own file mark at the chip's own size and place (28 pt,
+/// 8 from the edge, §5.57), so the card lifts the chip's mark rather than swapping it for another picture, then the name
 /// (`label` `ink`, middle-truncated, the extension kept) over the meta (`meta` `ink3`, “PDF · 240 KB”), as on the chip.
 ///
 /// Drawn once per card as the drag starts, into a bitmap at the window's scale and in its appearance: a drawing handler
@@ -15,17 +15,16 @@ enum AttachmentDragCard {
     struct Content: Equatable {
         let name: String
         let meta: String
-        let type: UTType
+        let mark: FileMark
     }
 
     private static var m: Quire.Layout.DragCard.Type { Quire.Layout.DragCard.self }
 
-    /// What the card says for an attachment: its name and the chip's own meta line (`RenderPayloadBuilder`).
+    /// What the card says for an attachment: the chip's own mark, name and meta line (`FileMark`, `RenderPayloadBuilder`).
     static func content(for info: AttachmentInfo) -> Content {
-        let kind = RenderPayloadBuilder.attachmentType(filename: info.filename, mimeType: info.mimeType).kind
+        let mark = FileMark(filename: info.filename, mimeType: info.mimeType)
         let size = RenderPayloadBuilder.sizeString(bytes: info.sizeBytes)
-        return Content(name: info.filename.isEmpty ? "Attachment" : info.filename, meta: kind + " · " + size,
-                       type: AttachmentFilePromise.fileType(filename: info.filename, mimeType: info.mimeType))
+        return Content(name: info.filename.isEmpty ? "Attachment" : info.filename, meta: mark.kind + " · " + size, mark: mark)
     }
 
     /// The room the `e2` shadow takes around the card inside the image.
@@ -36,7 +35,7 @@ enum AttachmentDragCard {
     /// The card's own size: as wide as its words need, between the chip's minimum and maximum widths.
     static func cardSize(for content: Content) -> NSSize {
         let words = max(ceil(name(content.name).size().width), ceil(meta(content.meta).size().width))
-        let width = m.padLeft + m.icon + m.gap + words + m.padRight
+        let width = m.padLeft + m.mark + m.gap + words + m.padRight
         return NSSize(width: min(m.maxWidth, max(m.minWidth, width)), height: m.height)
     }
 
@@ -88,13 +87,12 @@ enum AttachmentDragCard {
         let edge = QuireHairline.width(backingScale: scale, increasedContrast: mode.isIncreasedContrast)
         QuireDraw.strokeInside(card, radius: radius, width: edge, mode.isIncreasedContrast ? .qRuleStrong : .qRule)
 
-        let icon = NSWorkspace.shared.icon(for: content.type)
-        let iconRect = NSRect(x: card.minX + m.padLeft, y: (card.midY - m.icon / 2).rounded(), width: m.icon, height: m.icon)
-        icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        let markRect = NSRect(x: card.minX + m.padLeft, y: (card.midY - m.mark / 2).rounded(), width: m.mark, height: m.mark)
+        QuireFileMark(content.mark).draw(in: markRect)
 
         let label = QuireFont.Role.label
         let metaRole = QuireFont.Role.meta
-        let textX = iconRect.maxX + m.gap
+        let textX = markRect.maxX + m.gap
         let textWidth = max(0, card.maxX - m.padRight - textX)
         let top = (card.midY - (label.lineHeight + metaRole.lineHeight) / 2).rounded()
         name(content.name).draw(with: NSRect(x: textX, y: top, width: textWidth, height: label.lineHeight),

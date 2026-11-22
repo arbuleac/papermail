@@ -62,6 +62,32 @@ assert len(PAPER_ART['faces']) >= len(T.ACCOUNTS), 'one paper face per account i
 tokens['paperPalette'] = [{'name': p['name'], 'light': p['light'], 'dark': p['dark'], 'lightHC': p['light'], 'darkHC': p['dark']} for p in T.PAPERS]
 tokens['paperFaces'] = [{'id': f['id'], 'name': f['name'], 'ground': f['background'],
                          'layers': [{'d': l['d'], 'paper': l['fill'], 'lift': l['lift']} for l in f['layers']]} for f in PAPER_ART['faces']]
+# File inks (§5.57): each family's hue and chroma at the set's one luminance per mode (chroma x FILE_INK_NIGHT_CHROMA at
+# night), so the values are derived, never typed, and a change to the luminances re-derives the set.
+import themes_lib as _TL
+tokens['filePalette'] = [{'name': n, 'hue': h, 'chroma': C, 'use': use,
+                          **{m: _TL.at(T.FILE_INK_Y[m], C * (T.FILE_INK_NIGHT_CHROMA if m.startswith('dark') else 1.0), h) for m in MODES}}
+                         for n, h, C, use in T.FILE_INKS]
+tokens['fileLabel'] = dict(T.FILE_LABEL)
+tokens['fileInkRules'] = dict(T.FILE_INK_RULES, luminance=T.FILE_INK_Y, nightChroma=T.FILE_INK_NIGHT_CHROMA)
+assert len({f['name'] for f in tokens['filePalette']}) == len(T.FILE_INKS), 'file ink names are unique'
+# The file mark's outline, its fold's face and its two creases (§5.57), on the edge's centre line, derived from the metrics:
+# every renderer draws these paths, so the reader's mark and AppKit's are one drawing.
+def _file_mark_paths(fm):
+    e = fm['edge'] / 2.0
+    x0, x1 = fm['sheetX'] + e, fm['sheetX'] + fm['sheetWidth'] - e
+    y0, y1 = e, fm['grid'] - e
+    r, f, fr = fm['radius'] - e, fm['fold'], fm['foldRadius']
+    g = lambda v: ('%.3f' % v).rstrip('0').rstrip('.')
+    sheet = 'M{a} {y0} H{fx} L{x1} {fy} V{b} A{r} {r} 0 0 1 {c} {y1} H{a} A{r} {r} 0 0 1 {x0} {b} V{d} A{r} {r} 0 0 1 {a} {y0} Z'.format(
+        a=g(x0 + r), y0=g(y0), fx=g(x1 - f), x1=g(x1), fy=g(y0 + f), b=g(y1 - r), r=g(r), c=g(x1 - r), y1=g(y1), x0=g(x0), d=g(y0 + r))
+    crease = 'M{fx} {y0} V{v} A{fr} {fr} 0 0 0 {h} {fy} H{x1}'.format(
+        fx=g(x1 - f), y0=g(y0), v=g(y0 + f - fr), fr=g(fr), h=g(x1 - f + fr), fy=g(y0 + f), x1=g(x1))
+    return sheet, crease + ' Z', crease
+assert T.LAYOUT['fileMark']['bandTop'] + T.LAYOUT['fileMark']['bandHeight'] < T.LAYOUT['fileMark']['grid'], 'the band ends on the sheet'
+assert T.LAYOUT['fileMark']['fold'] < T.LAYOUT['fileMark']['bandTop'], 'the fold ends above the band'
+assert T.LAYOUT['attachmentChip']['tile'] == T.LAYOUT['fileMark']['grid'] == T.LAYOUT['dragCard']['mark'], 'chip, composer and card draw the mark 1:1'
+T.LAYOUT['fileMark']['sheetPath'], T.LAYOUT['fileMark']['foldPath'], T.LAYOUT['fileMark']['foldEdgePath'] = _file_mark_paths(T.LAYOUT['fileMark'])
 tokens['contrastPairs'] = None  # filled after ALL_PAIRS is built
 tokens['cheatSheetContent'] = [{'section': sec, 'rows': [{'keys': k, 'label': l} for k, l in rows]} for sec, rows in T.CHEAT_SHEET]
 tokens['cheatSheetSearch'] = {'title': T.CHEAT_SHEET_SEARCH[0], 'terms': T.CHEAT_SHEET_SEARCH[1]}
@@ -81,6 +107,7 @@ def get(path):
 # ---------------------------------------------------------------- colour resolution
 ACC = {a['name']: a for a in T.ACCOUNTS}
 AV = {a['name']: a for a in T.AVATARS}
+FI = {f['name']: f for f in tokens['filePalette']}
 def hexof(tok, mode, colors=None):
     """A token's value in `mode`, from `colors` (a theme's table) or Study's `color`."""
     if tok.startswith('account:'):
@@ -89,6 +116,10 @@ def hexof(tok, mode, colors=None):
         return AV[tok[10:]][mode][1]
     if tok.startswith('avatarFace:'):
         return AV[tok[11:]][mode][0]
+    if tok.startswith('fileInk:'):
+        return FI[tok[8:]][mode]
+    if tok == 'fileLabel':
+        return T.FILE_LABEL[mode]
     return (color if colors is None else colors)[tok][mode]
 def resolve_stack(stack, mode, colors=None):
     base = stack[0]
@@ -154,6 +185,13 @@ for a in T.ACCOUNTS:
         ('Account ink %s on the folded strip, hover' % n, 'account:' + n, ['canvas', 'hover'], 3.0, 3.5),
         ('Account ink %s on the folded strip, pressed or open' % n, 'account:' + n, ['canvas', 'pressed'], 3.0, 3.5),
     ]
+
+# File marks (§5.57): the white label on each family's band (small text), and each band on the mark's paper, `raised`,
+# the only surface it touches (the band runs between the sheet's edges, so the chip's own fill never meets it).
+for f in tokens['filePalette']:
+    n = f['name']
+    ALL_PAIRS.append(('File mark: the label on the %s band' % n, 'fileLabel', ['fileInk:' + n], 4.5))
+    ALL_PAIRS.append(('File mark: the %s band on the mark\'s paper' % n, 'fileInk:' + n, ['raised'], 3.0))
 
 def pair_json(p):
     o = {'use': p[0], 'fg': p[1], 'bg': p[2], 'need': p[3]}
@@ -251,6 +289,24 @@ def account_rule_fails(acct, inkless=False):
         if a['refs']['star']['normal'][0] < 8: out.append('%s: account vs star %.1f' % (m, a['refs']['star']['normal'][0]))
     return out
 rule_fail = account_rule_fails(ACCT)
+
+# File inks (§5.57): apart from each other for normal vision, and apart from `danger`, in every mode
+def file_ink_analysis():
+    out = {}
+    for m in MODES:
+        pairs = sorted((c.de2000(c.rgb2lab(H(a[m])), c.rgb2lab(H(b[m]))), a['name'], b['name'])
+                       for a, b in itertools.combinations(tokens['filePalette'], 2))
+        cvd = sorted((min(c.de_all(H(a[m]), H(b[m])).values()), a['name'], b['name'])
+                     for a, b in itertools.combinations(tokens['filePalette'], 2))
+        danger = min((c.de2000(c.rgb2lab(H(f[m])), c.rgb2lab(H(color['danger'][m]))), f['name']) for f in tokens['filePalette'])
+        out[m] = {'closest': pairs[0], 'closestCVD': cvd[0], 'danger': danger}
+    return out
+FILE_INK = file_ink_analysis()
+for m in MODES:
+    if FILE_INK[m]['closest'][0] < T.FILE_INK_RULES['minPairNormal']:
+        rule_fail.append('%s: file inks %s / %s only %.1f apart' % ((m,) + FILE_INK[m]['closest'][1:] + (FILE_INK[m]['closest'][0],)))
+    if FILE_INK[m]['danger'][0] < T.FILE_INK_RULES['minFromDanger']:
+        rule_fail.append('%s: file ink %s only %.1f from danger' % (m, FILE_INK[m]['danger'][1], FILE_INK[m]['danger'][0]))
 
 # every radius metric in layout is a scale value, except the listed exceptions
 SCALE = set(v for k, v in T.RADIUS.items() if k != 'pill')
@@ -416,6 +472,23 @@ def table_paper_faces():
         rows.append((i + 1, '`%s`' % f['id'], f['name'], '`%s`' % f['ground'], len(f['layers']), lifts, ', '.join('`%s`' % p for p in papers), slots))
     return md_table(['#', 'Id', 'Name (VoiceOver, in the picker)', 'Ground', 'Layers', 'Lifts, bottom first', 'Papers', 'Automatic for ink slot'], rows)
 FAMILY = {'sf': 'SF Pro', 'serif': 'New York', 'rounded': 'SF Pro Rounded', 'mono': 'SF Mono'}
+def table_file_inks():
+    return md_table(['Family', 'Holds', 'LCh hue, chroma', 'Light', 'Dark', 'Light IC', 'Dark IC'],
+                    [('**%s**' % f['name'], f['use'], '%g°, %g' % (f['hue'], f['chroma'])) + tuple(fmt_hex(f[m]) for m in MODES)
+                     for f in tokens['filePalette']])
+def table_file_ink_checks():
+    rows = []
+    for m in MODES:
+        a = FILE_INK[m]
+        labels = [r for r in results if r[0].startswith('File mark: the label')]
+        bands = [r for r in results if r[0].startswith('File mark: the ') and 'paper' in r[0]]
+        lab = min(labels, key=lambda r: r[4][m])
+        band = min(bands, key=lambda r: r[4][m])
+        rows.append((MODE_LABEL[m], '%.2f (%s)' % (lab[4][m], lab[0].split('the ')[-1].replace(' band', '')),
+                     '%.2f (%s)' % (band[4][m], band[0].split('the ')[1].replace(' band on', '').strip()),
+                     '%.1f (%s / %s)' % a['closest'], '%.1f (%s / %s)' % a['closestCVD'], '%.1f (%s)' % a['danger']))
+    return md_table(['Mode', 'Label on its band, lowest (≥ 4.5)', 'Band on the paper, lowest (≥ 3)', 'Closest pair, normal (≥ %g)' % T.FILE_INK_RULES['minPairNormal'],
+                     'Closest pair, any simulation', 'Nearest to `danger` (≥ %g)' % T.FILE_INK_RULES['minFromDanger']], rows)
 def table_type(twins=False, variants=False):
     rows = []
     for role, fam, size, weight, lh, tr, extra in T.TYPE:
@@ -677,6 +750,9 @@ def css_block(mode, colors=None):
     for a in T.AVATARS:
         parts.append('--q-av-%s-face:%s' % (a['name'].lower(), a[mode][0]))
         parts.append('--q-av-%s-ink:%s' % (a['name'].lower(), a[mode][1]))
+    for f in tokens['filePalette']:
+        parts.append('--q-file-%s:%s' % (f['name'].lower(), f[mode]))
+    parts.append('--q-file-label:%s' % T.FILE_LABEL[mode])
     for k in ('e1', 'e2', 'e3'):
         parts.append('--q-%s:%s' % (k, shadow_css(T.ELEVATION[k]['dark' if 'dark' in mode else 'light'])))
     return ';'.join(parts) + ';'
@@ -752,6 +828,8 @@ def render(text):
             if kind == 'refs': return table_refs()
             if kind == 'avatars': return table_avatars()
             if kind == 'papers': return table_papers()
+            if kind == 'fileInks': return table_file_inks()
+            if kind == 'fileInkChecks': return table_file_ink_checks()
             if kind == 'paperFaces': return table_paper_faces()
             if kind == 'type': return table_type(False)
             if kind == 'twins': return table_type(True)

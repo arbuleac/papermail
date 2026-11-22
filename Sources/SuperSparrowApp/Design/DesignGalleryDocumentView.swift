@@ -49,6 +49,7 @@ final class DesignGalleryDocumentView: NSView {
         cardRow([DesignGalleryCards.listHeader(), DesignGalleryCards.sheet(), DesignGalleryCards.rules()])
         cardRow([DesignGalleryCards.banners(), DesignGalleryCards.badges(), DesignGalleryCards.keycaps()])
         cardRow([DesignGalleryCards.avatars(), DesignGalleryCards.emptyStates(), DesignGalleryCards.progress()])
+        cardRow([DesignGalleryCards.fileMarks()])
         cardRow([DesignGalleryCards.slips()])
         cardRow([DesignGalleryCards.cheatSheet()])
         cardRow([DesignGalleryCards.increasedContrast()])

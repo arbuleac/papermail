@@ -100,11 +100,16 @@ final class SanitizerShapeTests: XCTestCase {
         assertNotContains(out.html, " background=")
     }
 
+    /// Content keeps its live sources; the footer's 1 px open pixel is a tracker, parked and marked all the same, so Block
+    /// trackers can hold it back once images load (spec §5.60).
     func testNewsletterWithRemoteImagesAllowed() {
         let out = RenderTestSupport.sanitize(MailShapeFixtures.newsletter, allowRemoteImages: true)
-        XCTAssertEqual(out.blockedRemoteImageCount, 0)
+        XCTAssertEqual(out.blockedRemoteImageCount, 1)
+        XCTAssertEqual(out.trackerImageCount, 1)
         assertContains(out.html, "src=\"https://cdn.example/logo.png\"")
-        assertNotContains(out.html, "data-ss-src")
+        assertContains(out.html, "data-ss-src=\"https://track.example/open.gif?id=42\"")
+        assertContains(out.html, "\(HTMLSanitizer.trackerAttribute)=\"tiny\"")
+        assertNotContains(out.html, " src=\"https://track.example")
         assertContains(out.html, "background:url(https://cdn.example/hero.jpg) center/cover")
         assertContains(out.html, "background-image:url(https://cdn.example/hero.jpg)")
     }

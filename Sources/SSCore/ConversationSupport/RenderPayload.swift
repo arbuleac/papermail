@@ -54,19 +54,27 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// Human-readable size ("1.2 MB"), formatted here so the shell stays locale-free.
         public var size: String
         public var mime: String
-        /// The type tile's SF Symbol (spec §5.17): one of the reader symbols `doc`, `doc.richtext`, `photo`,
-        /// `tablecells`, `doc.zipper`, `film`.
-        public var symbol: String
+        /// The file mark's family (spec §5.57): the band's ink, `--q-file-<family>`.
+        public var family: FileFamily
+        /// The type in capitals on the mark's band (“PDF”), or empty for a plain sheet.
+        public var label: String
         /// The kind named in the chip's meta line, "PDF · 240 KB".
         public var kind: String
 
-        public init(id: String, name: String, size: String, mime: String, symbol: String = "doc", kind: String = "") {
+        public init(id: String, name: String, size: String, mime: String, family: FileFamily = .other, label: String = "",
+                    kind: String = "") {
             self.id = id
             self.name = name
             self.size = size
             self.mime = mime
-            self.symbol = symbol
+            self.family = family
+            self.label = label
             self.kind = kind
+        }
+
+        /// The chip of a stored attachment, its mark and kind from `FileMark` (spec §5.57).
+        public init(id: String, name: String, size: String, mime: String, mark: FileMark) {
+            self.init(id: id, name: name, size: size, mime: mime, family: mark.family, label: mark.label, kind: mark.kind)
         }
     }
 
@@ -155,6 +163,18 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         }
     }
 
+    /// What reader mode shows of a message (spec §5.59), named on the line in its banner area.
+    public enum ReaderView: String, Hashable, Codable, Sendable {
+        /// The sender's text part: “Text version”, with Show original.
+        case text
+        /// The text taken from the HTML when it was stored: “Text from the email's design”, with Show original.
+        case extracted
+        /// Neither version has words (a design of pictures): the provider's snippet, “Preview text”, with Show original.
+        case snippet
+        /// Shown as sent at the user's word for the session: “Original”, with Show text.
+        case original
+    }
+
     public struct Message: Hashable, Codable, Sendable {
         /// Opaque render key (see `RenderPayload.messageKey(for:)`); the shell echoes it in actions.
         public var id: String
@@ -181,6 +201,11 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var html: String
         public var hasQuotedContent: Bool
         public var blockedRemoteImageCount: Int
+        /// The parked images the sanitizer marked as trackers (spec §5.60), part of `blockedRemoteImageCount`: while
+        /// `RenderPayload.blocksTrackers` is on, Load images leaves them parked, the banner does not count them, and the
+        /// card says how many were blocked. Zero for a body stored before the marks, whose known pixels the shell tells by
+        /// their address (`unmarkedTrackers`).
+        public var trackerImageCount: Int
         public var attachments: [Attachment]
         /// The stored `BodyTypesetting` (encoded as its name): `plain` and `unstyled` bodies are set on the Quire
         /// reading page, `styled` ones keep the sender's design. Bodies stored before it was kept are `styled`.
@@ -203,6 +228,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// attachments the reader shows (inline pictures are part of the body, not attachments); until then it is
         /// the provider's flag, the one the list row draws from.
         public var hasAttachments: Bool
+        /// Reader mode's view of the message (spec §5.59); nil, and absent from the JSON, while reader mode is off and on a
+        /// message it leaves alone (a draft, a reply on its way, one with no words yet).
+        public var reader: ReaderView?
 
         public init(
             id: String,
@@ -222,6 +250,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             html: String,
             hasQuotedContent: Bool,
             blockedRemoteImageCount: Int,
+            trackerImageCount: Int = 0,
             attachments: [Attachment],
             typesetting: BodyTypesetting = .styled,
             declaresColors: Bool = true,
@@ -230,7 +259,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             invitation: Invitation? = nil,
             cancelsSendLater: Bool = false,
             outbox: OutboxSheet? = nil,
-            hasAttachments: Bool? = nil
+            hasAttachments: Bool? = nil,
+            reader: ReaderView? = nil
         ) {
             self.id = id
             self.from = from
@@ -249,6 +279,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.html = html
             self.hasQuotedContent = hasQuotedContent
             self.blockedRemoteImageCount = blockedRemoteImageCount
+            self.trackerImageCount = trackerImageCount
             self.attachments = attachments
             self.typesetting = typesetting
             self.declaresColors = declaresColors
@@ -258,6 +289,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.cancelsSendLater = cancelsSendLater
             self.outbox = outbox
             self.hasAttachments = hasAttachments ?? !attachments.isEmpty
+            self.reader = reader
         }
     }
 
@@ -308,6 +340,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     /// mail that declares its own colours opens adapted (true) or as sent on the white page (false). Nil leaves the shell
     /// with the default it was last told, adapted until told otherwise, and is not encoded.
     public var adaptsColours: Bool?
+    /// Settings › Experimental › Block trackers (spec §5.60): images marked as trackers stay parked when the others load,
+    /// and each card that had some says how many were blocked.
+    public var blocksTrackers: Bool
 
     public init(
         subject: String,
@@ -318,7 +353,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         readingSans: Bool = false,
         textSize: String = "default",
         colorsNoticeDismissed: Bool = false,
-        adaptsColours: Bool? = nil
+        adaptsColours: Bool? = nil,
+        blocksTrackers: Bool = false
     ) {
         self.subject = subject
         self.participants = participants
@@ -329,6 +365,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         self.textSize = textSize
         self.colorsNoticeDismissed = colorsNoticeDismissed
         self.adaptsColours = adaptsColours
+        self.blocksTrackers = blocksTrackers
     }
 
     // MARK: Message keys

@@ -220,6 +220,20 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Where the reader's own Text size comes from (spec §4.15): the app's settings, or a test's throwaway ones.
     private let appSettings: AppSettings
 
+    /// Messages shown as sent in reader mode for the rest of the session (Show original, spec §5.59): this window's own
+    /// choice, as the ⇧⌘O switch is, kept while reader mode goes off and on again.
+    private var readerOriginals: Set<MessageID> = []
+    /// Reader mode as the pages were last rendered under it: a gate change that leaves reader mode as it was renders
+    /// nothing again.
+    private var renderedReaderMode: Bool
+    /// The text versions this reader has set, so a refresh, a switch back or a pre-render of the same messages sets none
+    /// of them again.
+    private let readerTexts = ReaderTextCache()
+    /// The conversations last asked to be pre-rendered around the selection, asked again after a reader mode switch.
+    private var neighbours: [ConversationID] = []
+    /// The warm-up of the neighbours' text versions running off the main thread, stopped when others are named.
+    private var readerTextWarmUp: ReaderTextWarmUp?
+
     /// `poolSize` 1 is a reader window's (§5.49): it shows one conversation and pre-renders nothing. A pool of its own
     /// rather than a slot of the main window's, which that reader hands to whatever neighbour it pre-renders next.
     /// `drafts` is the mailbox's quick-reply text, which every reader of it shares; a reader alone keeps its own.
@@ -237,6 +251,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
         self.accountsByID = accounts
         broadcastTextSize = appSettings.readerSize
+        renderedReaderMode = appSettings.readerModeOn
         super.init(nibName: nil, bundle: nil)
         header.textSize = appSettings.readerSize
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
@@ -262,6 +277,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         notificationTokens.append(center.addObserver(forName: AppSettings.displayPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.displayPreferencesDidChange() }
         })
+        // Block trackers (spec §5.60): every shell, the pre-rendered ones too, holds its trackers back or lets them load in
+        // place, and the pool's content blocker comes or goes.
+        pool.blocksTrackers = appSettings.blocksTrackers
+        notificationTokens.append(center.addObserver(forName: AppSettings.trackerBlockingChanged, object: appSettings, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.trackerBlockingDidChange() }
+        })
         // The Font setting and Text size live in the Quire environment: every shell, the pre-rendered ones too, is
         // told in place. The reader's own size (⌘+, ⌘−) is the settings'.
         notificationTokens.append(center.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -269,6 +290,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         })
         notificationTokens.append(center.addObserver(forName: AppSettings.readerTextSizeChanged, object: appSettings, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.readerTypeMayHaveChanged() }
+        })
+        // Reader mode and its gate (spec §5.59): the header's toggle follows both, and a switch of reader mode renders what
+        // this reader shows again.
+        notificationTokens.append(center.addObserver(forName: AppSettings.readerModeChanged, object: appSettings, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.readerModeDidChange() }
         })
         // The Dark Mode default: every shell, the pre-rendered ones too, switches the messages it decides for in place.
         adaptsMailColoursObservation = appSettings.$adaptsMailColours.dropFirst().removeDuplicates().sink { [weak self] adapts in
@@ -295,6 +321,74 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let prepared = prepare(currentMessages)
         pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: current)
         followOverlaps()
+    }
+
+    /// Reader mode went on or off, or its gate moved (spec §5.59). The toggle follows at once. A switch drops every
+    /// pre-rendered page, since each holds the other version, and sets the page on screen again in place, its cards as the
+    /// user left them: each body's frame is replaced by the other version's, never shown beside it. The neighbours are
+    /// pre-rendered again in the new state, so the next J or K is a swap as before the switch.
+    private func readerModeDidChange() {
+        refreshChrome()
+        let on = appSettings.readerModeOn
+        guard on != renderedReaderMode else { return }
+        renderedReaderMode = on
+        // Kept: the page on screen, which stays in sight until what replaces it lands, and the slot the selected
+        // conversation is still landing in, which the show waits for.
+        let shown = pool.current
+        let landing = currentConversationID.flatMap(pool.slot(rendering:))
+        for slot in pool.slots where slot !== shown && slot !== landing { pool.clear(slot) }
+        if let id = currentConversationID, let landing, landing !== shown {
+            // Landing off screen in the other version: rendered again in this one, so it never shows. The show's own wait
+            // swaps it in once this render lands (a newer render's waiters are the same); the page it replaces, still in
+            // the other version, is never swapped back in (`present`).
+            let prepared = prepare(currentMessages)
+            pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: landing)
+            pool.whenRenderLands(in: landing) { [weak self] rendered in
+                guard let self, rendered, self.currentConversationID == id, landing.renderedID == id, self.pool.current !== landing else { return }
+                self.swap(in: landing)
+                self.refreshIfStale(landing, messages: self.currentMessages, id: id)
+            }
+            requestMissingBodies(currentMessages, rendered: prepared.inputs)
+        } else {
+            refreshShownPage()
+        }
+        if !neighbours.isEmpty { prerender(neighbours) }
+    }
+
+    /// A page rendered in the other reader mode (spec §5.59), which is never swapped in: it would show the other version
+    /// until its refresh landed.
+    private func showsOtherReaderMode(_ slot: PooledConversationView) -> Bool {
+        guard let inputs = slot.renderedInputs else { return false }
+        return (inputs.readerMode != nil) != appSettings.readerModeOn
+    }
+
+    /// The page on screen built again from the store and patched in place (`ss.update`): only the cards whose body or
+    /// line changed are touched. Bodies it now shows without (an original whose body was evicted) are asked for.
+    private func refreshShownPage() {
+        guard let id = currentConversationID, let current = pool.current, current.renderedID == id else { return }
+        let prepared = prepare(currentMessages)
+        pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
+        requestMissingBodies(currentMessages, rendered: prepared.inputs)
+        followOverlaps()
+    }
+
+    /// Show original (`on`) or Show text on one message in reader mode (spec §5.59), for the rest of the session in this
+    /// window.
+    func showReaderOriginal(_ on: Bool, for id: MessageID) {
+        let changed = on ? readerOriginals.insert(id).inserted : readerOriginals.remove(id) != nil
+        guard changed, appSettings.readerModeOn else { return }
+        refreshShownPage()
+    }
+
+    /// Whether this window shows `id` as sent in reader mode (tests).
+    func showsReaderOriginal(_ id: MessageID) -> Bool {
+        readerOriginals.contains(id)
+    }
+
+    /// Reader mode as a render of `messages` sees it now: nil while it is off, else the ones shown as sent.
+    private func readerModeInputs(for messages: [MessageMetadata]) -> Set<MessageID>? {
+        guard appSettings.readerModeOn else { return nil }
+        return readerOriginals.intersection(messages.map(\.id))
     }
 
     required init?(coder: NSCoder) {
@@ -456,12 +550,41 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Renders `ids` into free slots once the selection has rested for `prerenderDelay`; a newer call
     /// replaces a pending one, so a held key never pays for neighbours it moves past.
     func prerender(_ ids: [ConversationID]) {
+        neighbours = ids
+        warmReaderTexts(for: ids)
         prerenderTimer?.invalidate()
         prerenderTimer = Timer.scheduledTimer(withTimeInterval: Self.prerenderDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.prerenderTimer = nil
                 self.prerenderNow(ids)
+            }
+        }
+    }
+
+    /// In reader mode, sets the text versions of `ids` into the reader's cache off the main thread (spec §5.59), from the
+    /// store, which is safe to read from any thread: the pre-render that follows finds them set, so it holds the main
+    /// thread about as long as with the design, and a J pressed meanwhile does not wait for a long text. What it misses (a
+    /// draft kept on this Mac, a body landing meanwhile) the pre-render sets itself.
+    private func warmReaderTexts(for ids: [ConversationID]) {
+        readerTextWarmUp?.cancel()
+        readerTextWarmUp = nil
+        guard appSettings.readerModeOn, !ids.isEmpty else { return }
+        let warmUp = ReaderTextWarmUp()
+        readerTextWarmUp = warmUp
+        let store = client.store
+        let cache = readerTexts
+        let originals = readerOriginals
+        DispatchQueue.global(qos: .userInitiated).async {
+            for id in ids {
+                guard !warmUp.isCancelled, let messages = try? store.messages(in: id) else { continue }
+                let visible = RenderPayloadBuilder.visibleMessages(messages).filter { !$0.roles.contains(.drafts) }
+                var bodies: [MessageID: StoredBody] = [:]
+                for message in visible { if let body = try? store.body(for: message.id) { bodies[message.id] = body } }
+                let missing = visible.map(\.id).filter { bodies[$0] == nil }
+                let kept = missing.isEmpty ? [:] : (try? store.keptBodies(for: missing)) ?? [:]
+                RenderPayloadBuilder.setReaderTexts(of: visible, bodies: bodies,
+                                                    in: ReaderModeRender(originals: originals, kept: kept, cache: cache))
             }
         }
     }
@@ -487,16 +610,23 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 reserved.append(held)
             }
         }
-        for id in wanted where pool.slot(rendering: id) == nil {
-            guard let slot = pool.acquire(excluding: reserved) else { break }
-            reserved.append(slot)
-            let messages = visibleMessages(for: id)
-            let prepared = prepare(messages)
-            let state = ConversationSignposts.begin(ConversationSignposts.prerender)
-            pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { _ in
-                ConversationSignposts.end(ConversationSignposts.prerender, state)
+        // One neighbour per turn of the run loop: in reader mode each sets its text on this thread (spec §5.59), and a J
+        // pressed meanwhile waits for one of them, not for all.
+        guard let id = wanted.first(where: { pool.slot(rendering: $0) == nil }), let slot = pool.acquire(excluding: reserved) else { return }
+        let messages = visibleMessages(for: id)
+        let prepared = prepare(messages)
+        let state = ConversationSignposts.begin(ConversationSignposts.prerender)
+        pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { _ in
+            ConversationSignposts.end(ConversationSignposts.prerender, state)
+        }
+        requestMissingBodies(messages, rendered: prepared.inputs, shown: false)
+        guard wanted.contains(where: { pool.slot(rendering: $0) == nil }) else { return }
+        prerenderTimer = Timer.scheduledTimer(withTimeInterval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.prerenderTimer = nil
+                self.prerenderNow(ids)
             }
-            requestMissingBodies(messages, rendered: prepared.inputs, shown: false)
         }
     }
 
@@ -550,6 +680,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Puts `id` on screen: a swap when a slot already holds it, a swap once an in-flight render lands,
     /// otherwise a render into a free slot. Only a missing or stale slot pays for a payload.
     private func present(_ id: ConversationID, messages: [MessageMetadata]) {
+        if let held = pool.slot(rendering: id), held !== pool.current, !held.renderInFlight, showsOtherReaderMode(held) {
+            // The page that was on screen when reader mode switched, left in the other version: rendered afresh instead.
+            pool.clear(held)
+        }
         if let held = pool.slot(rendering: id) {
             // The bodies it was rendered without go out before anything else the show does on this thread.
             requestMissingBodies(messages, rendered: held.renderedInputs)
@@ -580,6 +714,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { [weak self] rendered in
                 guard let self, rendered, self.currentConversationID == id else { return }
                 self.swap(in: slot)
+                // What changed while it landed (reader mode switched, a body arrived for a slot not yet on screen).
+                self.refreshIfStale(slot, messages: self.currentMessages, id: id)
             }
         }
     }
@@ -587,6 +723,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Nothing, or several conversations: no conversation is rendered and the quick reply hides.
     private func showNothing(_ selection: Selection) {
         endHelpMeWrite()
+        neighbours = []
+        readerTextWarmUp?.cancel()
+        readerTextWarmUp = nil
         if let id = currentConversationID {
             drafts.leave(quickReply.text, under: id)
         }
@@ -771,7 +910,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         onQuickSendChange?()
     }
 
+    /// The header for `state`, with reader mode's toggle in its own group while Settings › Experimental offers it (§5.59).
     private func headerContent(_ state: ReaderState, messages: [MessageMetadata]) -> ReaderHeaderView.Content {
+        var content = mailHeaderContent(state, messages: messages)
+        content.actions = content.actions.offeringReaderMode(appSettings.offersReaderMode ? appSettings.readerModeOn : nil)
+        return content
+    }
+
+    private func mailHeaderContent(_ state: ReaderState, messages: [MessageMetadata]) -> ReaderHeaderView.Content {
         switch state {
         case .nothing:
             return .init(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
@@ -926,17 +1072,35 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let outboxStates = inOutbox ? localDrafts?.outboxStates.filter { state in messages.contains { $0.id == state.key } } ?? [:] : [:]
         let pending = Set(sheets.map(\.metadata.id))
         let overlaps = invitationOverlaps(of: all, bodies: bodies, pending: pending)
+        let reading = readerModeInputs(for: messages)
+        let readerMode = reading.map { originals in
+            ReaderModeRender(originals: originals, kept: keptBodies(of: messages, besides: bodies), cache: readerTexts)
+        }
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
+            blocksTrackers: appSettings.blocksTrackers,
             pending: pending, invitationPermissionNeeded: invitationPermissionNeeded, invitationOverlaps: overlaps.lines,
-            sendLater: laterStates, outbox: outboxStates
+            sendLater: laterStates, outbox: outboxStates, readerMode: readerMode
         )
-        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates, invitationOverlaps: overlaps) {
+        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates, invitationOverlaps: overlaps,
+                                      readerMode: reading) {
             bodies[$0] != nil
         })
+    }
+
+    /// What Keep mail on this Mac kept of the evicted bodies among `messages` (spec §5.59): reader mode shows their plain
+    /// text at once. One read for every message the render has no body for (`keptBodies(for:)`), none when it has them
+    /// all; drafts, kept drafts and replies on their way have none to keep, and a message never fetched has no row.
+    private func keptBodies(of messages: [MessageMetadata], besides bodies: [MessageID: StoredBody]) -> [MessageID: StoredBody] {
+        let missing = messages.lazy.filter { message in
+            bodies[message.id] == nil && !message.roles.contains(.drafts)
+                && !LocalDraftConversation.isLocal(message.id) && !PendingSheet.isPending(message.id)
+        }.map(\.id)
+        guard !missing.isEmpty else { return [:] }
+        return (try? client.store.keptBodies(for: Array(missing))) ?? [:]
     }
 
     /// What the invitation cards of `messages` say they overlap (spec §5.14): one indexed read of every account's
@@ -1007,10 +1171,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let rendered = slot.renderedInputs ?? .empty
         let all = messages + pendingSheets(answering: messages).map(\.metadata)
         let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let fresh = rendered.refreshed(with: all) { [weak self] id in
+        var fresh = rendered.refreshed(with: all) { [weak self] id in
             guard let self, let message = byID[id] else { return false }
             return PendingSheet.isPending(id) || self.renderableBody(message) != nil
         }
+        // A page rendered under the other reader mode, or before a message was switched, is stale whatever else holds.
+        fresh.readerMode = readerModeInputs(for: messages)
         guard fresh != rendered else { return }
         // Mark-read and star are the common changes; they patch the headers without reading a body.
         if let patches = rendered.flagPatches(to: fresh), pool.patchFlags(patches, inputs: fresh, id: id, in: slot) {
@@ -1252,6 +1418,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         broadcastPreferences()
     }
 
+    private func trackerBlockingDidChange() {
+        pool.blocksTrackers = appSettings.blocksTrackers
+        broadcastPreferences()
+    }
+
     /// The typeface and reader Text size last told to the shells. Graphite and contrast changes post the same
     /// notification; they reach the shells through the pool's modes, so only these are broadcast here.
     private var broadcastTypeface = QuireEnvironment.typeface
@@ -1290,7 +1461,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let sans = broadcastTypeface == .sfPro
         let adapts = adaptsColours ?? appSettings.adaptsMailColours
         let script = "window.ss && window.ss.preferences({readingSans: \(sans), textSize: '\(size.rawValue)', "
-            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed), adaptsColours: \(adapts)})"
+            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed), adaptsColours: \(adapts), "
+            + "blocksTrackers: \(appSettings.blocksTrackers)})"
         guard sizeChanged else {
             pool.broadcastPreferences(script)
             return
@@ -1381,6 +1553,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case "retryBody":
                 guard let conversation = currentConversationID, !bodyFetches.contains(messageID) else { return }
                 fetchBody(messageID, conversation: conversation)
+            case "readerOriginal":
+                showReaderOriginal(on ?? true, for: messageID)
             case "dismissColorsNotice":
                 AppSettings.shared.originalColorsNoticeDismissed = true
                 broadcastPreferences()
@@ -1718,6 +1892,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private func headerAction(_ action: ReaderActionSet.Action) {
         Quire.Motion.finishAll()
+        if action == .readerMode {
+            // Global, so it answers whatever is selected, nothing included (§5.59).
+            appSettings.readerModeOn.toggle()
+            return
+        }
         switch selection {
         case .none:
             return
@@ -1744,6 +1923,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 let draft = currentMessages.last { $0.roles.contains(.drafts) } ?? currentMessages.last
                 if let draft { onAction?(.continueDraft(draft.id)) }
             case .discardDraft: onAction?(.discardDrafts([id]))
+            case .readerMode: break
             }
         }
     }
@@ -2727,6 +2907,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let payload = self.prepare(messages).payload
             let sheets = PrintSheetState.states(fromShell: states, loadRemoteImages: payload.loadRemoteImages)
             let document = PrintDocumentBuilder(imageWait: Quire.Motion.printImageWait).document(for: payload, sheets: sheets)
+            self.printer.blocksTrackers = payload.blocksTrackers
             self.printer.print(document, title: PrintDocumentBuilder.title(of: payload), imageWait: Quire.Motion.printImageWait, on: window)
         }
         // A shell still loading has shown nothing yet: the conversation prints as it opens.

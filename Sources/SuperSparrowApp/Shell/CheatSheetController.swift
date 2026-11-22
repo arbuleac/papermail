@@ -17,6 +17,22 @@ final class CheatSheetController {
     /// it, so it is swallowed (“nothing behind it responds to keys”).
     private static let passThroughCommands: Set<String> = ["q", "h", "m", ",", "`", "/", "w"]
 
+    /// Reader mode's row (§5.59), in View after Load images and Original colors, listed while its key works.
+    static let readerModeRow = QuireCheatSheetRow(keys: "⇧⌘R", label: "Reader mode")
+
+    /// The sheet's sections: Quire's, with `readerModeRow` while Settings › Experimental offers reader mode. Kept out of
+    /// the generated content, which lists only what every user has.
+    static func sections(offeringReaderMode: Bool) -> [QuireCheatSheetSection] {
+        guard offeringReaderMode else { return Quire.cheatSheet }
+        return Quire.cheatSheet.map { section in
+            guard section.title == "View" else { return section }
+            var rows = section.rows
+            let place = rows.firstIndex { $0.keys == "⇧⌘I ⇧⌘O" }.map { $0 + 1 } ?? rows.count
+            rows.insert(readerModeRow, at: place)
+            return QuireCheatSheetSection(title: section.title, rows: rows)
+        }
+    }
+
     func isPresented(in window: NSWindow?) -> Bool {
         overlay != nil && window != nil && self.window === window
     }
@@ -35,7 +51,7 @@ final class CheatSheetController {
         } else {
             returnFocus = window.firstResponder
         }
-        let overlay = QuireCheatSheetOverlay(frame: host.bounds)
+        let overlay = QuireCheatSheetOverlay(frame: host.bounds, sections: Self.sections(offeringReaderMode: AppSettings.shared.offersReaderMode))
         overlay.autoresizingMask = [.width, .height]
         // VoiceOver treats the panel as a modal group titled “Keyboard Shortcuts” (the panel names itself).
         overlay.panel.setAccessibilityModal(true)

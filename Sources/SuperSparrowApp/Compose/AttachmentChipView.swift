@@ -1,14 +1,16 @@
 import AppKit
+import SSCore
 import SSDesign
 
-/// One attachment in the composer's strip (spec §5.22): 30 pt, at most 240 pt wide, radius 6, an inset `rule`
-/// hairline on `sheet`. From the leading edge: 8 · type glyph 14 pt `ink2` · 6 · name (`label` `ink`,
-/// middle-truncated first) · 6 · size (`meta` `ink3`) · 6 · remove (a 16 pt `fill` disc with a 9 pt `xmark`
-/// `ink3`, `ink` on hover, 24 pt hit) · 4.
+/// One attachment in the composer's strip (spec §5.22): the reader's chip (§5.17) with a remove button where the reader
+/// has Download. 44 pt, as wide as its words need up to 264 pt, radius 8, an inset `rule` hairline on `sheet`. From the
+/// leading edge: 8 · the file mark (28 pt, §5.57) · 10 · the name (`label` `ink`, middle-truncated, its extension kept)
+/// over the meta (`meta` `ink3`: “PDF · 240 KB”, the reader's words) · 6 · remove (a 16 pt `fill` disc with a 9 pt
+/// `xmark` `ink3`, `ink` on hover, 24 pt hit) · 4.
 ///
-/// Loading shows the size as “3.1 of 4.8 MB” (or the declared size while unknown) with a contrail along the
-/// bottom inside edge; an error turns the glyph to the warning triangle and the name `danger`, the problem in
-/// the tooltip. The strip draws the focus ring around the focused chip and moves it with ← →.
+/// Loading keeps the meta with a contrail along the bottom inside edge; an error gives the mark up to the reader's error
+/// tile, turns the name `danger` and puts the short problem in the meta, the whole of it in the tooltip. The strip draws
+/// the focus ring around the focused chip and moves it with ← →.
 @MainActor
 final class AttachmentChipView: NSView {
     let attachment: ComposeAttachment
@@ -16,9 +18,11 @@ final class AttachmentChipView: NSView {
 
     private let removeButton = ChipRemoveButton()
     private var contrail: QuireContrailView?
+    private let mark: FileMark
 
     init(attachment: ComposeAttachment) {
         self.attachment = attachment
+        mark = attachment.fileMark
         super.init(frame: .zero)
         removeButton.target = self
         removeButton.action = #selector(removeTapped(_:))
@@ -38,8 +42,8 @@ final class AttachmentChipView: NSView {
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        var label = "\(attachment.filename), \(ComposeAttachment.formattedSize(attachment.sizeBytes))"
-        if case .failed(_, let detail) = attachment.state { label += ", \(detail)" }
+        var label = "\(attachment.filename), \(metaText)"
+        if case .failed(_, let detail) = attachment.state { label = "\(attachment.filename), \(detail)" }
         if attachment.state == .loading { label += ", loading" }
         setAccessibilityLabel(label)
     }
@@ -52,6 +56,14 @@ final class AttachmentChipView: NSView {
     override var isFlipped: Bool { true }
 
     private var c: Quire.Layout.Composer.Type { Quire.Layout.Composer.self }
+    private var chip: Quire.Layout.AttachmentChip.Type { Quire.Layout.AttachmentChip.self }
+
+    /// The reader's meta words (spec §5.17): the kind and the size, “PDF · 240 KB”; a failure's short problem instead.
+    var metaText: String {
+        if case .failed(let short, _) = attachment.state { return short }
+        let size = RenderPayloadBuilder.sizeString(bytes: attachment.sizeBytes)
+        return mark.kind.isEmpty ? size : mark.kind + " · " + size
+    }
 
     private var nameString: NSAttributedString {
         let color: NSColor = attachment.state.isFailed ? .qDanger : .qInk
@@ -63,28 +75,26 @@ final class AttachmentChipView: NSView {
         return string
     }
 
-    private var sizeString: NSAttributedString {
-        let size = ComposeAttachment.formattedSize(attachment.sizeBytes)
-        let text: String
-        switch attachment.state {
-        case .ready: text = size
-        case .loading: text = size
-        case .failed(let short, _): text = short
+    private var metaString: NSAttributedString {
+        let string = NSMutableAttributedString(attributedString: QuireFont.attributedString(metaText, role: .meta,
+                                                                                            color: attachment.state.isFailed ? .qDanger : .qInk3))
+        if let style = (string.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.lineBreakMode = .byTruncatingTail
+            string.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: string.length))
         }
-        return QuireFont.attributedString(text, role: .meta, color: .qInk3)
+        return string
     }
 
-    private var glyphWidth: CGFloat {
-        QuireSymbol.cachedImage(glyphName, size: .custom(c.stripGlyph))?.size.width ?? c.stripGlyph
+    /// Where the mark (or the error tile) sits: the chip's leading padding, centred on its height.
+    var markRect: NSRect {
+        NSRect(x: c.stripChipPadLeft, y: ((bounds.height - chip.tile) / 2).rounded(), width: chip.tile, height: chip.tile)
     }
-
-    private var glyphName: String { attachment.state.isFailed ? Quire.Icon.warning : attachment.symbolName }
 
     override var intrinsicContentSize: NSSize {
-        let fixed = c.stripChipPadLeft + glyphWidth + c.stripChipInnerGap + c.stripChipInnerGap + c.stripChipInnerGap
-            + Quire.Layout.Button.minHit + c.stripChipPadRight
-        let width = fixed + ceil(nameString.size().width) + ceil(sizeString.size().width)
-        return NSSize(width: min(c.stripChipMaxWidth, width), height: c.stripChip)
+        let fixed = c.stripChipPadLeft + chip.tile + c.stripChipMarkGap + c.stripChipInnerGap + Quire.Layout.Button.minHit
+            + c.stripChipPadRight
+        let words = max(ceil(nameString.size().width), ceil(metaString.size().width))
+        return NSSize(width: min(c.stripChipMaxWidth, fixed + words), height: c.stripChip)
     }
 
     override func layout() {
@@ -100,21 +110,23 @@ final class AttachmentChipView: NSView {
         let radius = c.stripChipRadius
         QuireDraw.fill(bounds, radius: radius, .qSheet)
         QuireDraw.strokeInside(bounds, radius: radius, width: QuireHairline.width(for: self), .qRule)
-        let glyphColor: NSColor = attachment.state.isFailed ? .qDanger : .qInk2
-        let glyphRect = NSRect(x: c.stripChipPadLeft, y: 0, width: glyphWidth, height: bounds.height)
-        QuireSymbol.draw(glyphName, size: .custom(c.stripGlyph), color: glyphColor, centredIn: glyphRect)
+        let tile = markRect
+        if attachment.state.isFailed {
+            QuireDraw.fill(tile, radius: chip.tileRadius, .qFill)
+            QuireSymbol.draw(Quire.Icon.warning, size: .custom(chip.tileGlyph), color: .qDanger, centredIn: tile)
+        } else {
+            QuireFileMark(mark).draw(in: tile)
+        }
 
-        let size = sizeString
-        let sizeWidth = ceil(size.size().width)
-        let sizeX = removeButton.frame.minX - c.stripChipInnerGap - sizeWidth
-        let nameX = glyphRect.maxX + c.stripChipInnerGap
-        let nameWidth = max(0, sizeX - c.stripChipInnerGap - nameX)
         let label = QuireFont.Role.label
         let meta = QuireFont.Role.meta
-        nameString.draw(with: NSRect(x: nameX, y: ((bounds.height - label.lineHeight) / 2).rounded(), width: nameWidth,
-                                     height: label.lineHeight), options: QuireFont.drawingOptions, context: nil)
-        size.draw(with: NSRect(x: sizeX, y: ((bounds.height - meta.lineHeight) / 2).rounded(), width: sizeWidth + 1,
-                               height: meta.lineHeight), options: QuireFont.drawingOptions, context: nil)
+        let textX = tile.maxX + c.stripChipMarkGap
+        let textWidth = max(0, removeButton.frame.minX - c.stripChipInnerGap - textX)
+        let top = ((bounds.height - label.lineHeight - meta.lineHeight) / 2).rounded()
+        nameString.draw(with: NSRect(x: textX, y: top, width: textWidth, height: label.lineHeight), options: QuireFont.drawingOptions,
+                        context: nil)
+        metaString.draw(with: NSRect(x: textX, y: top + label.lineHeight, width: textWidth, height: meta.lineHeight),
+                        options: QuireFont.drawingOptions, context: nil)
     }
 
     override func viewDidChangeEffectiveAppearance() {

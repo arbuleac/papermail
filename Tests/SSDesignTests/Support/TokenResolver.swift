@@ -10,8 +10,8 @@ enum TokenResolver {
         return RGBA(r: Double(c.redComponent), g: Double(c.greenComponent), b: Double(c.blueComponent), a: Double(c.alphaComponent))
     }
 
-    /// The runtime colour for a pair token: a colour token, `account:<Ink>`, `avatarInk:<Tint>` or
-    /// `avatarFace:<Tint>`.
+    /// The runtime colour for a pair token: a colour token, `account:<Ink>`, `avatarInk:<Tint>`, `avatarFace:<Tint>`,
+    /// `fileInk:<Family>` or `fileLabel`.
     static func color(_ token: String) -> NSColor {
         if token.hasPrefix("account:") {
             let name = String(token.dropFirst(8))
@@ -24,6 +24,12 @@ enum TokenResolver {
         if token.hasPrefix("avatarFace:") {
             return avatarTint(String(token.dropFirst(11))).face
         }
+        if token.hasPrefix("fileInk:") {
+            let name = String(token.dropFirst(8))
+            guard let ink = Quire.FileInk.allCases.first(where: { $0.name == name }) else { preconditionFailure("unknown file ink \(name)") }
+            return ink.color
+        }
+        if token == "fileLabel" { return NSColor.qFileLabel }
         guard let t = QuireColorToken(rawValue: token) else { preconditionFailure("unknown colour token \(token)") }
         return t.color
     }

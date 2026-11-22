@@ -181,7 +181,13 @@ PAIRS = [
  ("Attachment name", "ink", ["sheet"], T),
  ("Attachment meta", "ink3", ["sheet"], T),
  ("Attachment meta, hover", "ink3", ["sheet", "hover"], T),
- ("Attachment type glyph", "ink2", ["sheet", "fill"], U),
+ ("Attachment error glyph on its tile (the warning that replaces the file mark)", "danger", ["sheet", "fill"], U),
+ # the file mark (§5.57): its paper's edge on the chip in every state, and the crease on the fold's face; the band and the
+ # label are the file inks' own pairs (build.py)
+ ("File mark edge on the chip", "ruleStrong", ["sheet"], U),
+ ("File mark edge on the chip, hover", "ruleStrong", ["sheet", "hover"], U),
+ ("File mark edge on the chip, pressed", "ruleStrong", ["sheet", "pressed"], U),
+ ("File mark crease on the fold", "ruleStrong", ["raised", "fill"], U),
  ("Attachment error text", "danger", ["sheet"], T),
  ("Attachment progress fill", "accent", ["sheet"], U),
  ("Attachment hover edge", "ruleStrong", ["sheet"], U),
