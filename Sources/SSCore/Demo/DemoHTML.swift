@@ -110,8 +110,15 @@ enum DemoHTML {
     }
 
     /// A classic 600px table-layout newsletter: header band, hero image (remote, so it is blocked by default),
-    /// stories with "Read more" links and a footer with the unsubscribe link.
-    static func newsletter(_ letter: DemoCatalog.Newsletter, issue: Int, date: Date, stories: [(String, String)]) -> (html: String, text: String) {
+    /// stories with "Read more" links and a footer with the unsubscribe link and the open pixel senders put there. The
+    /// hero is a picture the demo answers on this Mac (`DemoStandInSanitizer`), so loading a demo newsletter's images
+    /// never reaches the network.
+    ///
+    /// `trackerSample` makes it the demo's tracker sample (spec §5.60, `DemoTrackerSample`): its hero and a row of
+    /// product tiles are remote images the demo answers on this Mac (`DemoStandInSanitizer`), and it carries two trackers
+    /// more, a known open-tracking endpoint (SendGrid's, on the sender's own link domain) and a pixel its style hides.
+    static func newsletter(_ letter: DemoCatalog.Newsletter, issue: Int, date: Date, stories: [(String, String)],
+                           trackerSample: Bool = false) -> (html: String, text: String) {
         let domain = letter.sender.address.split(separator: "@").last.map(String.init) ?? "news.test"
         let dateLine = formatter("EEEE, MMMM d").string(from: date)
         var rows = ""
@@ -135,16 +142,43 @@ enum DemoHTML {
         <div style="font-size:26px;font-weight:700;color:#ffffff;">\(escape(letter.title))</div>\
         <div style="font-size:14px;color:rgba(255,255,255,0.85);margin-top:4px;">\(escape(letter.tagline)) · Issue #\(issue) · \(escape(dateLine))</div>\
         </td></tr>\
-        <tr><td><img src="https://images.\(domain)/issues/\(issue)/hero.jpg" width="600" height="240" alt="" style="display:block;width:100%;height:auto;"></td></tr>\
+        <tr><td><img src="\(DemoStandInSanitizer.address(trackerSample ? "trailhead-hero.svg" : "newsletter-hero.svg"))" \
+        width="600" height="240" alt="" style="display:block;width:100%;height:auto;"></td></tr>\
+        \(trackerSample ? productRow(letter) : "")\
         \(rows)\
         <tr><td style="padding:28px 32px;font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:12px;line-height:18px;color:#888888;border-top:1px solid #eeeeee;">\
         You are receiving this because you subscribed at \(escape(domain)).<br>\
         <a href="https://\(domain)/preferences" style="color:#888888;">Manage preferences</a> · <a href="https://\(domain)/unsubscribe" style="color:#888888;">Unsubscribe</a>\
         <img src="https://track.\(domain)/open.gif?i=\(issue)" width="1" height="1" alt="">\
+        \(trackerSample ? samplePixels(domain: domain, issue: issue) : "")\
         </td></tr></table></td></tr></table></body></html>
         """
         let text = "\(letter.title) · Issue #\(issue)\n\n" + stories.map { "\($0.0)\n\($0.1)" }.joined(separator: "\n\n")
         return (html, text)
+    }
+
+    /// Three product tiles under the hero of the tracker sample, each a remote image the demo answers on this Mac.
+    private static func productRow(_ letter: DemoCatalog.Newsletter) -> String {
+        let tiles = [("trailhead-pack.svg", "Daypacks"), ("trailhead-lamp.svg", "Headlamps"), ("trailhead-mug.svg", "Camp kitchen")]
+        let cells = tiles.map { file, name in
+            """
+            <td width="33%" style="padding:0 6px;text-align:center;font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:13px;color:#444444;">\
+            <img src="\(DemoStandInSanitizer.address(file))" width="168" height="112" alt="\(escape(name))" \
+            style="display:block;width:100%;height:auto;border-radius:4px;margin-bottom:6px;">\(escape(name))</td>
+            """
+        }.joined()
+        return """
+            <tr><td style="padding:20px 26px 0 26px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">\
+            <tr>\(cells)</tr></table></td></tr>
+            """
+    }
+
+    /// The tracker sample's two extra pixels: SendGrid's open endpoint on the sender's own link domain, which the rules
+    /// know by its path and parameter, and a pixel with no size of its own that its style hides.
+    private static func samplePixels(domain: String, issue: Int) -> String {
+        "<img src=\"https://url4417.\(domain)/wf/open?upn=demo-\(issue)-a1b2c3\" alt=\"\" width=\"1\" height=\"1\" border=\"0\" "
+            + "style=\"height:1px !important;width:1px !important\">"
+            + "<img src=\"https://px.\(domain)/v/\(issue)/open.png\" alt=\"\" style=\"display:none\">"
     }
 
     /// A transactional notification card with a single call-to-action button.

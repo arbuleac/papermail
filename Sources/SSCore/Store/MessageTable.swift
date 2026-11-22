@@ -242,15 +242,15 @@ enum MessageTable {
         try db.cachedStatement(sql: """
             INSERT INTO bodies (account_id, provider_id, html, text, rendered_html, plain_text, attachments_json,
                                 has_quoted, blocked_images, typesetting, declares_colors, covered_by_new_york, evicted,
-                                invitation_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                invitation_json, tracker_images)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, provider_id) DO UPDATE SET
                 html = excluded.html, text = excluded.text, rendered_html = excluded.rendered_html,
                 plain_text = excluded.plain_text, attachments_json = excluded.attachments_json,
                 has_quoted = excluded.has_quoted, blocked_images = excluded.blocked_images,
                 typesetting = excluded.typesetting, declares_colors = excluded.declares_colors,
                 covered_by_new_york = excluded.covered_by_new_york, evicted = excluded.evicted,
-                invitation_json = excluded.invitation_json
+                invitation_json = excluded.invitation_json, tracker_images = excluded.tracker_images
             """).execute(arguments: [
                 id.accountID.rawValue, id.providerID,
                 try evicted ? nil : body.body.html.map(MailStoreCodec.compress),
@@ -266,6 +266,8 @@ enum MessageTable {
                 evicted,
                 // Its calendar text is source, which an evicted body keeps none of; fetching it again reads it again.
                 try evicted ? nil : body.invitation.map { try MailStoreCodec.json($0) },
+                // A fact like `blocked_images`, kept through an eviction.
+                body.trackerImageCount,
             ])
         try db.cachedStatement(sql: "UPDATE messages SET has_body = 1 WHERE rowid = ?").execute(arguments: [rowid])
         // The headers a body fetch carries (Graph's only way to them) go on the message, not in `bodies`.
@@ -303,11 +305,12 @@ enum MessageTable {
                 let chunk = Array(providerIDs[start..<min(start + keptBodiesChunk, providerIDs.count)])
                 let rows = try Row.fetchCursor(db, sql: """
                     SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
-                           typesetting, declares_colors, covered_by_new_york, invitation_json, evicted, provider_id FROM bodies
+                           typesetting, declares_colors, covered_by_new_york, invitation_json, evicted, tracker_images,
+                           provider_id FROM bodies
                     WHERE account_id = ? AND provider_id IN (\(databaseQuestionMarks(count: chunk.count)))
                     """, arguments: StatementArguments([accountID.rawValue] + chunk))
                 while let row = try rows.next() {
-                    kept[MessageID(accountID: accountID, providerID: row[12])] = try storedBody(from: row)
+                    kept[MessageID(accountID: accountID, providerID: row[13])] = try storedBody(from: row)
                 }
             }
         }
@@ -335,6 +338,7 @@ enum MessageTable {
             plainText: row[3],
             hasQuotedContent: row[5],
             blockedRemoteImageCount: row[6],
+            trackerImageCount: row[12],
             typesetting: MailStoreCodec.typesetting(row[7]),
             declaresColors: row[8],
             coveredByNewYork: row[9],
@@ -346,12 +350,12 @@ enum MessageTable {
 
     private static let bodySQL = """
         SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
-               typesetting, declares_colors, covered_by_new_york, invitation_json, evicted FROM bodies
+               typesetting, declares_colors, covered_by_new_york, invitation_json, evicted, tracker_images FROM bodies
         WHERE account_id = ? AND provider_id = ? AND evicted = 0
         """
     private static let keptBodySQL = """
         SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
-               typesetting, declares_colors, covered_by_new_york, invitation_json, evicted FROM bodies
+               typesetting, declares_colors, covered_by_new_york, invitation_json, evicted, tracker_images FROM bodies
         WHERE account_id = ? AND provider_id = ?
         """
 

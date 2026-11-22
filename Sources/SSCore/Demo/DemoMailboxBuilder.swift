@@ -370,7 +370,8 @@ struct DemoMailboxBuilder {
         // Rotate so consecutive issues do not lead with the same story.
         let rotation = issue % stories.count
         stories = Array(stories[rotation...] + stories[..<rotation])
-        let rendered = DemoHTML.newsletter(letter, issue: issue, date: date, stories: stories)
+        let rendered = DemoHTML.newsletter(letter, issue: issue, date: date, stories: stories,
+                                           trackerSample: DemoTrackerSample.isSample(letter, issue: issue))
         let (id, internetID) = nextIDs()
         let subject = "\(letter.title) #\(issue): \(stories[0].0)"
         // A list's headers as real senders write them: a one-click URI first, a mailto beside it. The demo's senders

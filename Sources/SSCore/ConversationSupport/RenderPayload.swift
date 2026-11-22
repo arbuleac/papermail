@@ -201,6 +201,11 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var html: String
         public var hasQuotedContent: Bool
         public var blockedRemoteImageCount: Int
+        /// The parked images the sanitizer marked as trackers (spec §5.60), part of `blockedRemoteImageCount`: while
+        /// `RenderPayload.blocksTrackers` is on, Load images leaves them parked, the banner does not count them, and the
+        /// card says how many were blocked. Zero for a body stored before the marks, whose known pixels the shell tells by
+        /// their address (`unmarkedTrackers`).
+        public var trackerImageCount: Int
         public var attachments: [Attachment]
         /// The stored `BodyTypesetting` (encoded as its name): `plain` and `unstyled` bodies are set on the Quire
         /// reading page, `styled` ones keep the sender's design. Bodies stored before it was kept are `styled`.
@@ -245,6 +250,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             html: String,
             hasQuotedContent: Bool,
             blockedRemoteImageCount: Int,
+            trackerImageCount: Int = 0,
             attachments: [Attachment],
             typesetting: BodyTypesetting = .styled,
             declaresColors: Bool = true,
@@ -273,6 +279,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.html = html
             self.hasQuotedContent = hasQuotedContent
             self.blockedRemoteImageCount = blockedRemoteImageCount
+            self.trackerImageCount = trackerImageCount
             self.attachments = attachments
             self.typesetting = typesetting
             self.declaresColors = declaresColors
@@ -333,6 +340,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     /// mail that declares its own colours opens adapted (true) or as sent on the white page (false). Nil leaves the shell
     /// with the default it was last told, adapted until told otherwise, and is not encoded.
     public var adaptsColours: Bool?
+    /// Settings › Experimental › Block trackers (spec §5.60): images marked as trackers stay parked when the others load,
+    /// and each card that had some says how many were blocked.
+    public var blocksTrackers: Bool
 
     public init(
         subject: String,
@@ -343,7 +353,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         readingSans: Bool = false,
         textSize: String = "default",
         colorsNoticeDismissed: Bool = false,
-        adaptsColours: Bool? = nil
+        adaptsColours: Bool? = nil,
+        blocksTrackers: Bool = false
     ) {
         self.subject = subject
         self.participants = participants
@@ -354,6 +365,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         self.textSize = textSize
         self.colorsNoticeDismissed = colorsNoticeDismissed
         self.adaptsColours = adaptsColours
+        self.blocksTrackers = blocksTrackers
     }
 
     // MARK: Message keys

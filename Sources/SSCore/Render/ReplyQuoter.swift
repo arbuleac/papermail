@@ -11,12 +11,14 @@ public enum ReplyQuoter {
     public static let attributionClass = "ss-reply-attribution"
     public static let forwardHeaderClass = "ss-forward-header"
 
-    /// "On <date>, <name> wrote:" followed by the original body in a blockquote.
-    public static func quotedReplyHTML(original: StoredBody, from: EmailAddress?, date: Date, locale: Locale = .current) -> String {
+    /// "On <date>, <name> wrote:" followed by the original body in a blockquote. `dropsTrackers` leaves out the images the
+    /// sanitizer marked as trackers (Block trackers, spec §5.60), as `QuotedReply.sendableHTML` does.
+    public static func quotedReplyHTML(original: StoredBody, from: EmailAddress?, date: Date, locale: Locale = .current,
+                                       dropsTrackers: Bool = false) -> String {
         let header = HTMLEscaping.escape(attributionLine(from: from, date: date, locale: locale))
         return "<div class=\"\(attributionClass)\">\(header)</div>"
             + "<blockquote class=\"\(quoteClass)\" type=\"cite\" style=\"margin:0 0 0 0.8ex;border-left:1px solid #cccccc;padding-left:1ex\">"
-            + outgoingHTML(from: original.renderedHTML)
+            + outgoingHTML(from: original.renderedHTML, dropsTrackers: dropsTrackers)
             + "</blockquote>"
     }
 
@@ -27,13 +29,15 @@ public enum ReplyQuoter {
         return attributionLine(from: from, date: date, locale: locale) + "\n" + quoted
     }
 
-    /// Outlook-style forward: a rule, the From/Sent/To/Subject block, then the original body.
-    public static func forwardHTML(original: StoredBody, subject: String, from: EmailAddress?, to: [EmailAddress], date: Date, locale: Locale = .current) -> String {
+    /// Outlook-style forward: a rule, the From/Sent/To/Subject block, then the original body; `dropsTrackers` as for
+    /// `quotedReplyHTML`.
+    public static func forwardHTML(original: StoredBody, subject: String, from: EmailAddress?, to: [EmailAddress], date: Date,
+                                   locale: Locale = .current, dropsTrackers: Bool = false) -> String {
         let fields = forwardFields(subject: subject, from: from, to: to, date: date, locale: locale)
         let rows = fields.map { "<b>\(HTMLEscaping.escape($0.label))</b> \(HTMLEscaping.escape($0.value))" }.joined(separator: "<br>")
         return "<div class=\"\(forwardHeaderClass)\"><hr style=\"border:none;border-top:1px solid #e1e1e1;margin:12px 0\">"
             + "<div>\(rows)</div><br></div>"
-            + "<div class=\"ss-forward-body\">" + outgoingHTML(from: original.renderedHTML) + "</div>"
+            + "<div class=\"ss-forward-body\">" + outgoingHTML(from: original.renderedHTML, dropsTrackers: dropsTrackers) + "</div>"
     }
 
     /// The plain-text alternative of `forwardHTML`.
@@ -84,14 +88,18 @@ public enum ReplyQuoter {
         body.plainText.isEmpty ? plainText(forHTML: body.renderedHTML) : body.plainText
     }
 
-    /// Undoes the view-only rewrites of the sanitizer so the quoted markup travels well.
-    static func outgoingHTML(from renderedHTML: String) -> String {
+    /// Undoes the view-only rewrites of the sanitizer so the quoted markup travels well. A marked tracker never keeps its
+    /// mark, and with `dropsTrackers` is left out: put back live, recipients' opens would be counted as the user's.
+    static func outgoingHTML(from renderedHTML: String, dropsTrackers: Bool = false) -> String {
         do {
             let document = try SwiftSoup.parseBodyFragment(renderedHTML)
             document.outputSettings().prettyPrint(pretty: false)
             guard let body = document.body() else { return renderedHTML }
             try body.select("style.ss-base").remove()
             try body.select("[\(QuoteDetector.collapsedAttribute)]").removeAttr(QuoteDetector.collapsedAttribute)
+            for image in try body.select("img[\(HTMLSanitizer.trackerAttribute)]").array() {
+                if dropsTrackers { try image.remove() } else { try image.removeAttr(HTMLSanitizer.trackerAttribute) }
+            }
             for image in try body.select("img[\(HTMLSanitizer.blockedSourceAttribute)]").array() {
                 try image.attr("src", image.attr(HTMLSanitizer.blockedSourceAttribute))
                 try image.removeAttr(HTMLSanitizer.blockedSourceAttribute)

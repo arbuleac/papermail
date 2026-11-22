@@ -40,4 +40,16 @@ final class ConversationNavigationPolicyTests: XCTestCase {
         XCTAssertEqual(decision("https://example.com", .other, main: true), .cancel)
         XCTAssertEqual(decision("ss-shell://conversation/", .linkActivated, main: true), .cancel)
     }
+
+    /// Block trackers (spec §5.60): a link opened from a message reaches the browser without its tracking parameters while
+    /// the setting is on, and exactly as written while it is off.
+    func testALinkLosesItsTrackingParametersWhileBlockingIsOn() {
+        let policy = Policy()
+        let link = URL(string: "https://shop.example/p/42?utm_source=news&color=red&fbclid=abc#reviews")!
+        XCTAssertEqual(policy.outgoing(link), link)
+        policy.stripsTrackingParameters = true
+        XCTAssertEqual(policy.outgoing(link).absoluteString, "https://shop.example/p/42?color=red#reviews")
+        let mail = URL(string: "mailto:ada@example.com?subject=Hi&utm_source=x")!
+        XCTAssertEqual(policy.outgoing(mail), mail, "only web links")
+    }
 }

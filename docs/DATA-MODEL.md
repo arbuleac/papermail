@@ -65,6 +65,7 @@ Indexes: `(account_id, conversation_provider_id)`, `(account_id, has_body, date_
 | attachments_json | TEXT | `[AttachmentInfo]` |
 | has_quoted | INTEGER NULL | rendered_html has detected quoted text; NULL for bodies stored before v2 |
 | blocked_images | INTEGER NULL | remote images blocked at sync time (parked in `data-ss-src` or `data-ss-background`, or dropped CSS `url()`); NULL for bodies stored before v2 |
+| tracker_images | INTEGER NULL | the parked `<img>`s the sanitizer marked as trackers (v24, `data-ss-tracker`, `TrackerRules`; docs/ARCHITECTURE.md "Tracker blocking"), part of `blocked_images`, since each is parked; worked out whatever the remote-images setting, so Block trackers acts at render time. NULL for bodies stored before v24, which carry no marks: the reader tells their known pixels by address instead (parked ones held and counted, live ones left to the content blocker) and knows nothing of their tiny or hidden ones. Kept through an eviction like the other facts |
 | typesetting | INTEGER NULL | `BodyTypesetting` (v3): 0 = plain, 1 = unstyled, 2 = styled (fixed codes; an unknown code reads as styled). NULL for bodies stored before v3 until the engine backfills them; meanwhile a NULL body whose `rendered_html` begins with the plain wrapper (`<div class="ss-body ss-plain">`) renders as plain and any other as styled. See "Body design facts" |
 | declares_colors | INTEGER NULL | the body sets its own background or text colour (v3). NULL = unknown: treated as true for styled bodies, false otherwise |
 | covered_by_new_york | INTEGER NULL | New York draws every letter and decimal digit of `plain_text` (v3). NULL = unknown, treated as false |
@@ -272,6 +273,7 @@ Applied in order by GRDB's `DatabaseMigrator`; a migration is never edited once 
 - `v21-search-walk`: `conversations_latest` dropped and created again with the summary row's flags, counts, section and key after `latest_date_ms`. Widened rather than added, so a conversation's write updates no more indexes than before; built from the existing rows in the migration's transaction (about 0.4 s for the 58,000 conversations of the 300,000-message fixture).
 - `v22-account-face`: `accounts.face`, TEXT NULL with no default. Nothing is backfilled: NULL is automatic, so every account keeps drawing what the UI picks until the user chooses.
 - `v23-server-rules`: `sender_rules.server_ids` (TEXT NULL) and `sender_rules.sync` (TEXT NOT NULL DEFAULT 'saved'); every row already there becomes `creating` with no server id, since the rules were this Mac's alone: the engine uploads each once (adopting an identical rule the server has already), and a build from before v23 reads the table by name and keeps working on it, though it applies every row as a local rule again.
+- `v24-tracker-images`: `bodies.tracker_images`, INTEGER NULL with no default. Nothing is backfilled (it would mean sanitizing every stored body again): a body gets its count when it is fetched again, and until then the reader tells its known pixels by their address (and the content blocker stops any left live).
 
 ## Semantics
 

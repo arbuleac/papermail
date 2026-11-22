@@ -20,6 +20,13 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
 
     var onProcessTerminated: ((WKWebView) -> Void)?
     var openExternally: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// Block trackers is on (spec §5.60): a link opened from a message goes without its tracking parameters.
+    var stripsTrackingParameters = false
+
+    /// What a link opened from a message hands the app that opens it.
+    func outgoing(_ url: URL) -> URL {
+        stripsTrackingParameters ? TrackingParameters.stripped(url) : url
+    }
 
     static func decision(for url: URL?, navigationType: WKNavigationType, isMainFrame: Bool) -> Decision {
         guard let url, let scheme = url.scheme?.lowercased() else { return .cancel }
@@ -64,7 +71,7 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
         case .allow:
             decisionHandler(.allow)
         case .openExternally:
-            if let url { openExternally(url) }
+            if let url { openExternally(outgoing(url)) }
             decisionHandler(.cancel)
         case .moveToAnchor(let name):
             decisionHandler(.cancel)
@@ -88,7 +95,7 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url, let scheme = url.scheme?.lowercased(), Self.isOpenableExternally(scheme) {
-            openExternally(url)
+            openExternally(outgoing(url))
         }
         return nil
     }

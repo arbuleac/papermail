@@ -152,7 +152,8 @@ final class AppEnvironment {
             tokenStore: InMemoryTokenStore(),
             tokenProvider: DemoTokenProvider(),
             authenticator: DemoAuthenticator(),
-            sanitizer: PreferenceSanitizer(),
+            // The demo's remote images that stand in for real ones are pictures made on this Mac (§5.43).
+            sanitizer: DemoStandInSanitizer(base: PreferenceSanitizer()),
             providerFactory: { service.provider(for: $0) },
             // Short enough that a message arriving every ~45 s shows up promptly.
             pollInterval: 15,
@@ -183,7 +184,7 @@ final class AppEnvironment {
             tokenStore: InMemoryTokenStore(),
             tokenProvider: DemoTokenProvider(),
             authenticator: DemoAuthenticator(),
-            sanitizer: PreferenceSanitizer(),
+            sanitizer: DemoStandInSanitizer(base: PreferenceSanitizer()),
             providerFactory: { service.provider(for: $0) },
             attachmentCacheDirectory: attachments
         )

@@ -8,7 +8,8 @@ import SwiftSoup
 /// inline images pointed at `ss-cid://`, `<style>` blocks kept for a sandboxed iframe). Recipients cannot
 /// resolve the first two and nothing fences the third, so the quote restores `src` for remote images,
 /// turns inline references back into `cid:` URLs and drops the style blocks; the composer re-attaches the
-/// parts the `cid:` references name (see `partsToCarry`) so they resolve again.
+/// parts the `cid:` references name (see `partsToCarry`) so they resolve again. An image the sanitizer marked as a
+/// tracker (spec §5.60) is left out while Block trackers is on (`dropsTrackers`), and never keeps its mark.
 public enum QuotedReply {
     public struct Rendering: Hashable, Codable, Sendable {
         public var html: String
@@ -64,18 +65,23 @@ public enum QuotedReply {
     public static let forwardHeaderClass = "ss-forward-header"
     public static let forwardBodyClass = "ss-forward-body"
 
-    public static func reply(original: MessageMetadata, body: StoredBody, locale: Locale = .current, timeZone: TimeZone = .current) -> Rendering {
+    /// `dropsTrackers` is Settings › Experimental › Block trackers as the reply starts (spec §5.60).
+    public static func reply(original: MessageMetadata, body: StoredBody, locale: Locale = .current, timeZone: TimeZone = .current,
+                             dropsTrackers: Bool = false) -> Rendering {
         let date = headerDate(original.date, locale: locale, timeZone: timeZone)
         let author = displayString(original.from)
         let headerText = "On \(date), \(author) wrote:"
         let html = "<div class=\"\(headerClass)\">" + ComposerHTMLExporter.escape(headerText) + "</div>"
-            + "<blockquote class=\"\(quoteClass)\">" + sendableHTML(body.renderedHTML, of: original.id) + "</blockquote>"
+            + "<blockquote class=\"\(quoteClass)\">" + sendableHTML(body.renderedHTML, of: original.id, dropsTrackers: dropsTrackers)
+            + "</blockquote>"
         let text = headerText + "\n" + quotePlainText(body.plainText)
         return Rendering(html: html, text: text, header: headerText, originalText: body.plainText,
                          author: authorName(original.from), date: original.date)
     }
 
-    public static func forward(original: MessageMetadata, body: StoredBody, locale: Locale = .current, timeZone: TimeZone = .current) -> Rendering {
+    /// `dropsTrackers` as for `reply`.
+    public static func forward(original: MessageMetadata, body: StoredBody, locale: Locale = .current, timeZone: TimeZone = .current,
+                               dropsTrackers: Bool = false) -> Rendering {
         var fields: [(label: String, value: String)] = [
             ("From", displayString(original.from)),
             ("Date", headerDate(original.date, locale: locale, timeZone: timeZone)),
@@ -88,7 +94,8 @@ public enum QuotedReply {
         let rule = "---------- Forwarded message ----------"
         var html = "<div class=\"\(forwardHeaderClass)\">" + rule + "<br>"
         html += fields.map { "<b>\($0.label):</b> " + ComposerHTMLExporter.escape($0.value) }.joined(separator: "<br>")
-        html += "</div><br><div class=\"\(forwardBodyClass)\">" + sendableHTML(body.renderedHTML, of: original.id) + "</div>"
+        html += "</div><br><div class=\"\(forwardBodyClass)\">" + sendableHTML(body.renderedHTML, of: original.id, dropsTrackers: dropsTrackers)
+            + "</div>"
 
         let headerText = rule + "\n" + fields.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
         let text = headerText + "\n\n" + body.plainText
@@ -138,13 +145,23 @@ public enum QuotedReply {
     ///
     /// `message` is the quoted message; with it known, an inline reference is resolved by stripping the
     /// exact `ss-cid://` prefix, which keeps Content-IDs that contain a slash intact.
-    public static func sendableHTML(_ renderedHTML: String, of message: MessageID? = nil) -> String {
+    ///
+    /// A tracker the sanitizer marked (`HTMLSanitizer.trackerAttribute`, spec §5.60) was addressed to the user: put back
+    /// live, every recipient who opens the reply in a client that loads images would be counted as the user opening the
+    /// original. With `dropsTrackers` (Block trackers on) it is left out, which the quote never shows, since it was a pixel
+    /// or hidden; without, it goes as sent. Either way the mark, the reader's alone, does not travel. The quote is also the
+    /// reader's copy of a kept draft (`LocalDraftConversation`): one begun while Block trackers was on holds no tracker
+    /// for the reader to load.
+    public static func sendableHTML(_ renderedHTML: String, of message: MessageID? = nil, dropsTrackers: Bool = false) -> String {
         guard renderedHTML.contains("data-ss-src") || renderedHTML.contains("data-ss-background") || renderedHTML.contains("ss-cid://")
             || renderedHTML.range(of: "<style", options: .caseInsensitive) != nil else { return renderedHTML }
         do {
             let document = try SwiftSoup.parseBodyFragment(renderedHTML)
             document.outputSettings().prettyPrint(pretty: false)
             try document.select("style").remove()
+            for image in try document.select("img[\(HTMLSanitizer.trackerAttribute)]") {
+                if dropsTrackers { try image.remove() } else { try image.removeAttr(HTMLSanitizer.trackerAttribute) }
+            }
             for image in try document.select("img[data-ss-src]") {
                 let remote = try image.attr("data-ss-src")
                 try image.attr("src", remote)

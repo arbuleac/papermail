@@ -266,8 +266,8 @@ extension MailStoreContractTests {
         try store.upsertMessages([message("old", in: "c1", date: old), message("new", in: "c2", date: date(0))])
         let whole = StoredBody(body: MessageBody(html: "<p>Plan <b>attached</b></p>", text: "Plan attached", attachments: [file]),
                                renderedHTML: "<div class=\"ss-body\"><p>Plan <b>attached</b></p></div>", plainText: "Plan attached",
-                               hasQuotedContent: false, blockedRemoteImageCount: 2, typesetting: .styled, declaresColors: true,
-                               coveredByNewYork: true)
+                               hasQuotedContent: false, blockedRemoteImageCount: 2, trackerImageCount: 1, typesetting: .styled,
+                               declaresColors: true, coveredByNewYork: true)
         try store.saveBody(whole, for: oldID)
         try store.saveBody(body("noon"), for: newID)
         XCTAssertEqual(try store.keptBody(for: oldID), whole, "a whole body reads whole")
@@ -285,6 +285,7 @@ extension MailStoreContractTests {
         XCTAssertEqual(kept.declaresColors, true)
         XCTAssertEqual(kept.coveredByNewYork, true)
         XCTAssertEqual(kept.blockedRemoteImageCount, 2)
+        XCTAssertEqual(kept.trackerImageCount, 1, "the trackers' count is a design fact too (v24)")
         XCTAssertEqual(try store.keptBody(for: newID)?.plainText, "noon")
         XCTAssertNil(try store.keptBody(for: MessageID(accountID: accountA, providerID: "unknown")), "no row, nothing kept")
 

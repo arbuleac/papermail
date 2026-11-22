@@ -190,6 +190,9 @@ public struct StoredBody: Hashable, Codable, Sendable {
     public var hasQuotedContent: Bool?
     /// Remote images parked in `data-ss-src`, which the reader can load on request.
     public var blockedRemoteImageCount: Int?
+    /// The parked images marked as trackers (spec §5.60), part of `blockedRemoteImageCount`; nil for bodies stored before
+    /// the sanitizer marked them (v24), which carry no marks, so the reader tells their known pixels by address.
+    public var trackerImageCount: Int?
     /// The design facts from `SanitizedBody`, nil for bodies stored before they were kept. Unlike the facts
     /// above they cannot be derived at render time without parsing, so nil renders as `.styled`, colours
     /// assumed and coverage unknown.
@@ -205,6 +208,7 @@ public struct StoredBody: Hashable, Codable, Sendable {
         plainText: String,
         hasQuotedContent: Bool? = nil,
         blockedRemoteImageCount: Int? = nil,
+        trackerImageCount: Int? = nil,
         typesetting: BodyTypesetting? = nil,
         declaresColors: Bool? = nil,
         coveredByNewYork: Bool? = nil,
@@ -215,6 +219,7 @@ public struct StoredBody: Hashable, Codable, Sendable {
         self.plainText = plainText
         self.hasQuotedContent = hasQuotedContent
         self.blockedRemoteImageCount = blockedRemoteImageCount
+        self.trackerImageCount = trackerImageCount
         self.typesetting = typesetting
         self.declaresColors = declaresColors
         self.coveredByNewYork = coveredByNewYork

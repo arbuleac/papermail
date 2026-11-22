@@ -107,6 +107,12 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v23-server-rules';
         """
 
+    /// Takes v24 back out of a migrated file: a file from before it keeps no tracker count with its bodies.
+    private let withoutV24 = """
+        ALTER TABLE bodies DROP COLUMN tracker_images;
+        DELETE FROM grdb_migrations WHERE identifier = 'v24-tracker-images';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -358,7 +364,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -430,7 +436,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -472,7 +478,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: a)
             try store.close()
         }
-        try execute(withoutV23 + withoutV22, at: path)
+        try execute(withoutV24 + withoutV23 + withoutV22, at: path)
         XCTAssertFalse(try query("SELECT name FROM pragma_table_info('accounts')", at: path).compactMap(\.first).contains("face"))
 
         let store = try SQLiteMailStore(path: path)
@@ -508,7 +514,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -885,7 +891,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), ["m1": 0])
         try store.close()
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v23-server-rules")
+                       "v24-tracker-images")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM queued_lookups", at: path), [["0"]], "an account's lookups go with it")
     }
@@ -946,8 +952,8 @@ final class MailSchemaMigrationTests: XCTestCase {
             ORDER BY name
             """, at: path).compactMap(\.first),
                        ["calendar_events_by_client_key", "calendar_events_by_sync", "calendar_events_by_time", "mail_times_by_conversation"])
-        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(4),
-                       ["v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules"])
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(5),
+                       ["v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules", "v24-tracker-images"])
 
         let reopened = try SQLiteMailStore(path: path)
         try reopened.wipeMailData(for: account)
@@ -1049,21 +1055,53 @@ final class MailSchemaMigrationTests: XCTestCase {
             ["acct-b", "deals@shop.example", nil, "creating"], ["acct-b", "promo@shop.example", nil, "creating"],
         ], "ids as a JSON array, NULL while the rule is not on the server")
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v23-server-rules")
+                       "v24-tracker-images")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM sender_rules WHERE account_id = 'acct-a'", at: path), [["0"]],
                        "a rule still goes with its account")
     }
 
-    /// The eight migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
+    /// v24 keeps the count of trackers the sanitizer parked with each body (`bodies.tracker_images`, INTEGER NULL) and
+    /// changes nothing else. The file is a real v23 one with a stored body; opened by the current build that body reads as
+    /// before with no count (it was stored before the marks, so the reader counts no trackers in it), a body saved from then
+    /// on keeps its count, and an eviction keeps it as it keeps the other facts.
+    func testVersion23DatabaseGainsTheTrackerCountAndKeepsItsBodies() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v23-server-rules")
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('bodies')", at: path).compactMap(\.first).contains("tracker_images"))
+
+        let account = AccountID("acct-a")
+        let m1 = MessageID(accountID: account, providerID: "m1")
+        let store = try SQLiteMailStore(path: path)
+        let before = try XCTUnwrap(try store.body(for: m1))
+        XCTAssertEqual(before.plainText, "Hello there", "the body reads as before")
+        XCTAssertNil(before.trackerImageCount, "stored before the marks: no count")
+        var counted = before
+        counted.trackerImageCount = 2
+        try store.saveBody(counted, for: m1)
+        XCTAssertEqual(try store.body(for: m1)?.trackerImageCount, 2)
+        try store.close()
+
+        XCTAssertEqual(try query("""
+            SELECT type, "notnull", dflt_value FROM pragma_table_info('bodies') WHERE name = 'tracker_images'
+            """, at: path), [["INTEGER", "0", nil]], "INTEGER NULL with no default")
+        try execute("UPDATE bodies SET html = NULL, text = NULL, rendered_html = X'', evicted = 1", at: path)
+        XCTAssertEqual(try query("SELECT tracker_images FROM bodies", at: path), [["2"]], "a fact an eviction keeps")
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v24-tracker-images")
+    }
+
+    /// The nine migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
     /// to v15) holding mail, a muted-to-be conversation and a send in its undo window. Opened by the current build it runs
     /// v16-conversation-mute, v17-sender-rules, v18-scheduled-sends, v19-sync-robustness, v20-calendar, v21-search-walk,
-    /// v22-account-face and v23-server-rules, in that order and nothing else; everything it held reads as before, each new
-    /// table or column starts empty, the date index carries the flags a search tests, and reopening it runs nothing.
-    func testVersion15DatabaseTakesTheEightNewMigrationsInOrder() throws {
+    /// v22-account-face, v23-server-rules and v24-tracker-images, in that order and nothing else; everything it held reads as
+    /// before, each new table or column starts empty, the date index carries the flags a search tests, and reopening it
+    /// runs nothing.
+    func testVersion15DatabaseTakesTheNineNewMigrationsInOrder() throws {
         let newMigrations = ["v16-conversation-mute", "v17-sender-rules", "v18-scheduled-sends", "v19-sync-robustness",
-                             "v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules"]
-        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(8)), newMigrations, "registered in this order, last")
+                             "v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules", "v24-tracker-images"]
+        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(9)), newMigrations, "registered in this order, last")
         let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
         try writeVersion1Database(at: path)
         try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
@@ -1093,6 +1131,7 @@ final class MailSchemaMigrationTests: XCTestCase {
                        "v20: no events")
         XCTAssertEqual(try store.mailTimes(in: c1), [], "v20: no mail times")
         XCTAssertEqual(Set(try store.accounts().map(\.face)), [.automatic], "v22: no face chosen")
+        XCTAssertNil(try store.body(for: MessageID(accountID: account, providerID: "m1"))?.trackerImageCount, "v24: no count")
         // Each works once there.
         try store.setMuted(true, conversations: [c1], enqueueing: [])
         XCTAssertTrue(try store.isMuted(c1))
@@ -1100,7 +1139,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         try store.close()
 
         let after = try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
-        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the eight, in order, and nothing else")
+        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the nine, in order, and nothing else")
         XCTAssertEqual(try query("SELECT name FROM pragma_index_info('conversations_latest') ORDER BY seqno", at: path).compactMap(\.first), [
             "latest_date_ms", "in_inbox", "in_sent", "in_drafts", "in_trash", "is_starred", "has_attachments", "unread_count",
             "message_count", "inbox_section", "account_id", "provider_id",

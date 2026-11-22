@@ -31,6 +31,24 @@ final class ReplyQuoterTests: XCTestCase {
         XCTAssertTrue(html.hasSuffix("</blockquote>"))
     }
 
+    /// As in `QuotedReply`: a marked tracker is left out with `dropsTrackers` and never keeps its mark (spec §5.60).
+    func testTrackersAreLeftOutWhileBlockingAndNeverKeepTheirMark() {
+        var tracked = stored
+        tracked.renderedHTML = stored.renderedHTML.replacingOccurrences(
+            of: "</p>",
+            with: "<img src=\"\(HTMLSanitizer.placeholderImage)\" data-ss-src=\"https://track.example/o.gif\" \(HTMLSanitizer.trackerAttribute)=\"tiny\"></p>")
+        let dropped = ReplyQuoter.quotedReplyHTML(original: tracked, from: bob, date: RenderTestSupport.date, locale: RenderTestSupport.locale,
+                                                  dropsTrackers: true)
+        assertNotContains(dropped, "track.example")
+        assertContains(dropped, "src=\"https://cdn.example/a.png\"")
+        let forwarded = ReplyQuoter.forwardHTML(original: tracked, subject: "S", from: bob, to: [alice], date: RenderTestSupport.date,
+                                                dropsTrackers: true)
+        assertNotContains(forwarded, "track.example")
+        let kept = ReplyQuoter.quotedReplyHTML(original: tracked, from: bob, date: RenderTestSupport.date, locale: RenderTestSupport.locale)
+        assertContains(kept, "src=\"https://track.example/o.gif\"")
+        assertNotContains(kept, HTMLSanitizer.trackerAttribute)
+    }
+
     func testQuotedReplyWithoutSender() {
         let html = ReplyQuoter.quotedReplyHTML(original: stored, from: nil, date: RenderTestSupport.date, locale: RenderTestSupport.locale)
         assertContains(html, "unknown sender wrote:")

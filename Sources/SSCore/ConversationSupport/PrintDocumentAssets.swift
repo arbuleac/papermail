@@ -171,9 +171,10 @@ enum PrintDocumentAssets {
         try { window.webkit.messageHandlers.ssPrint.postMessage('ready'); } catch (e) { /* no host: opened in a browser */ }
       }
 
-      // Puts parked remote sources back, as Load images does in the reader.
-      function restore(fragment) {
-        var parked = fragment.querySelectorAll('img[data-ss-src]');
+      // Puts parked remote sources back, as Load images does in the reader: the trackers too, unless Block trackers holds
+      // them back there (spec §5.60).
+      function restore(fragment, holdsTrackers) {
+        var parked = fragment.querySelectorAll(holdsTrackers ? 'img[data-ss-src]:not([data-ss-tracker])' : 'img[data-ss-src]');
         for (var i = 0; i < parked.length; i++) {
           parked[i].setAttribute('src', parked[i].getAttribute('data-ss-src'));
           parked[i].removeAttribute('data-ss-src');
@@ -191,7 +192,7 @@ enum PrintDocumentAssets {
         if (!template) { return; }
         // Still inert: a source set here is fetched only once the body joins the page.
         var content = template.content.cloneNode(true);
-        if (host.getAttribute('data-images') === 'shown') { restore(content); }
+        if (host.getAttribute('data-images') === 'shown') { restore(content, host.getAttribute('data-trackers') === 'held'); }
         // A lazy image waits to be scrolled to, which a page being printed never is.
         var lazy = content.querySelectorAll('[loading]');
         for (var i = 0; i < lazy.length; i++) { lazy[i].removeAttribute('loading'); }

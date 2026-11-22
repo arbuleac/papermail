@@ -320,6 +320,43 @@ final class PrintConversationTests: XCTestCase {
                        "with every image shown, everything the reader would load is fetched")
     }
 
+    /// Block trackers on paper (spec §5.60): a body whose images print leaves its marked trackers parked, and the print
+    /// view carries the content blocker, which stops a known pixel left live in a body stored before the marks; with the
+    /// setting off, the printout fetches what Load images would. The content blocker is compiled for the test's stand-in
+    /// scheme into a store of the test's own.
+    func testPrintingHoldsTrackersBackWhileBlockingIsOn() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SS_UI_TESTS"] == "1", "WebKit's content blocker runs with SS_UI_TESTS=1")
+        let ada = EmailAddress(name: "Ada Lovelace", address: "ada@contoso.test")
+        let shown = message(1, from: ada)
+        var stored = body("<p>Fall gear</p>"
+                          + "<img src=\"\(placeholder)\" data-ss-src=\"ss-remote://images/hero.gif\" width=\"20\" height=\"20\">"
+                          + "<img src=\"\(placeholder)\" data-ss-src=\"ss-remote://images/open.gif\" data-ss-tracker=\"tiny\" width=\"1\" height=\"1\">"
+                          + "<img src=\"ss-remote://us21.list-manage.com/track/open.php\" width=\"1\" height=\"1\">", blocked: 2)
+        stored.trackerImageCount = 1
+        let environment = try store([(shown, stored)])
+        let messages = try environment.store.messages(in: conversation)
+        let recorder = RemoteRecorder()
+        let printer = ConversationPrinter(client: environment.engine, schemeHandlers: [RemoteRecorder.scheme: recorder])
+        let rulesStore = try XCTUnwrap(WKContentRuleListStore(url: folder.appendingPathComponent("rules", isDirectory: true)))
+        printer.trackerRules = TrackerContentRules(store: rulesStore, scheme: RemoteRecorder.scheme)
+        let sheets = [RenderPayload.messageKey(for: shown.id): PrintSheetState(imagesShown: true)]
+
+        func run(blocking: Bool) throws -> String {
+            let payload = RenderPayloadBuilder().build(messages: messages, bodies: [shown.id: stored], accounts: [account.id: account],
+                                                       blocksTrackers: blocking)
+            printer.blocksTrackers = blocking
+            return try print(PrintDocumentBuilder().document(for: payload, sheets: sheets), with: printer, imageWait: 3).string ?? ""
+        }
+
+        XCTAssertTrue(try run(blocking: true).contains("Fall gear"))
+        XCTAssertEqual(recorder.paths, ["/hero.gif"], "the marked tracker stays parked and the known pixel is blocked")
+
+        let before = recorder.paths.count
+        _ = try run(blocking: false)
+        XCTAssertEqual(Set(recorder.paths.dropFirst(before)), ["/hero.gif", "/open.gif", "/track/open.php"],
+                       "with the setting off everything the reader would load is fetched")
+    }
+
     /// Each step has a wait of its own. With Load remote images off, a reply with an inline screenshot prints in the
     /// second step, its images held back; a slow remote image in a body shown before it has used up the first step's wait,
     /// and the screenshot, answered as a download would be, still comes in before the page says it is ready.

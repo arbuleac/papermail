@@ -52,6 +52,19 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     /// The app's appearance (Settings › Appearance, or macOS under Automatic), which AppKit tells no view outside a window.
     private var appearanceObservation: NSKeyValueObservation?
 
+    /// Settings › Experimental › Block trackers (spec §5.60), set by the reader: while on, the content blocker is in every
+    /// view's user content controller (one controller, shared by the pool's views) and a link opened from a message loses
+    /// its tracking parameters. Turning it on asks for the compiled list, which lands a moment later the first time; a
+    /// render never waits for it, since the sanitizer's marks already hold back the trackers of every body stored since v24.
+    var blocksTrackers = false {
+        didSet { if oldValue != blocksTrackers { applyTrackerBlocking() } }
+    }
+    /// Where the content blocker comes from: the app's, or a test's. Lazy, so a pool made with the setting off never
+    /// touches it (and launch never writes the rules).
+    lazy var trackerRules = TrackerContentRules.shared
+    /// The content blocker in the controller now, if any.
+    private(set) var installedTrackerRules: WKContentRuleList?
+
     init(client: MailClient, size: Int = 3) {
         let theme = QuireEnvironment.theme
         let shellTheme = ShellTheme(theme)
@@ -129,6 +142,22 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         configuration.preferences.tabFocusesLinks = enabled
         for slot in slots { slot.webView.configuration.preferences.tabFocusesLinks = enabled }
         broadcast(modesScript)
+    }
+
+    // MARK: Trackers
+
+    private func applyTrackerBlocking() {
+        navigation.stripsTrackingParameters = blocksTrackers
+        guard blocksTrackers else {
+            if let installed = installedTrackerRules { configuration.userContentController.remove(installed) }
+            installedTrackerRules = nil
+            return
+        }
+        trackerRules.list { [weak self] list in
+            guard let self, self.blocksTrackers, self.installedTrackerRules == nil, let list else { return }
+            self.configuration.userContentController.add(list)
+            self.installedTrackerRules = list
+        }
     }
 
     // MARK: Display modes
