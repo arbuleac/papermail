@@ -96,6 +96,15 @@ struct AppAlert {
                  buttons: [Button(title: "Quit")])
     }
 
+    /// Launch, before anything is opened, when the old app is open on a mailbox Paper has not moved yet
+    /// (docs/ARCHITECTURE.md, "Identity"): app-modal, and the app quits when it closes.
+    static var legacyAppOpen: AppAlert {
+        let old = LegacyIdentity.name
+        return AppAlert(title: "\(old) is still open",
+                        body: "Paper brings over your mail, accounts and settings from \(old) the first time it opens, and can't while \(old) is open. Quit \(old), then open Paper again.",
+                        buttons: [Button(title: "Quit")])
+    }
+
     static func remove(_ account: Account) -> AppAlert {
         AppAlert(title: "Remove \(account.email)?",
                  body: "Mail from this account is removed from this Mac. Nothing changes on the server.",
@@ -269,6 +278,7 @@ struct AppAlert {
             reconnectFailed(fabrikam, reason: "Couldn't reach Microsoft. Check your internet connection."),
             wrongAccount(expected: "alex@fabrikam.test", actual: "sam@contoso.test"),
             databaseUnavailable(reason: "The disk is full."),
+            legacyAppOpen,
             leaveDemo,
             replaceDemo,
             saveSenderRules(.gmail, action: .archive),
