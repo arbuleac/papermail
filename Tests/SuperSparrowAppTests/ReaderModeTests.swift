@@ -156,30 +156,68 @@ final class ReaderModeTests: XCTestCase {
         let environment = try environment([(message("m1"), designed())])
         let reader = reader(environment.engine, settings: settings)
         XCTAssertEqual(reader.header.content.actions.view, [], "no toggle while the experiment is off")
-        XCTAssertNil(reader.header.button(for: .readerMode))
+        XCTAssertNil(reader.header.readerModeToggle)
 
         settings.offersReaderMode = true
         XCTAssertEqual(reader.header.content.actions.view, [.readerMode])
-        let button = try XCTUnwrap(reader.header.button(for: .readerMode))
-        XCTAssertFalse(button.isHidden)
-        XCTAssertTrue(button.isOn, "the gate turned reader mode on with it")
-        XCTAssertEqual(button.toolTip, "Reader Mode  ⇧⌘R")
-        XCTAssertEqual(button.accessibilitySubrole(), .toggle, "VoiceOver hears a switch")
+        XCTAssertNil(reader.header.button(for: .readerMode), "a switch, not one of the actions' buttons")
+        let toggle = try XCTUnwrap(reader.header.readerModeToggle)
+        XCTAssertFalse(toggle.isHidden)
+        XCTAssertTrue(toggle.isOn, "the gate turned reader mode on with it")
+        XCTAssertEqual(toggle.leadingSymbolName, Quire.Icon.readerMode)
+        XCTAssertEqual(Quire.Icon.readerMode, "eyeglasses")
+        XCTAssertEqual(toggle.toolTip, "Reader Mode  ⇧⌘R")
+        XCTAssertEqual(toggle.accessibilitySubrole(), .switch, "VoiceOver hears a switch")
+        XCTAssertEqual(toggle.accessibilityLabel(), "Reader Mode")
         let star = try XCTUnwrap(reader.header.button(for: .star))
-        XCTAssertLessThan(button.frame.maxX, star.frame.minX - Quire.Layout.ReaderHeader.actionGroupGap + 1,
-                          "a group of its own before Star")
+        XCTAssertLessThan(toggle.frame.maxX, star.frame.minX - Quire.Layout.ReaderHeader.actionGroupGap + 1, "before the actions")
 
-        button.performClick(nil)
-        XCTAssertFalse(settings.readerModeOn, "the toggle flips reader mode")
-        XCTAssertFalse(button.isOn)
+        toggle.performClick(nil)
+        XCTAssertFalse(settings.readerModeOn, "the switch flips reader mode")
+        XCTAssertFalse(toggle.isOn)
         reader.show(nil)
-        button.performClick(nil)
+        toggle.performClick(nil)
         XCTAssertTrue(settings.readerModeOn, "global: it answers with nothing selected")
+        XCTAssertTrue(toggle.isEnabled, "never disabled with the conversation's actions")
 
         settings.offersReaderMode = false
         XCTAssertEqual(reader.header.content.actions.view, [])
-        XCTAssertTrue(button.isHidden, "the gate closing takes it away")
+        XCTAssertTrue(toggle.isHidden, "the gate closing takes it away")
         XCTAssertFalse(settings.readerModeOn)
+    }
+
+    /// The switch stands in the middle of the header's first line, centred on the reading column (§5.59); where the middle
+    /// comes too near the actions it stands a group's gap before them, and in a narrow reader its word drops.
+    func testTheSwitchStandsInTheMiddle() throws {
+        let header = ReaderHeaderView(frame: .zero)
+        header.apply(.init(kicker: .init(inkSlot: 0, lead: nil, accountName: "Work", trail: "3 messages"), headline: "Plans",
+                           placeholder: "No subject", actions: ReaderActionSet.make(.nothing).offeringReaderMode(true)))
+        let metrics = Quire.Layout.ReaderHeader.self
+        func place(width: CGFloat) throws -> (toggle: NSRect, star: NSRect, column: (x: CGFloat, width: CGFloat), title: String?) {
+            header.frame = NSRect(x: 0, y: 0, width: width, height: metrics.height)
+            header.layoutSubtreeIfNeeded()
+            header.layout()
+            let toggle = try XCTUnwrap(header.readerModeToggle)
+            let star = try XCTUnwrap(header.button(for: .star))
+            return (toggle.alignmentRect(forFrame: toggle.frame), star.alignmentRect(forFrame: star.frame),
+                    ReaderColumn.frame(readerWidth: width), toggle.title)
+        }
+
+        let wide = try place(width: 900)
+        XCTAssertEqual(wide.toggle.midX, wide.column.x + wide.column.width / 2, accuracy: 1, "centred on the reading column")
+        XCTAssertEqual(wide.toggle.midY, metrics.actionsTop + metrics.actionSize / 2, accuracy: 1, "on the actions' line")
+        XCTAssertEqual(wide.title, "Reader")
+
+        let middling = try place(width: Quire.Layout.Window.readerNarrow)
+        XCTAssertEqual(middling.toggle.midX, middling.column.x + middling.column.width / 2, accuracy: 1)
+        XCTAssertEqual(middling.title, "Reader")
+        XCTAssertLessThanOrEqual(middling.toggle.maxX, middling.star.minX - metrics.actionGroupGap + 1)
+
+        let narrow = try place(width: 450)
+        XCTAssertNil(narrow.title, "a narrow reader keeps the glasses and the switch")
+        XCTAssertLessThan(narrow.toggle.width, middling.toggle.width)
+        XCTAssertEqual(narrow.toggle.maxX, narrow.star.minX - metrics.actionGroupGap, accuracy: 1,
+                       "too near the actions, it stands a group's gap before them")
     }
 
     /// View › Reader Mode, ⇧⌘R: listed and enabled only while the experiment is offered, checked while reader mode is on,

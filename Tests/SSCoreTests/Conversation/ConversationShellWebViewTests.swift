@@ -721,6 +721,61 @@ final class ConversationShellWebViewTests: XCTestCase {
         XCTAssertEqual(open, "Hide Quoted Text  .")
     }
 
+    /// Show quoted text and Hide quoted text stand in one place (spec §5.15): shown, the quoted text opens below the mark,
+    /// which keeps its place to the point, folded again it is still there; nothing after it is covered. A reply written
+    /// below the quote has the mark at the head of the quoted text instead, never over a hole.
+    func testTheQuoteToggleStaysWhereItStood() async throws {
+        let (webView, _) = try await loadedShell()
+        typealias F = ConversationFixtures
+        let quote = "<div class=\"ss-quote\"><p>On Monday, Priya wrote:</p><p>First line of the original.</p><p>Second line.</p></div>"
+        let bodies = [
+            "gmail": "<div dir=\"ltr\"><div>Green for the 14th.</div></div><br>" + quote,
+            "paragraphs": "<p>Thanks, that works.</p><p>Alex</p>" + quote,
+            "nested": "<table><tr><td><div>Sent from the road.</div>" + quote + "</td></tr></table>",
+        ]
+        // Page coordinates: the mark's top and bottom, the first quoted block's top and bottom, the footer's top.
+        let place = """
+            (function () {
+              var card = document.querySelector('.ss-card');
+              var mark = card.querySelector('.ss-toggle-quote').getBoundingClientRect();
+              var frame = card.querySelector('iframe');
+              var box = frame.getBoundingClientRect();
+              var quote = frame.contentDocument.querySelector('.ss-quote').getBoundingClientRect();
+              var foot = card.querySelector('.ss-foot').getBoundingClientRect();
+              return [mark.top + scrollY, mark.bottom + scrollY, box.top + quote.top + scrollY, box.top + quote.bottom + scrollY,
+                      foot.top + scrollY];
+            })()
+            """
+        for (name, html) in bodies.sorted(by: { $0.key < $1.key }) {
+            let message = F.message("m-\(name)")
+            let payload = F.builder.build(messages: [message], bodies: [message.id: F.body(html: html)], accounts: F.accounts)
+            _ = try await evaluate("window.ss.render(\(try payload.jsonString())); window.ss.expandAll()", in: webView)
+            try await waitForFramedCards(in: webView)
+            let folded = numbers(try await evaluate(place, in: webView))
+            _ = try await evaluate("document.querySelector('.ss-toggle-quote').click()", in: webView)
+            let shown = numbers(try await evaluate(place, in: webView))
+            XCTAssertEqual(shown[0], folded[0], accuracy: 0.5, "\(name): Hide quoted text stands where Show quoted text stood")
+            XCTAssertGreaterThanOrEqual(shown[2], shown[1] + 11.5, "\(name): the quoted text opens below the mark")
+            XCTAssertGreaterThan(shown[4], shown[3], "\(name): the footer stays below the quoted text")
+            _ = try await evaluate("document.querySelector('.ss-toggle-quote').click()", in: webView)
+            let again = numbers(try await evaluate(place, in: webView))
+            XCTAssertEqual(again[0], folded[0], accuracy: 0.5, "\(name): folded again, the mark has not moved")
+            XCTAssertEqual(again[4], folded[4], accuracy: 0.5, "\(name): and the card is as it was")
+        }
+
+        let below = F.message("m-below")
+        let bottomPosted = quote + "<p>My answer, written below the quote.</p>"
+        let payload = F.builder.build(messages: [below], bodies: [below.id: F.body(html: bottomPosted)], accounts: F.accounts)
+        _ = try await evaluate("window.ss.render(\(try payload.jsonString())); window.ss.expandAll()", in: webView)
+        try await waitForFramedCards(in: webView)
+        _ = try await evaluate("document.querySelector('.ss-toggle-quote').click()", in: webView)
+        let shown = numbers(try await evaluate(place, in: webView))
+        XCTAssertGreaterThanOrEqual(shown[2], shown[1] + 11.5, "the mark heads the quoted text")
+        // 12 pt, and the quote's first paragraph's own margin, which collapses through the quote's top; the answer's
+        // line and margins (a hole where it stood folded) would be more.
+        XCTAssertLessThan(shown[2] - shown[1], 30, "with no hole between them")
+    }
+
     /// A draft is set from the sheet's edge, and so are its chips and footer (spec §5.19); a frame still loading
     /// under its provisional height holds delayed bars, never bars that flash on every expand (spec §5.14).
     func testDraftsStartAtTheSheetEdgeAndLoadingFramesHoldDelayedBars() async throws {
