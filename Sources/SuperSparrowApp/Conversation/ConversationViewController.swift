@@ -220,6 +220,16 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Where the reader's own Text size comes from (spec §4.15): the app's settings, or a test's throwaway ones.
     private let appSettings: AppSettings
 
+    /// Messages shown as sent in reader mode for the rest of the session (Show original, spec §5.59): this window's own
+    /// choice, as the ⇧⌘O switch is, kept while reader mode goes off and on again.
+    private var readerOriginals: Set<MessageID> = []
+    /// Reader mode as the pages were last rendered under it: a gate change that leaves reader mode as it was renders
+    /// nothing again.
+    private var renderedReaderMode: Bool
+    /// The text versions this reader has set, so a refresh, a switch back or a pre-render of the same messages sets none
+    /// of them again.
+    private let readerTexts = ReaderTextCache()
+
     /// `poolSize` 1 is a reader window's (§5.49): it shows one conversation and pre-renders nothing. A pool of its own
     /// rather than a slot of the main window's, which that reader hands to whatever neighbour it pre-renders next.
     /// `drafts` is the mailbox's quick-reply text, which every reader of it shares; a reader alone keeps its own.
@@ -237,6 +247,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         for account in (try? client.accounts()) ?? [] { accounts[account.id] = account }
         self.accountsByID = accounts
         broadcastTextSize = appSettings.readerSize
+        renderedReaderMode = appSettings.readerModeOn
         super.init(nibName: nil, bundle: nil)
         header.textSize = appSettings.readerSize
         pool.onMessage = { [weak self] slot, message in self?.handle(message, from: slot) }
@@ -270,6 +281,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         notificationTokens.append(center.addObserver(forName: AppSettings.readerTextSizeChanged, object: appSettings, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.readerTypeMayHaveChanged() }
         })
+        // Reader mode and its gate (spec §5.59): the header's toggle follows both, and a switch of reader mode renders what
+        // this reader shows again.
+        notificationTokens.append(center.addObserver(forName: AppSettings.readerModeChanged, object: appSettings, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.readerModeDidChange() }
+        })
         // The Dark Mode default: every shell, the pre-rendered ones too, switches the messages it decides for in place.
         adaptsMailColoursObservation = appSettings.$adaptsMailColours.dropFirst().removeDuplicates().sink { [weak self] adapts in
             MainActor.assumeIsolated { self?.broadcastPreferences(adaptsColours: adapts) }
@@ -295,6 +311,47 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let prepared = prepare(currentMessages)
         pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: current)
         followOverlaps()
+    }
+
+    /// Reader mode went on or off, or its gate moved (spec §5.59). The toggle follows at once. A switch drops every
+    /// pre-rendered page, since each holds the other version, and sets the page on screen again in place, its cards as the
+    /// user left them: each body's frame is replaced by the other version's, never shown beside it.
+    private func readerModeDidChange() {
+        refreshChrome()
+        let on = appSettings.readerModeOn
+        guard on != renderedReaderMode else { return }
+        renderedReaderMode = on
+        pool.clearAll(except: pool.current)
+        refreshShownPage()
+    }
+
+    /// The page on screen built again from the store and patched in place (`ss.update`): only the cards whose body or
+    /// line changed are touched. Bodies it now shows without (an original whose body was evicted) are asked for.
+    private func refreshShownPage() {
+        guard let id = currentConversationID, let current = pool.current, current.renderedID == id else { return }
+        let prepared = prepare(currentMessages)
+        pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
+        requestMissingBodies(currentMessages, rendered: prepared.inputs)
+        followOverlaps()
+    }
+
+    /// Show original (`on`) or Show text on one message in reader mode (spec §5.59), for the rest of the session in this
+    /// window.
+    func showReaderOriginal(_ on: Bool, for id: MessageID) {
+        let changed = on ? readerOriginals.insert(id).inserted : readerOriginals.remove(id) != nil
+        guard changed, appSettings.readerModeOn else { return }
+        refreshShownPage()
+    }
+
+    /// Whether this window shows `id` as sent in reader mode (tests).
+    func showsReaderOriginal(_ id: MessageID) -> Bool {
+        readerOriginals.contains(id)
+    }
+
+    /// Reader mode as a render of `messages` sees it now: nil while it is off, else the ones shown as sent.
+    private func readerModeInputs(for messages: [MessageMetadata]) -> Set<MessageID>? {
+        guard appSettings.readerModeOn else { return nil }
+        return readerOriginals.intersection(messages.map(\.id))
     }
 
     required init?(coder: NSCoder) {
@@ -771,7 +828,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         onQuickSendChange?()
     }
 
+    /// The header for `state`, with reader mode's toggle in its own group while Settings › Experimental offers it (§5.59).
     private func headerContent(_ state: ReaderState, messages: [MessageMetadata]) -> ReaderHeaderView.Content {
+        var content = mailHeaderContent(state, messages: messages)
+        content.actions = content.actions.offeringReaderMode(appSettings.offersReaderMode ? appSettings.readerModeOn : nil)
+        return content
+    }
+
+    private func mailHeaderContent(_ state: ReaderState, messages: [MessageMetadata]) -> ReaderHeaderView.Content {
         switch state {
         case .nothing:
             return .init(kicker: nil, headline: nil, placeholder: "No subject", actions: .make(.nothing))
@@ -926,17 +990,34 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let outboxStates = inOutbox ? localDrafts?.outboxStates.filter { state in messages.contains { $0.id == state.key } } ?? [:] : [:]
         let pending = Set(sheets.map(\.metadata.id))
         let overlaps = invitationOverlaps(of: all, bodies: bodies, pending: pending)
+        let reading = readerModeInputs(for: messages)
+        let readerMode = reading.map { originals in
+            ReaderModeRender(originals: originals, kept: keptBodies(of: messages, besides: bodies), cache: readerTexts)
+        }
         let payload = builder.build(
             messages: all, bodies: bodies, accounts: accountsByID, bodyStates: states,
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
             pending: pending, invitationPermissionNeeded: invitationPermissionNeeded, invitationOverlaps: overlaps.lines,
-            sendLater: laterStates, outbox: outboxStates
+            sendLater: laterStates, outbox: outboxStates, readerMode: readerMode
         )
-        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates, invitationOverlaps: overlaps) {
+        return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates, invitationOverlaps: overlaps,
+                                      readerMode: reading) {
             bodies[$0] != nil
         })
+    }
+
+    /// What Keep mail on this Mac kept of the evicted bodies among `messages` (spec §5.59): reader mode shows their plain
+    /// text at once. One small read per message the render has no body for; drafts, kept drafts and replies on their way
+    /// have none to keep, and a message never fetched has no row.
+    private func keptBodies(of messages: [MessageMetadata], besides bodies: [MessageID: StoredBody]) -> [MessageID: StoredBody] {
+        var kept: [MessageID: StoredBody] = [:]
+        for message in messages where bodies[message.id] == nil && !message.roles.contains(.drafts) {
+            guard !LocalDraftConversation.isLocal(message.id), !PendingSheet.isPending(message.id) else { continue }
+            if let body = try? client.store.keptBody(for: message.id) { kept[message.id] = body }
+        }
+        return kept
     }
 
     /// What the invitation cards of `messages` say they overlap (spec §5.14): one indexed read of every account's
@@ -1007,10 +1088,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let rendered = slot.renderedInputs ?? .empty
         let all = messages + pendingSheets(answering: messages).map(\.metadata)
         let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let fresh = rendered.refreshed(with: all) { [weak self] id in
+        var fresh = rendered.refreshed(with: all) { [weak self] id in
             guard let self, let message = byID[id] else { return false }
             return PendingSheet.isPending(id) || self.renderableBody(message) != nil
         }
+        // A page rendered under the other reader mode, or before a message was switched, is stale whatever else holds.
+        fresh.readerMode = readerModeInputs(for: messages)
         guard fresh != rendered else { return }
         // Mark-read and star are the common changes; they patch the headers without reading a body.
         if let patches = rendered.flagPatches(to: fresh), pool.patchFlags(patches, inputs: fresh, id: id, in: slot) {
@@ -1381,6 +1464,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case "retryBody":
                 guard let conversation = currentConversationID, !bodyFetches.contains(messageID) else { return }
                 fetchBody(messageID, conversation: conversation)
+            case "readerOriginal":
+                showReaderOriginal(on ?? true, for: messageID)
             case "dismissColorsNotice":
                 AppSettings.shared.originalColorsNoticeDismissed = true
                 broadcastPreferences()
@@ -1718,6 +1803,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
 
     private func headerAction(_ action: ReaderActionSet.Action) {
         Quire.Motion.finishAll()
+        if action == .readerMode {
+            // Global, so it answers whatever is selected, nothing included (§5.59).
+            appSettings.readerModeOn.toggle()
+            return
+        }
         switch selection {
         case .none:
             return
@@ -1744,6 +1834,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 let draft = currentMessages.last { $0.roles.contains(.drafts) } ?? currentMessages.last
                 if let draft { onAction?(.continueDraft(draft.id)) }
             case .discardDraft: onAction?(.discardDrafts([id]))
+            case .readerMode: break
             }
         }
     }

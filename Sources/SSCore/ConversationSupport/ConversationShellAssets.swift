@@ -26,7 +26,7 @@ public enum ConversationShellAssets {
     public static let symbols: [String] = [
         "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
         "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-        "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip",
+        "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip", "doc.plaintext",
     ]
 
     /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
@@ -374,6 +374,9 @@ public enum ConversationShellAssets {
     .ss-banner.ss-warn > .ss-sym, .ss-banner > .ss-sym.ss-warning { color: var(--q-warning); }
     .ss-banner.ss-bad { background: var(--q-dangerWash); }
     .ss-banner.ss-bad > .ss-sym { color: var(--q-danger); }
+    /* Reader mode's line (spec §5.59): a quiet line on the sheet at the body's edge, not a banner to act on. */
+    .ss-banner.ss-reader { background: none; padding-left: 0; margin-bottom: 4px; color: var(--q-ink2); }
+    .ss-banner.ss-reader > .ss-sym { color: var(--q-ink3); }
     .ss-link {
       flex: none; height: 24px; padding: 0 4px; border: 0; border-radius: var(--q-r-sm); background: none;
       font: var(--q-font-label); color: var(--q-accent);
@@ -1197,9 +1200,12 @@ public enum ConversationShellAssets {
         if (wasWide !== card.wide) { card.iframe.setAttribute('scrolling', card.wide ? 'auto' : 'no'); }
       }
 
-      // The inset's padding narrows the frame, so a body is measured apart on the white page.
+      // The inset's padding narrows the frame, so a body is measured apart on the white page; reader mode's text version
+      // is another document than the HTML, measured apart too (spec §5.59).
       function heightKey(card) {
-        return card.message.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize + (card.inset ? ':inset' : '');
+        var m = card.message;
+        var version = m.reader === 'text' || m.reader === 'extracted' ? ':text' : '';
+        return m.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize + version + (card.inset ? ':inset' : '');
       }
 
       function measure(card) {
@@ -1403,9 +1409,32 @@ public enum ConversationShellAssets {
 
       function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
+      // Reader mode's line (spec §5.59): what the card shows of the message, and the way to the other version, for this
+      // message alone. The app keeps the choice for the session and renders the card again.
+      var READER_LINES = {
+        text: ['Text version', 'Show original', 'Show Original'],
+        extracted: ['Text from the email’s design', 'Show original', 'Show Original'],
+        original: ['Original', 'Show text', 'Show Text Version']
+      };
+      function readerLine(card) {
+        var m = card.message;
+        var line = READER_LINES[m.reader];
+        var node = bannerNode('ss-reader', 'doc.plaintext', line[0]);
+        var original = m.reader !== 'original';
+        var change = button('ss-link ss-reader-switch', line[1], line[2]);
+        change.addEventListener('click', function (event) {
+          stop(event);
+          setTarget(card, true);
+          post('ss', { kind: 'action', type: 'readerOriginal', messageID: m.id, attachmentID: null, on: original });
+        });
+        node.appendChild(change);
+        return node;
+      }
+
       function renderBanners(card) {
         var m = card.message;
         var list = [];
+        if (m.hasBody && READER_LINES[m.reader]) { list.push(readerLine(card)); }
         if (m.hasBody) {
           var blocked = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
           if (card.imageLoad) {
@@ -2614,8 +2643,10 @@ public enum ConversationShellAssets {
         if (JSON.stringify(previous.outbox || null) !== JSON.stringify(m.outbox || null)) { fillFooter(card); }
         if (previous.html !== m.html || previous.hasBody !== m.hasBody) {
           replaceBody(card);
-        } else if (previous.bodyState !== m.bodyState) {
-          applyBodyState(card, m.bodyState);
+        } else {
+          if (previous.bodyState !== m.bodyState) { applyBodyState(card, m.bodyState); }
+          // The same text from another source (an evicted body's kept text, then its text part once it downloads).
+          if (previous.reader !== m.reader) { renderBanners(card); }
         }
         if (JSON.stringify(previous.attachments) !== JSON.stringify(m.attachments)) { fillAttachments(card); }
         // A click marks its answer before the store has it; one the store refused or gave up leaves the card's facts as

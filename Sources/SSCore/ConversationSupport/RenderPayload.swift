@@ -163,6 +163,16 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         }
     }
 
+    /// What reader mode shows of a message (spec §5.59), named on the line in its banner area.
+    public enum ReaderView: String, Hashable, Codable, Sendable {
+        /// The sender's text part: “Text version”, with Show original.
+        case text
+        /// The text taken from the HTML when it was stored: “Text from the email's design”, with Show original.
+        case extracted
+        /// Shown as sent at the user's word for the session: “Original”, with Show text.
+        case original
+    }
+
     public struct Message: Hashable, Codable, Sendable {
         /// Opaque render key (see `RenderPayload.messageKey(for:)`); the shell echoes it in actions.
         public var id: String
@@ -211,6 +221,9 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         /// attachments the reader shows (inline pictures are part of the body, not attachments); until then it is
         /// the provider's flag, the one the list row draws from.
         public var hasAttachments: Bool
+        /// Reader mode's view of the message (spec §5.59); nil, and absent from the JSON, while reader mode is off and on a
+        /// message it leaves alone (a draft, a reply on its way, one with no words yet).
+        public var reader: ReaderView?
 
         public init(
             id: String,
@@ -238,7 +251,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             invitation: Invitation? = nil,
             cancelsSendLater: Bool = false,
             outbox: OutboxSheet? = nil,
-            hasAttachments: Bool? = nil
+            hasAttachments: Bool? = nil,
+            reader: ReaderView? = nil
         ) {
             self.id = id
             self.from = from
@@ -266,6 +280,7 @@ public struct RenderPayload: Hashable, Codable, Sendable {
             self.cancelsSendLater = cancelsSendLater
             self.outbox = outbox
             self.hasAttachments = hasAttachments ?? !attachments.isEmpty
+            self.reader = reader
         }
     }
 

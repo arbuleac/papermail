@@ -140,6 +140,10 @@ final class ReaderHeaderView: NSView {
                 button.toolTip = set.starOn ? (several ? "Unstar All  S" : "Unstar  S") : (several ? "Star All  S" : "Star  S")
                 button.setAccessibilityLabel(set.starOn ? "Unstar" : "Star")
             }
+            if action == .readerMode {
+                button.isOn = set.readerModeOn
+                button.toolTip = Self.spec(for: .readerMode).tooltip
+            }
             if action == .replyAll {
                 // A disabled control says why (§5.34): Reply would already reach everyone.
                 let onlyOne = !set.isEnabled(.replyAll) && set.isEnabled(.reply)
@@ -158,6 +162,11 @@ final class ReaderHeaderView: NSView {
             button.onStyle = .star
             button.onSymbolName = Quire.Icon.unstar
         }
+        if action == .readerMode {
+            // A quiet toggle (§5.59): on, the accent wash behind the accent glyph; VoiceOver hears a switch.
+            button.onStyle = .quiet
+            button.togglesOnClick = true
+        }
         addSubview(button)
         buttons[action] = button
         return button
@@ -174,7 +183,13 @@ final class ReaderHeaderView: NSView {
         case .forward: return (Quire.Icon.forward, "Forward", "Forward  F")
         case .continueEditing: return (Quire.Icon.compose, "Continue Editing", "Continue Editing  ↩")
         case .discardDraft: return (Quire.Icon.discardDraft, "Discard Draft", "Discard Draft…  #")
+        case .readerMode: return (Quire.Icon.readerMode, "Reader Mode", "Reader Mode  ⇧⌘R")
         }
+    }
+
+    /// The button drawn for `action`, nil until it was first shown (tests read its state).
+    func button(for action: ReaderActionSet.Action) -> QuireIconButton? {
+        buttons[action]
     }
 
     @objc private func actionPressed(_ sender: QuireIconButton) {
@@ -201,11 +216,13 @@ final class ReaderHeaderView: NSView {
         super.layout()
         let metrics = Quire.Layout.ReaderHeader.self
         let column = ReaderColumn.frame(readerWidth: bounds.width)
-        // Groups from the trailing edge, 14 pt apart: the reply group, then the first. The calendar's toggle is never
-        // here, among the message's actions: it stays at the window's trailing edge (§5.54).
+        // Groups from the trailing edge, 14 pt apart: the reply group, the first, then reader mode's toggle while it is
+        // offered (§5.59). The calendar's toggle is never here, among the message's actions: it stays at the window's
+        // trailing edge (§5.54).
         var x = bounds.width - metrics.actionsTrailing
         var firstActionX = x
-        let groups = [content.actions.replies.compactMap { buttons[$0] }, content.actions.primary.compactMap { buttons[$0] }]
+        let groups = [content.actions.replies.compactMap { buttons[$0] }, content.actions.primary.compactMap { buttons[$0] },
+                      content.actions.view.compactMap { buttons[$0] }]
         var placedGroup = false
         for group in groups where !group.isEmpty {
             if placedGroup { x -= metrics.actionGroupGap - metrics.actionGap }

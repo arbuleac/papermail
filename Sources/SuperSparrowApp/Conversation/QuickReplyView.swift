@@ -1195,10 +1195,20 @@ private final class QuickReplyTextView: NSTextView {
 
     /// ⌘↩, ⇧⌘↩ and ⇧⌘L are taken here, before the main menu sees them: a menu item carrying one (the composer's hidden
     /// Send, Send and Archive and Send Later…) claims the key even while it is hidden or disabled, so `keyDown` would
-    /// never get it.
+    /// never get it. ⇧⌘R too: while the reply is typed in it opens the composer, though View › Reader Mode carries it
+    /// (§5.59, §6).
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, sendKey(event) { return true }
+        if window?.firstResponder === self, isOpenInComposerKey(event) {
+            onOpenInComposer?()
+            return true
+        }
         return super.performKeyEquivalent(with: event)
+    }
+
+    private func isOpenInComposerKey(_ event: NSEvent) -> Bool {
+        ReaderShortcuts.chord(event.modifierFlags.rawValue) == ReaderShortcuts.shift | ReaderShortcuts.command
+            && event.charactersIgnoringModifiers?.lowercased() == "r"
     }
 
     /// ⌘↩ sends as Send does, ⇧⌘↩ sends and archives, ⇧⌘L shows Send Later's times (§5.23); false for any other key.
@@ -1224,7 +1234,7 @@ private final class QuickReplyTextView: NSTextView {
         defer { handlingRepeat = false }
         if sendKey(event) { return }
         let chord = ReaderShortcuts.chord(event.modifierFlags.rawValue)
-        if chord == ReaderShortcuts.shift | ReaderShortcuts.command, event.charactersIgnoringModifiers?.lowercased() == "r" {
+        if isOpenInComposerKey(event) {
             onOpenInComposer?()
             return
         }

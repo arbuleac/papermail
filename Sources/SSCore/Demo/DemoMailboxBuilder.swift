@@ -73,7 +73,9 @@ struct DemoMailboxBuilder {
         }
         // The mail naming a time comes last, so every message before it keeps the id it had before there was one.
         let timeMails = DemoCalendar.timeMails(for: profile, reference: reference)
-        let filled = profile.messageCount - timeMails.count
+        // Reader mode's conversation takes the last filler messages' place, so the mail naming a time keeps its ids.
+        let readerSample = isGmail ? 3 : 0
+        let filled = profile.messageCount - timeMails.count - readerSample
         var toggle = false
         while records.count < filled {
             let remaining = filled - records.count
@@ -84,6 +86,7 @@ struct DemoMailboxBuilder {
                 addShortThread(people: people, maxLength: remaining)
             }
         }
+        if readerSample > 0 { addReaderSample() }
         for mail in timeMails { addTimeMail(mail) }
         return records
     }
@@ -191,17 +194,20 @@ struct DemoMailboxBuilder {
         section: InboxSection,
         bulk: Bool,
         previous: [String],
-        html: String,
-        text: String,
+        html: String?,
+        text: String?,
         attachments: [AttachmentInfo],
         listUnsubscribe: String? = nil,
-        calendar: String? = nil
+        calendar: String? = nil,
+        snippet words: String? = nil
     ) {
         let fromMe = from.address == profile.email
         var roles: Set<MailboxRole> = []
         if fromMe { roles.insert(.sent) } else if inInbox { roles.insert(.inbox) }
         let flags = labels(roles: roles, read: read, starred: starred, section: section, bulk: bulk)
-        let newText = text.components(separatedBy: "\n\nOn ").first ?? text
+        // HTML alone names the words its snippet shows, as a provider reads them from the HTML.
+        let source = words ?? text ?? ""
+        let newText = source.components(separatedBy: "\n\nOn ").first ?? source
         let snippet = String(newText.replacingOccurrences(of: "\n", with: " ").prefix(160))
         let metadata = MessageMetadata(
             id: id,
@@ -223,7 +229,7 @@ struct DemoMailboxBuilder {
             labelIDs: flags.labels,
             folderID: flags.folder,
             providerVersion: "1",
-            sizeBytes: html.utf8.count + attachments.reduce(0) { $0 + $1.sizeBytes },
+            sizeBytes: (html ?? text ?? "").utf8.count + attachments.reduce(0) { $0 + $1.sizeBytes },
             listUnsubscribe: listUnsubscribe,
             listUnsubscribePost: listUnsubscribe == nil ? nil : UnsubscribeMethod.oneClickPostValue
         )
@@ -240,6 +246,43 @@ struct DemoMailboxBuilder {
             section: .focused, bulk: false, previous: [], html: rendered.html, text: rendered.text, attachments: [],
             calendar: invitation.calendar
         )
+    }
+
+    /// `DemoReaderSample`: plain text, HTML with its text part, then HTML alone quoting the rest, all unread but Alex's.
+    private mutating func addReaderSample() {
+        let conversation = nextConversation()
+        let theo = DemoCatalog.theo.email
+        let me = profile.me
+        let start = reference.addingTimeInterval(-DemoReaderSample.daysAgo * 86_400)
+        let dates = [start, start.addingTimeInterval(52 * 60), start.addingTimeInterval(3 * 3_600)]
+        let subject = DemoReaderSample.subject
+        var references: [String] = []
+        let (notesID, notesInternetID) = nextIDs()
+        append(id: notesID, internetID: notesInternetID, conversation: conversation, subject: subject, from: theo, to: [me],
+               date: dates[0], inInbox: true, read: false, starred: false, section: .focused, bulk: false, previous: references,
+               html: nil, text: DemoReaderSample.notes, attachments: [])
+        references.append(notesInternetID)
+        let notesHTML = DemoReaderSample.notes.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "<div>\($0.isEmpty ? "<br>" : DemoHTML.escape(String($0)))</div>" }.joined()
+        let question = DemoHTML.personal(
+            text: DemoReaderSample.question, style: .gmail,
+            quoted: DemoHTML.Quoted(from: theo, to: me, date: dates[0], subject: subject, fragment: notesHTML, text: DemoReaderSample.notes),
+            inlineImageCID: nil)
+        let (questionID, questionInternetID) = nextIDs()
+        append(id: questionID, internetID: questionInternetID, conversation: conversation, subject: "Re: " + subject, from: me,
+               to: [theo], date: dates[1], inInbox: true, read: true, starred: false, section: .focused, bulk: false,
+               previous: references, html: question.html, text: question.text, attachments: [])
+        references.append(questionInternetID)
+        let answer = DemoHTML.personal(
+            text: DemoReaderSample.answer, style: .outlook,
+            quoted: DemoHTML.Quoted(from: me, to: theo, date: dates[1], subject: "Re: " + subject, fragment: question.fragment,
+                                    text: question.text),
+            inlineImageCID: nil)
+        let (answerID, answerInternetID) = nextIDs()
+        append(id: answerID, internetID: answerInternetID, conversation: conversation, subject: "Re: " + subject, from: theo,
+               to: [me], date: dates[2], inInbox: true, read: false, starred: false, section: .focused, bulk: false,
+               previous: references, html: answer.html, text: nil, attachments: [],
+               snippet: DemoReaderSample.answer)
     }
 
     /// A recent mail whose words name a time, which the calendar marks once its body is stored (`MailTimeDetector`).

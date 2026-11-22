@@ -60,4 +60,24 @@ final class ReaderActionSetTests: XCTestCase {
         let inTrash = Set_.make(.one(view: .trash, inTrash: true, emptied: true, starred: false, replyAllAvailable: true))
         XCTAssertTrue(inTrash.all.allSatisfy { !inTrash.isEnabled($0) }, "in Trash every action is disabled")
     }
+
+    // MARK: Reader mode (spec §5.59)
+
+    /// Offered, reader mode's toggle is a group of its own before the first, on as reader mode is, and never disabled with
+    /// the rest: it is global, so it answers with nothing selected too. Not offered, the set is exactly as before.
+    func testReaderModesToggleLeadsWhileOffered() {
+        let one = Set_.make(.one(view: .inbox, inTrash: false, emptied: false, starred: false, replyAllAvailable: true))
+        XCTAssertEqual(one.offeringReaderMode(nil), one, "not offered: nothing changes")
+        let offered = one.offeringReaderMode(true)
+        XCTAssertEqual(offered.view, [.readerMode])
+        XCTAssertEqual(offered.all, [.readerMode, .star, .archive, .trash, .reply, .replyAll, .forward])
+        XCTAssertTrue(offered.readerModeOn)
+        XCTAssertFalse(one.offeringReaderMode(false).readerModeOn)
+        let nothing = Set_.make(.nothing).offeringReaderMode(false)
+        XCTAssertTrue(nothing.isEnabled(.readerMode), "global: it works with nothing selected")
+        XCTAssertFalse(nothing.isEnabled(.star))
+        let emptied = Set_.make(.one(view: .inbox, inTrash: false, emptied: true, starred: false, replyAllAvailable: true)).offeringReaderMode(true)
+        XCTAssertTrue(emptied.isEnabled(.readerMode))
+        XCTAssertEqual(Set_.make(.outbox(continues: false)).offeringReaderMode(true).all, [.readerMode])
+    }
 }

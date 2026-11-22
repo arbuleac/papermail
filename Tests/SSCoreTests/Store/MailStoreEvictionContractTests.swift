@@ -253,3 +253,42 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.body(for: id("a1"))?.plainText, "alpha again")
     }
 }
+
+/// Reader mode's read of an evicted body (spec §5.59): `keptBody(for:)` answers with what the eviction kept (plain text,
+/// attachment list, design facts) where `body(for:)` answers nil, so the reader shows the text without waiting for the
+/// download.
+extension MailStoreContractTests {
+    func testAKeptBodyIsWhatTheEvictionLeft() throws {
+        let old = date(-540 * 86_400)
+        let file = AttachmentInfo(id: "a1", filename: "plan.pdf", mimeType: "application/pdf", sizeBytes: 2_048, isInline: false)
+        let oldID = MessageID(accountID: accountA, providerID: "old")
+        let newID = MessageID(accountID: accountA, providerID: "new")
+        try store.upsertMessages([message("old", in: "c1", date: old), message("new", in: "c2", date: date(0))])
+        let whole = StoredBody(body: MessageBody(html: "<p>Plan <b>attached</b></p>", text: "Plan attached", attachments: [file]),
+                               renderedHTML: "<div class=\"ss-body\"><p>Plan <b>attached</b></p></div>", plainText: "Plan attached",
+                               hasQuotedContent: false, blockedRemoteImageCount: 2, typesetting: .styled, declaresColors: true,
+                               coveredByNewYork: true)
+        try store.saveBody(whole, for: oldID)
+        try store.saveBody(body("noon"), for: newID)
+        XCTAssertEqual(try store.keptBody(for: oldID), whole, "a whole body reads whole")
+
+        try store.evictBodies(receivedBefore: date(-90 * 86_400), excluding: [], limit: 10)
+        XCTAssertNil(try store.body(for: oldID))
+        let kept = try XCTUnwrap(try store.keptBody(for: oldID))
+        XCTAssertEqual(kept.plainText, "Plan attached")
+        XCTAssertEqual(kept.body.attachments, [file])
+        XCTAssertNil(kept.body.html, "no source")
+        XCTAssertNil(kept.body.text)
+        XCTAssertEqual(kept.renderedHTML, "", "no rendered HTML")
+        XCTAssertNil(kept.invitation)
+        XCTAssertEqual(kept.typesetting, .styled, "the design facts stay")
+        XCTAssertEqual(kept.declaresColors, true)
+        XCTAssertEqual(kept.coveredByNewYork, true)
+        XCTAssertEqual(kept.blockedRemoteImageCount, 2)
+        XCTAssertEqual(try store.keptBody(for: newID)?.plainText, "noon")
+        XCTAssertNil(try store.keptBody(for: MessageID(accountID: accountA, providerID: "unknown")), "no row, nothing kept")
+
+        try store.saveBody(whole, for: oldID)
+        XCTAssertEqual(try store.keptBody(for: oldID), whole, "fetched again, whole again")
+    }
+}

@@ -261,6 +261,12 @@ enum MainMenu {
         menu.addItem(item("Load Images", #selector(MainWindowController.loadImages(_:)), "i", [.command, .shift], symbol: Quire.Icon.loadImages))
         menu.addItem(item("Original Colors", #selector(MainWindowController.toggleOriginalColors(_:)), "o", [.command, .shift],
                           symbol: Quire.Icon.originalColors))
+        // Reader mode (§5.59), listed only while Settings › Experimental offers it (MainMenuController); hidden, its key
+        // does nothing, and the quick reply keeps ⇧⌘R for Open in Composer while it is typed in.
+        let reader = item(readerModeTitle, #selector(MainWindowController.toggleReaderMode(_:)), "r", [.command, .shift],
+                          symbol: Quire.Icon.readerMode)
+        reader.isHidden = true
+        menu.addItem(reader)
         menu.addItem(item("Show Quoted Text", #selector(MainWindowController.toggleQuotedText(_:)), ".", [], symbol: Quire.Icon.quotedText))
         menu.addItem(.separator())
         // The day column and the week (§5.54), retitled by what shows (Hide Day, Show Week, Previous Week…).
@@ -282,6 +288,8 @@ enum MainMenu {
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu
     }
+
+    static let readerModeTitle = "Reader Mode"
 
     /// The Message menu holds the main window's commands, or a composer's when a composer is key (§5.35).
     private static func messageMenu() -> (menu: NSMenu, mainWindow: [NSMenuItem], composer: [NSMenuItem]) {
@@ -457,6 +465,11 @@ final class MainMenuController: NSObject, NSMenuDelegate {
     private var observers: [NSObjectProtocol] = []
 
     private weak var editMenu: NSMenu?
+    private weak var readerModeItem: NSMenuItem?
+    /// Whose gate lists View › Reader Mode: the app's settings, or a test's throwaway ones.
+    var readerModeSettings: AppSettings = .shared {
+        didSet { showReaderMode() }
+    }
 
     init(mainWindowItems: [NSMenuItem], composerItems: [NSMenuItem], formatItem: NSMenuItem, viewMenu: NSMenu, editMenu: NSMenu? = nil,
          appDelegate: AppDelegate) {
@@ -468,13 +481,27 @@ final class MainMenuController: NSObject, NSMenuDelegate {
         super.init()
         viewMenu.delegate = self
         editMenu?.delegate = self
+        readerModeItem = viewMenu.items.first { $0.action == #selector(MainWindowController.toggleReaderMode(_:)) }
         let center = NotificationCenter.default
+        // Its key must stop working the moment the gate closes, not when the menu next opens: a hidden item has none.
+        observers.append(center.addObserver(forName: AppSettings.readerModeChanged, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, note.object as AnyObject? === self.readerModeSettings else { return }
+                self.showReaderMode()
+            }
+        })
+        showReaderMode()
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { MainMenuController.shared?.updateForKeyWindow() }
             })
         }
         updateForKeyWindow()
+    }
+
+    /// View › Reader Mode is listed while Settings › Experimental offers reader mode (§5.59).
+    func showReaderMode() {
+        readerModeItem?.isHidden = !readerModeSettings.offersReaderMode
     }
 
     func updateForKeyWindow() {

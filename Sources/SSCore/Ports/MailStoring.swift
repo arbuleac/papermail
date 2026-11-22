@@ -70,6 +70,10 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool
     /// The stored body; nil when there is none or it was evicted (`evictBodies`), which both mean "fetch it".
     func body(for id: MessageID) throws -> StoredBody?
+    /// The stored body as it is kept, evicted or not; nil when there is none. An evicted body (`evictBodies`) comes back as
+    /// the eviction left it: no source, rendered HTML or invitation, but its plain text, attachment list and design facts.
+    /// What reader mode shows of an evicted body while the download that brings the rest back runs (spec §5.59).
+    func keptBody(for id: MessageID) throws -> StoredBody?
     /// The invitation the stored body carries (`StoredBody.invitation`), nil without one or when the body was evicted:
     /// what the calendar looks for on every selection, read without decompressing the body (the default reads it whole).
     func invitation(for id: MessageID) throws -> CalendarInvitation?
@@ -305,6 +309,12 @@ extension MailStoring {
     public func returnDueSnoozes(at now: Date, limit: Int,
                                  operations: (ConversationID, [MessageMetadata]) -> [Operation]) throws -> [ConversationID] {
         try returnDueSnoozes(at: now, dueBy: [:], limit: limit, operations: operations)
+    }
+
+    /// The body `body(for:)` reads, for a store that keeps nothing of an evicted body (the test doubles that wrap a real
+    /// store); both stores override it with the evicted row.
+    public func keptBody(for id: MessageID) throws -> StoredBody? {
+        try body(for: id)
     }
 
     /// The whole body's invitation, for a store that cannot read it alone (the test doubles that wrap a real store);

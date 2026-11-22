@@ -285,16 +285,15 @@ enum MessageTable {
     }
 
     /// Nil for an evicted body as for a missing one: either way the reader fetches it (`MailClient.ensureBody`).
-    static func body(for id: MessageID, in db: Database) throws -> StoredBody? {
-        let statement = try db.cachedStatement(sql: """
-            SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
-                   typesetting, declares_colors, covered_by_new_york, invitation_json FROM bodies
-            WHERE account_id = ? AND provider_id = ? AND evicted = 0
-            """)
+    /// `evictedToo` reads an evicted row as it is kept (`keptBody(for:)`): its NULL source and empty rendered HTML read
+    /// as none.
+    static func body(for id: MessageID, evictedToo: Bool = false, in db: Database) throws -> StoredBody? {
+        let statement = try db.cachedStatement(sql: evictedToo ? keptBodySQL : bodySQL)
         guard let row = try Row.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
         let html: Data? = row[0]
         let text: Data? = row[1]
         let rendered: Data = row[2]
+        let evicted: Bool = row[11]
         let attachmentsJSON: String = row[4]
         let invitationJSON: String? = row[10]
         return StoredBody(
@@ -303,7 +302,7 @@ enum MessageTable {
                 text: try text.map(MailStoreCodec.decompress),
                 attachments: try MailStoreCodec.decode([AttachmentInfo].self, from: attachmentsJSON)
             ),
-            renderedHTML: try MailStoreCodec.decompress(rendered),
+            renderedHTML: evicted ? "" : try MailStoreCodec.decompress(rendered),
             plainText: row[3],
             hasQuotedContent: row[5],
             blockedRemoteImageCount: row[6],
@@ -315,6 +314,17 @@ enum MessageTable {
             invitation: invitationJSON.flatMap { try? MailStoreCodec.decode(CalendarInvitation.self, from: $0) }
         )
     }
+
+    private static let bodySQL = """
+        SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
+               typesetting, declares_colors, covered_by_new_york, invitation_json, evicted FROM bodies
+        WHERE account_id = ? AND provider_id = ? AND evicted = 0
+        """
+    private static let keptBodySQL = """
+        SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
+               typesetting, declares_colors, covered_by_new_york, invitation_json, evicted FROM bodies
+        WHERE account_id = ? AND provider_id = ?
+        """
 
     /// `body(for:in:)`'s invitation alone, as it reads it (nil for an evicted body, nothing for one that no longer
     /// decodes): one short text column, none of the compressed ones.
