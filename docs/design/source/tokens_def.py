@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.15.0"
+VERSION = "1.16.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -494,6 +494,8 @@ ICON = {
  "loginApproval": "info.circle", "notificationsOff": "bell.slash",
  # Help me write (§5.56): the Edit menu items and the Write control; the AI tab of Settings (§5.40).
  "helpMeWrite": "pencil.line", "aiTab": "text.bubble", "stopWriting": "stop.circle",
+ # Settings › Experimental (§5.58): features still taking shape.
+ "experimentalTab": "flask",
  "mute": "bell.slash", "unmute": "bell", "blockSender": "hand.raised", "alwaysArchiveSender": "archivebox", "removeRule": "minus",
  "download": "arrow.down.circle",
  # day and week (§5.54); `later` and `send` mark Later and Send Later times on it, `warning` an overlap

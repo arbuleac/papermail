@@ -119,7 +119,7 @@ final class AnalyticsTests: XCTestCase {
         let changes: [S.SettingChange] = AppSettings.ListDensity.allCases.map(S.SettingChange.listDensity)
             + [true, false].flatMap { on in
                 [S.SettingChange.accountFaces(on), .remoteImages(on), .notifications(on), .notificationPreviews(on),
-                 .adaptMailColours(on), .launchAtLogin(on)]
+                 .adaptMailColours(on), .launchAtLogin(on), .offerReaderMode(on), .readerMode(on), .blockTrackers(on)]
             }
             + [S.SettingChange.defaultMailApp]
             + ([5, 10, 20, 7, 0, -3, 1e9] as [TimeInterval]).map(S.SettingChange.undoSend)
@@ -592,6 +592,29 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(recorder.sent.map(\.parameters).map { [$0["setting"], $0["value"]] },
                        [["listDensity", "compact"], ["undoSend", "20s"], ["keepMail", "threeMonths"], ["accountFaces", "on"]],
                        "a value set again is no change, and the seventh account's initials are not the user's")
+    }
+
+    /// Settings › Experimental (§5.58): each experiment is sent with its new value only; reader mode moved by its gate is the
+    /// gate's change alone, and a value a snapshot holds in memory is never sent.
+    func testTheExperimentsAreSentWithTheirNewValueOnly() throws {
+        try startAnalytics()
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        settings.offersReaderMode = true
+        settings.readerModeOn = false
+        settings.readerModeOn = true
+        settings.offersReaderMode = false
+        settings.blocksTrackers = true
+        settings.blocksTrackers = true
+        XCTAssertEqual(recorder.sent.map(\.parameters).map { [$0["setting"], $0["value"]] },
+                       [["offerReaderMode", "on"], ["readerMode", "off"], ["readerMode", "on"], ["offerReaderMode", "off"],
+                        ["blockTrackers", "on"]])
+
+        let held = AppSettings(defaults: try throwawayDefaults())
+        held.keepsExperimentsInMemory = true
+        held.offersReaderMode = true
+        held.readerModeOn = false
+        held.blocksTrackers = true
+        XCTAssertEqual(recorder.sent.count, 5, "a snapshot's held values are never sent")
     }
 
     func testTheLaunchSaysHowTheAppLooksAndHowManyAccountsOfEachKind() throws {

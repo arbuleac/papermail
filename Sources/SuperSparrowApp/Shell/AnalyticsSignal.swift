@@ -249,10 +249,16 @@ enum AnalyticsSignal: Equatable, Sendable {
         case launchAtLogin(Bool)
         /// Mail links: SuperSparrow became the default mail app. Only on: the app cannot hand the role back.
         case defaultMailApp
+        /// Settings › Experimental (§5.58): Offer reader mode; reader mode itself, from the reader (never when its gate moved
+        /// it); Block trackers.
+        case offerReaderMode(Bool)
+        case readerMode(Bool)
+        case blockTrackers(Bool)
 
         enum Setting: String, CaseIterable, Sendable {
             case listDensity, accountFaces, undoSend, remoteImages, notifications, notificationPreviews, keepMail, theme
             case appearance, font, textSize, adaptMailColours, sendAction, launchAtLogin, defaultMailApp
+            case offerReaderMode, readerMode, blockTrackers
         }
 
         var setting: Setting {
@@ -272,6 +278,9 @@ enum AnalyticsSignal: Equatable, Sendable {
             case .sendAction: return .sendAction
             case .launchAtLogin: return .launchAtLogin
             case .defaultMailApp: return .defaultMailApp
+            case .offerReaderMode: return .offerReaderMode
+            case .readerMode: return .readerMode
+            case .blockTrackers: return .blockTrackers
             }
         }
 
@@ -280,7 +289,8 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch self {
             case .listDensity(let density): return density.rawValue
             case .accountFaces(let on), .remoteImages(let on), .notifications(let on), .notificationPreviews(let on),
-                 .adaptMailColours(let on), .launchAtLogin(let on):
+                 .adaptMailColours(let on), .launchAtLogin(let on), .offerReaderMode(let on), .readerMode(let on),
+                 .blockTrackers(let on):
                 return Toggle(on).rawValue
             case .defaultMailApp: return Toggle.on.rawValue
             case .undoSend(let seconds): return Self.undoSendValue(seconds)
@@ -302,7 +312,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         static func values(of setting: Setting) -> [String] {
             switch setting {
             case .listDensity: return AppSettings.ListDensity.allCases.map(\.rawValue)
-            case .accountFaces, .remoteImages, .notifications, .notificationPreviews, .adaptMailColours, .launchAtLogin:
+            case .accountFaces, .remoteImages, .notifications, .notificationPreviews, .adaptMailColours, .launchAtLogin,
+                 .offerReaderMode, .readerMode, .blockTrackers:
                 return Toggle.allCases.map(\.rawValue)
             case .defaultMailApp: return [Toggle.on.rawValue]
             case .undoSend: return AppSettings.undoSendChoices.map(undoSendValue) + ["other"]

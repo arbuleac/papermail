@@ -121,7 +121,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 |---|---|---|
 | `App.launched` | Once a launch, when the first main window is on screen. Its number is the launch's seconds. | `launchTime`, `gmailAccounts`, `microsoftAccounts`, `theme`, `appearance`, `density`, `textSize`, `font` |
 | `Settings.opened` | The Settings window opens. | none |
-| `Settings.changed` | A setting changes, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows); At login and Mail links once macOS has done what was asked. A value set again is no change. | `setting`, `value` |
+| `Settings.changed` | A setting changes, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows); At login and Mail links once macOS has done what was asked. A value set again is no change, and reader mode turned on or off with its experiment (Settings › Experimental) is that toggle's change alone. | `setting`, `value` |
 | `Mail.action` | Archive, Move to Trash, Mark as Spam, Move to Inbox, Star, Mark as Read or Unread, Later, Mute, Unsubscribe, Always Archive or Block a sender, from any window. | `action`, `trigger`, `conversations` |
 | `Compose.started` | A composer window opens: New Message, Reply, Reply All, Forward, a kept draft opened again (Continue Editing, or Reply or Forward on a conversation whose reply or forward was kept), a mail link, the Services menu. A composer already open and only brought forward is none, nor a send undone and reopened (that is `Compose.sendUndone`). | `kind`, `origin`, `trigger` (the app's own ways in only) |
 | `Compose.sent` | A composer's message goes to the outbox (its Undo window still to run). | `kind`, `archives` |
@@ -156,7 +156,7 @@ Every value a parameter can take:
 | `density` | `standard`, `compact` |
 | `textSize` | `small`, `default`, `large`, `larger` |
 | `font` | `newYork`, `sfPro` |
-| `setting` | `listDensity`, `accountFaces`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp` |
+| `setting` | `listDensity`, `accountFaces`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp`, `offerReaderMode`, `readerMode`, `blockTrackers` |
 | `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off` (Mail links only `on`: the app cannot hand the role back); `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send` |
 | `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
 | `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar), `swipe`, `drag` (rows dropped on a rail folder or the calendar, files or a message's attachments dropped on the quick reply), `click` (a double-click), `rail` (a click on the account rail), `toast`, `notification` |

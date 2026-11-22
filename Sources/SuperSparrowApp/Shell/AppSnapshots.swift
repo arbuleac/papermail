@@ -53,8 +53,9 @@ enum AppSnapshots {
     /// The mailbox size Settings › General shows in a snapshot, so the render never depends on the Mac's mail.
     static let mailboxSize: @Sendable () -> Int64 = { 292_000_000 }
 
-    /// Accounts, OAuth, General, Appearance and AI, one under the other. AI shows Claude with a key and the permission
-    /// given, held for the render without writing the user's settings or reading their Keychain.
+    /// Accounts, OAuth, General, Appearance, AI and Experimental, one under the other. AI shows Claude with a key and the
+    /// permission given, held for the render without writing the user's settings or reading their Keychain; Experimental
+    /// shows its toggles as they are, off unless the user turned them on.
     static func renderSettingsTabs(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
         let ai = controller.ai
@@ -64,20 +65,23 @@ enum AppSnapshots {
                 ai.showForSnapshot(provider: .claudeAPI, status: .ready("Ready \u{00b7} Claude Opus 5.5"), hasKey: true, hasConsent: true)
                 model.tab = .ai
             },
+            { model.tab = .experimental },
         ]
         render(controller, steps: steps, completion: completion)
     }
 
 
-    /// The Accounts, OAuth, General and AI states of §5.40 that demo mode can show. The OAuth fields are put back before
-    /// the window closes; nothing here saves, Mail links neither asks nor changes which app opens mail links, At login
-    /// neither asks nor changes the Mac's login items, and Notifications' line neither asks nor opens System Settings.
+    /// The Accounts, OAuth, General, AI and Experimental states of §5.40 and §5.58 that demo mode can show. The OAuth fields
+    /// are put back before the window closes; nothing here saves (Experimental's toggles are held on in memory), Mail links
+    /// neither asks nor changes which app opens mail links, At login neither asks nor changes the Mac's login items, and
+    /// Notifications' line neither asks nor opens System Settings.
     static func renderSettingsStates(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
         let defaultMailApp = controller.defaultMailApp
         let launchAtLogin = controller.launchAtLogin
         let notificationPermission = controller.notificationPermission
         let ai = controller.ai
+        let settings = controller.settings
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let accounts = model.accounts
         let original = model.oauth
@@ -124,6 +128,13 @@ enum AppSnapshots {
             { ai.showForSnapshot(provider: .claudeAPI, status: .checking, hasKey: true) },
             { ai.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.notTurnedOnWords), hasKey: true,
                                  hasConsent: false) },
+            // Experimental (§5.58) with both experiments on, held for the run: never saved, never reported.
+            {
+                settings.keepsExperimentsInMemory = true
+                settings.offersReaderMode = true
+                settings.blocksTrackers = true
+                model.tab = .experimental
+            },
         ]
         render(controller, steps: steps) { bitmap in
             model.oauth = original

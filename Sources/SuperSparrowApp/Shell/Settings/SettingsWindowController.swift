@@ -4,8 +4,8 @@ import SSCore
 import SSDesign
 import SwiftUI
 
-/// The Settings window (spec §5.40): a system window with the toolbar tab style (Accounts, OAuth, General, Appearance, AI),
-/// 560 pt wide on `canvas`, as tall as the current tab's content. Everything inside a tab is Quire-drawn
+/// The Settings window (spec §5.40): a system window with the toolbar tab style (Accounts, OAuth, General, Appearance, AI,
+/// Experimental), 560 pt wide on `canvas`, as tall as the current tab's content. Everything inside a tab is Quire-drawn
 /// SwiftUI; the toolbar and its tabs are the system's. A theme switch reaches all of it in place: each tab redraws under
 /// its `QuireThemeRoot`, and the environment's redraw sweep assigns the window's `canvas` again.
 @MainActor
@@ -21,6 +21,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let mailboxSize: MailboxSizeModel
     /// Settings › AI: Help Me Write's provider, key or CLI, model and permission.
     let ai: AISettingsModel
+    /// What every tab reads and writes; the snapshots hold Settings › Experimental's values on through it, in memory.
+    let settings: AppSettings
     private let environment: AppEnvironment
     private let tabs: SettingsTabViewController
     private var statusObservation: StoreObservation?
@@ -34,6 +36,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     init(environment: AppEnvironment, settings: AppSettings, mailtoHandler: MailtoDefaultHandling, loginItem: LoginItemHandling,
          notifications: NotificationPermissionHandling? = nil, measureMailbox: (@Sendable () -> Int64)? = nil) {
         self.environment = environment
+        self.settings = settings
         model = SettingsModel(isDemo: environment.isDemo, oauthFileURL: environment.clientConfigurations.fileURL)
         defaultMailApp = DefaultMailAppModel(handler: mailtoHandler)
         launchAtLogin = LaunchAtLoginModel(handler: loginItem)
@@ -185,6 +188,7 @@ final class SettingsTabViewController: NSTabViewController {
         // Appended, so no tab a user knows moves.
         addTab(AppearanceSettingsView(settings: settings), title: "Appearance", symbol: Quire.Icon.appearanceTab)
         addTab(AISettingsView(model: ai), title: "AI", symbol: Quire.Icon.aiTab)
+        addTab(ExperimentalSettingsView(settings: settings), title: "Experimental", symbol: Quire.Icon.experimentalTab)
         selectedTabViewItemIndex = Self.index(of: model.tab)
         tabObservation = model.$tab.removeDuplicates().sink { [weak self] tab in
             MainActor.assumeIsolated { self?.select(tab) }
@@ -214,6 +218,7 @@ final class SettingsTabViewController: NSTabViewController {
         case .general: return 2
         case .appearance: return 3
         case .ai: return 4
+        case .experimental: return 5
         }
     }
 
@@ -223,6 +228,7 @@ final class SettingsTabViewController: NSTabViewController {
         case 2: return .general
         case 3: return .appearance
         case 4: return .ai
+        case 5: return .experimental
         default: return .accounts
         }
     }
