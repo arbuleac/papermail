@@ -1,3 +1,4 @@
+import GRDB
 import XCTest
 @testable import PaperCore
 
@@ -70,6 +71,45 @@ extension MailStoreContractTests {
         ])
         XCTAssertEqual(try inboxIDs("zoë@exämple.test"), ["B:z2", "A:z1"], "without its accents an address is another one")
         XCTAssertEqual(try inboxIDs("+-+@!!"), ["A:m1"])
+    }
+
+    /// Letters whose case Unicode settled after 6.1, whose tables unicode61 folds with: Cherokee is written in what
+    /// Unicode 8 made capitals, Georgian Mtavruli (11.0) are the capitals of the old Mkhedruli, Adlam and Greek yot came
+    /// later, and New Tai Lue's vowel signs were marks in 6.1. The SQLite store's phrase missed every one of them.
+    func testAnAddressWhoseCaseUnicodeSettledAfterTheIndexIsFoundInEveryCase() throws {
+        try store.upsertMessages([
+            message("c1", in: "c1", from: EmailAddress(address: "ᏣᎳᎩ@example.com"), date: date(10)),
+            message("c2", in: "c2", account: accountB, from: EmailAddress(address: "ꮳꮃꭹ@example.com"), date: date(20)),
+            message("g1", in: "g1", from: EmailAddress(address: "ᲒᲘᲝᲠᲒᲘ@example.ge"), date: date(30)),
+            message("g2", in: "g2", from: EmailAddress(address: "გიორგი@example.ge"), date: date(40)),
+            message("d1", in: "d1", from: EmailAddress(address: "𞤀𞤁@example.com"), date: date(50)),
+            message("y1", in: "y1", from: EmailAddress(address: "Ϳ@example.gr"), date: date(60)),
+            message("n1", in: "n1", from: EmailAddress(address: "ᦰᦱ@example.com"), date: date(70)),
+            message("o1", in: "o1", from: EmailAddress(address: "other@example.com"), date: date(80)),
+        ])
+        XCTAssertEqual(try inboxIDs("ᏣᎳᎩ@example.com"), ["B:c2", "A:c1"])
+        XCTAssertEqual(try inboxIDs("ꮳꮃꭹ@example.com"), ["B:c2", "A:c1"])
+        XCTAssertEqual(try inboxIDs("გიორგი@example.ge"), ["A:g2", "A:g1"])
+        XCTAssertEqual(try inboxIDs("ᲒᲘᲝᲠᲒᲘ@EXAMPLE.GE"), ["A:g2", "A:g1"])
+        XCTAssertEqual(try inboxIDs("𞤢𞤣@example.com"), ["A:d1"])
+        XCTAssertEqual(try inboxIDs("ϳ@example.gr"), ["A:y1"])
+        XCTAssertEqual(try inboxIDs("ᦰᦱ@example.com"), ["A:n1"])
+    }
+
+    /// JSON keeps a NUL in a From, and `message(_:)` decodes it whole; the read takes the From out of the JSON in SQL and
+    /// must not cut it at the NUL, nor miss an address holding one.
+    func testAFromHoldingANulIsReadWhole() throws {
+        let named = EmailAddress(name: "Evil\u{0}Name", address: "nul@x.com")
+        let inAddress = EmailAddress(address: "nul\u{0}tail@x.com")
+        try store.upsertMessages([
+            message("n1", in: "n1", from: named, date: date(10)),
+            message("n2", in: "n2", from: inAddress, date: date(20)),
+        ])
+        let found = try store.inboxMessages(from: "nul@x.com")
+        XCTAssertEqual(found.first?.from, named)
+        XCTAssertEqual(found, [try XCTUnwrap(try store.message(MessageID(accountID: accountA, providerID: "n1")))])
+        XCTAssertEqual(try inboxIDs("nul\u{0}tail@x.com"), ["A:n2"])
+        XCTAssertEqual(try store.inboxMessages(from: "nul\u{0}tail@x.com").first?.from, inAddress)
     }
 
     func testAMessageThatLeavesTheInboxOrChangesSenderLeavesTheRead() throws {
@@ -207,6 +247,69 @@ final class SQLiteSenderInboxTests: XCTestCase {
                       "\(walk)")
         XCTAssertTrue(walk.contains { $0.contains("messages_by_conversation") }, "\(walk)")
         XCTAssertFalse(walk.contains { $0.hasPrefix("SCAN") }, "\(walk)")
+        // So does one the index cannot fold as Foundation lowercases it.
+        for address in ["ᏣᎳᎩ@example.com", "გიორგი@example.ge"] {
+            XCTAssertTrue(try store.inboxMessagesQueryPlan(from: address).contains { $0.contains("conversations_inbox") }, address)
+        }
+        for address in ["иван@пример.рф", "αλέξης@παράδειγμα.gr", "山田@例え.jp", "i̇lker@x.tr"] {
+            XCTAssertTrue(try store.inboxMessagesQueryPlan(from: address).contains { $0.contains("VIRTUAL TABLE INDEX") }, address)
+        }
+    }
+
+    /// Every capital Foundation lowercases, in an address (`q<capital>z@t.test`): either unicode61's phrase for the
+    /// lowercased address finds it, or `indexFoldsLikeLowercasing` sends the read to walk the Inbox; and the walk is taken
+    /// only where the phrase would miss. Measured against the tokenizer itself, with `message_fts`'s options.
+    func testTheReadWalksExactlyWhereTheIndexFoldsOtherwise() throws {
+        let capitals = (UInt32(0)...0x10FFFF).compactMap(Unicode.Scalar.init).filter(\.properties.changesWhenLowercased)
+        XCTAssertGreaterThan(capitals.count, 1_000)
+        let queue = try DatabaseQueue()
+        try queue.write { db in
+            try db.execute(sql: "CREATE VIRTUAL TABLE t USING fts5(x, tokenize='unicode61 remove_diacritics 2')")
+            for (index, capital) in capitals.enumerated() {
+                try db.execute(sql: "INSERT INTO t(rowid, x) VALUES (?, ?)", arguments: [index, "q\(Character(capital))z@t.test"])
+            }
+        }
+        var missed: [String] = []
+        var walkedForNothing: [String] = []
+        try queue.read { db in
+            for (index, capital) in capitals.enumerated() {
+                let sender = SenderRule.normalizedAddress("q\(Character(capital))z@t.test")
+                let local = String(sender[..<sender.lastIndex(of: "@")!])
+                let found = try Int64.fetchAll(db, sql: "SELECT rowid FROM t WHERE t MATCH ?",
+                                               arguments: ["x : \"\(FullTextIndex.stringContent(local))\""]).contains(Int64(index))
+                let label = String(format: "U+%04X", capital.value)
+                switch (found, MessageTable.indexFoldsLikeLowercasing(sender)) {
+                case (false, true): missed.append(label)
+                case (true, false): walkedForNothing.append(label)
+                default: break
+                }
+            }
+        }
+        XCTAssertEqual(missed, [], "the phrase would miss these and the read would not walk")
+        XCTAssertEqual(walkedForNothing, [], "the read would walk for these, which the phrase finds")
+    }
+
+    /// `FullTextMatcher.startsToken` reads a scalar as SQLite's unicode61 does where Unicode changed its category after
+    /// 6.1, so both stores split an address (and a search) there alike, and a phrase never ends up with no word.
+    func testScalarsWhoseCategoryChangedSinceTheIndexSplitAsItDoes() throws {
+        let changed: [UInt32] = [0x1885, 0x1886] + Array(0x19B0...0x19C0) + [0x19C8, 0x19C9, 0x1CF2, 0x1CF3, 0xFFFE, 0xFFFF]
+        let neighbours: [UInt32] = [0x1884, 0x1887, 0x19AB, 0x19C1, 0x19C7, 0x19CA, 0x1CF1, 0x1CF4, 0xFFFD, 0x41, 0x300]
+        let queue = try DatabaseQueue()
+        let scalars = (changed + neighbours).compactMap(Unicode.Scalar.init)
+        try queue.write { db in
+            try db.execute(sql: "CREATE VIRTUAL TABLE t USING fts5(x, tokenize='unicode61 remove_diacritics 2')")
+            try db.execute(sql: "CREATE VIRTUAL TABLE v USING fts5vocab(t, 'instance')")
+            for scalar in scalars {
+                try db.execute(sql: "INSERT INTO t(rowid, x) VALUES (?, ?)", arguments: [Int64(scalar.value), "q\(Character(scalar))z"])
+            }
+        }
+        try queue.read { db in
+            for scalar in scalars {
+                let terms = try Int.fetchOne(db, sql: "SELECT count(*) FROM v WHERE doc = ?", arguments: [Int64(scalar.value)]) ?? 0
+                let label = String(format: "U+%04X", scalar.value)
+                XCTAssertEqual(FullTextMatcher.tokens("q\(Character(scalar))z").count, terms, label)
+            }
+        }
     }
 
     /// A rule the store refuses (an account it no longer has) leaves every account's mail as it was: the operations

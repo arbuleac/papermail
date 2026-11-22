@@ -9,7 +9,9 @@ import GRDB
 ///   already carries a mark and a failed operation created after this one (by `created_at`, then `id`) also
 ///   targets it: the mark names the newest failure;
 /// - an operation that is confirmed (`confirmOperation`, or written as `confirmed`) clears the mark of each
-///   conversation it targets, unless a failed operation created after it still targets that conversation;
+///   conversation it targets, unless a failed operation created after it still targets that conversation; so does
+///   a live operation the outbox narrows to the targets still owed, for each conversation it no longer targets,
+///   since the provider took its part there (`targetsTaken`);
 /// - a failure that ends (a failed row deleted, which is how pruning removes it, or written out of `failed`)
 ///   clears the mark of each conversation it targets, unless another failed operation still targets it.
 ///   Failures expire in the order they happened, so one still standing gave up after this one and, if the
@@ -43,6 +45,27 @@ enum FailedOperationMarks {
             return
         }
         try settle(settlement, operationID: operation.id, conversations: conversations(ofOperation: operation.id, in: db), in: db)
+    }
+
+    /// The rules for the targets a live operation dropped because the provider took them (the outbox narrowing it to what
+    /// is still owed): each of `conversations` the operation no longer targets had its part confirmed, and settles as a
+    /// confirmation would. One it still targets waits for the rest, as the conversation's mark does.
+    static func targetsTaken(from operation: Operation, in conversations: [ConversationKey], db: Database) throws {
+        guard !conversations.isEmpty else { return }
+        let stillTargeted = try db.cachedStatement(sql: """
+            SELECT EXISTS (
+                SELECT 1 FROM messages m
+                CROSS JOIN operation_targets t
+                    ON t.operation_id = ? AND t.account_id = m.account_id AND t.provider_id = m.provider_id
+                WHERE m.account_id = ? AND m.conversation_provider_id = ?)
+            """)
+        // The key lookup first: almost no conversation carries a mark.
+        let settled = try conversations.filter { conversation in
+            try hasMark(conversation, in: db)
+                && !(try Bool.fetchOne(stillTargeted, arguments: [operation.id, conversation.accountID, conversation.providerID]) ?? false)
+        }
+        try settle(.confirmed(createdAt: MailStoreCodec.milliseconds(operation.createdAt)), operationID: operation.id,
+                   conversations: settled, in: db)
     }
 
     static func settle(_ settlement: Settlement, operationID: String, conversations: [ConversationKey], in db: Database) throws {

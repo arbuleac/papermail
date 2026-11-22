@@ -1014,15 +1014,17 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let previous = operations[operation.id]?.status
         let targetsBefore = Set(operations[operation.id]?.targets ?? [])
+        let dropped = targetsBefore.subtracting(operation.targets)
         noteQueuedLocked(operation)
         operations[operation.id] = operation
         // A target dropped from the operation (the provider took it) loses its prior with its row, as in SQLite: a
         // give-up never puts back what the provider has.
-        if !targetsBefore.subtracting(operation.targets).isEmpty {
+        if !dropped.isEmpty {
             priors[operation.id] = priors[operation.id]?.filter { operation.targets.contains($0.key) }
         }
         if operation.status == .failed, let previous, previous.isLive { giveBackLocked(operation) }
         operationWrittenLocked(operation, previousStatus: previous)
+        if let previous, previous.isLive, !dropped.isEmpty { targetsTakenLocked(dropped, from: operation) }
         applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))
         notifyAll()
     }
@@ -1155,6 +1157,16 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             case .failureEnded: otherFailureExistsLocked(in: conversation, than: operation)
             }
             guard !standing else { continue }
+            failedMarks[conversation] = nil
+        }
+    }
+
+    /// `FailedOperationMarks.targetsTaken`: the outbox narrowed a live operation to the targets still owed, so the
+    /// provider took the ones it dropped, and each conversation it no longer targets settles as a confirmation would.
+    private func targetsTakenLocked(_ dropped: Set<MessageID>, from operation: Operation) {
+        let kept = conversationsLocked(targetedBy: operation)
+        for conversation in Set(dropped.compactMap { messagesByID[$0]?.conversationID }).subtracting(kept)
+        where failedMarks[conversation] != nil && !newerFailureExistsLocked(in: conversation, than: operation) {
             failedMarks[conversation] = nil
         }
     }

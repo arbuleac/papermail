@@ -468,12 +468,17 @@ struct OperationRunner: Sendable {
         // The drain's share of calls is spent, not an attempt: the rest goes on the next cycle, at once.
         let sent = providerIDs.count - unsent.count
         SyncLog.logger.debug("outbox: sent \(sent, privacy: .public) of \(providerIDs.count, privacy: .public) targets, the rest next cycle")
+        let writtenAhead = narrowed.compactMap(\.nextAttemptAt).min()
+        var persisted = true
         for var operation in narrowed {
             operation.status = .pending
             operation.attempts = max(0, operation.attempts - 1)
             operation.nextAttemptAt = nil
-            save(recorded: operation)
+            if !save(recorded: operation) { persisted = false }
         }
+        // Unwritten, the rows still list what went out and the next drain would send those first calls again, never the
+        // rest: a store that cannot write waits out the write-ahead's backoff instead of being drained again at once.
+        guard persisted else { return .deferred(writtenAhead ?? Date()) }
         return .paused
     }
 
@@ -587,11 +592,15 @@ struct OperationRunner: Sendable {
         }
     }
 
-    private func save(recorded operation: Operation) {
+    /// Whether the store took the write.
+    @discardableResult
+    private func save(recorded operation: Operation) -> Bool {
         do {
             try store.updateOperation(operation)
+            return true
         } catch {
-            SyncLog.logger.error("outbox: could not record failure: \(String(describing: error), privacy: .private)")
+            SyncLog.logger.error("outbox: could not record the attempt: \(String(describing: error), privacy: .private)")
+            return false
         }
     }
 

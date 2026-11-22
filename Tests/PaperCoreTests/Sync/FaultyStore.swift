@@ -15,6 +15,8 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         case finishBackfill
         /// Either form of `enqueue`: one call, whether it carries one operation or several.
         case enqueue
+        /// The outbox writing an operation again: the write-ahead, a narrowing, a backoff, a give-up.
+        case updateOperation
         /// A calendar read's write.
         case replaceCalendarEvents
         case settleCalendarEvent
@@ -279,7 +281,10 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation] {
         try base.pendingOperations(accountID: accountID, limit: limit)
     }
-    func updateOperation(_ operation: Operation) throws { try base.updateOperation(operation) }
+    func updateOperation(_ operation: Operation) throws {
+        try check(.updateOperation)
+        try base.updateOperation(operation)
+    }
     func confirmOperation(id: String) throws { try base.confirmOperation(id: id) }
     func deleteOperation(id: String) throws { try base.deleteOperation(id: id) }
     func acknowledgeFailedOperation(conversationID: ConversationID) throws { try base.acknowledgeFailedOperation(conversationID: conversationID) }

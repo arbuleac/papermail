@@ -4,7 +4,8 @@ import XCTest
 
 /// One drain makes at most `SyncTuning.maxApplyCallsPerDrain` provider calls (docs/ARCHITECTURE.md, "Rules"): an
 /// operation with thousands of targets, as Always Archive makes for a busy sender, goes out over several cycles, narrowed
-/// each time to what is left, so the account's poll and the user's next change never wait behind all of it. Each provider
+/// each time to what is left, so the account's poll and Sync Now never wait behind all of it (the user's next change in
+/// the account waits its turn behind the whole of it: strict order). Each provider
 /// takes as many targets a call as it allows (`MailProvider.maxApplyTargets`): Gmail's `batchModify` 1,000.
 final class OperationRunnerDrainShareTests: XCTestCase {
     private func store(messages count: Int) throws -> InMemoryMailStore {
@@ -77,6 +78,104 @@ final class OperationRunnerDrainShareTests: XCTestCase {
         XCTAssertEqual(provider.applyCalls.map(\.ids.count), [50, 50, 50, 50, 50, 50, 1])
         XCTAssertEqual(provider.applyCalls.last?.ids, ["1"])
         XCTAssertTrue(try pending(store).isEmpty)
+    }
+
+    /// A conversation whose part of a large operation went out in an early drain has that part confirmed then: an older
+    /// failure there clears, as it did when the whole operation went out in one drain, rather than staying until the
+    /// last drain (which never settled it, since the narrowed operation no longer targeted it) or its expiry a day later.
+    func testAnOlderFailureClearsWhenItsPartOfALargeOperationGoesOut() async throws {
+        for store in [InMemoryMailStore() as MailStoring, try SQLiteMailStore.inMemory()] {
+            try store.upsertAccount(Fixtures.account())
+            try store.upsertMessages((1...300).map { Fixtures.message($0, conversation: "t\($0)") })
+            let first = ConversationID(accountID: Fixtures.accountID, providerID: "t1")
+            func mark() throws -> OperationKind? { try store.summaries(of: [first])[first]?.failedOperation }
+            // An earlier archive of t1 was given up: back in the Inbox, marked.
+            var earlier = PaperCore.Operation(accountID: Fixtures.accountID, change: .archive, targets: targets(1...1),
+                                              createdAt: Date().addingTimeInterval(-60))
+            try store.enqueue(earlier)
+            earlier.status = .failed
+            earlier.attempts = 25
+            earlier.nextAttemptAt = Date().addingTimeInterval(86_400)
+            try store.updateOperation(earlier)
+            XCTAssertEqual(try mark(), .archive, "\(type(of: store))")
+
+            let provider = ScriptedProvider(accountID: Fixtures.accountID)
+            let runner = OperationRunner(accountID: Fixtures.accountID, store: store, provider: provider, tuning: SyncTuning())
+            try store.enqueue(PaperCore.Operation(accountID: Fixtures.accountID, change: .archive, targets: targets(1...300),
+                                                  createdAt: Date()))
+            _ = await runner.drain()
+            XCTAssertEqual(provider.applyCalls.count, 4)
+            XCTAssertNil(try mark(), "t1 went out in the first drain: \(type(of: store))")
+            _ = await runner.drain()
+            XCTAssertTrue(try store.pendingOperations(accountID: Fixtures.accountID, limit: 10).isEmpty)
+            XCTAssertNil(try mark(), "\(type(of: store))")
+        }
+    }
+
+    /// A narrowing the store could not write leaves the row as the write-ahead wrote it, every target still listed: the
+    /// next drain would send the same first calls again and never the rest. It waits out the write-ahead's backoff
+    /// instead of asking to be drained again at once, and goes on once the store writes again.
+    func testANarrowingTheStoreCannotWriteWaitsOutTheBackoff() async throws {
+        let base = try store(messages: 600)
+        let store = FaultyStore(base: base)
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        var tuning = SyncTuning()
+        tuning.backoffBase = 0.3
+        tuning.backoffCap = 0.3
+        let runner = OperationRunner(accountID: Fixtures.accountID, store: store, provider: provider, tuning: tuning)
+        try store.enqueue(PaperCore.Operation(accountID: Fixtures.accountID, change: .archive, targets: targets(1...600), createdAt: Date()))
+        // The write-ahead goes through; the narrowing after the drain's four calls does not.
+        store.fail(.updateOperation, after: 1, times: 1)
+
+        let first = await runner.drain()
+        XCTAssertEqual(store.fired, [.updateOperation])
+        XCTAssertEqual(provider.applyCalls.count, 4)
+        let next = try XCTUnwrap(first.nextAttemptAt)
+        XCTAssertGreaterThan(next.timeIntervalSinceNow, 0.1, "the write-ahead's backoff, not at once")
+        let row = try XCTUnwrap(try pending(base).first)
+        XCTAssertEqual(row.targets.count, 600, "as the write-ahead left it")
+        _ = await runner.drain()
+        XCTAssertEqual(provider.applyCalls.count, 4, "nothing goes again before the backoff")
+
+        try await Task.sleep(for: .milliseconds(350))
+        var drains = 0
+        while try !pending(base).isEmpty, drains < 10 {
+            _ = await runner.drain()
+            drains += 1
+        }
+        XCTAssertTrue(try pending(base).isEmpty)
+        XCTAssertEqual(Set(provider.applyCalls.flatMap(\.ids)), Set((1...600).map(String.init)), "every target went out")
+    }
+
+    /// A poll that fails after a drain ran out of calls used to throw the drain's "due at once" away: the lane waited the
+    /// poll's failure backoff (up to a minute) between each four calls, and every later change in the account behind them.
+    /// The lane now wakes for the outbox alone, as after a user action, and the poll keeps its backoff.
+    func testAFailingPollDoesNotHoldBackTheRestOfALargeOperation() async throws {
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...1_000, next: nil, cursor: "c0"))]]
+        // Long enough that a poll comes due while the operation goes out, so a full cycle drains before a failing poll.
+        provider.applyDelay = 0.02
+        let harness = try EngineHarness(provider: provider) { tuning in
+            tuning.pollInterval = 0.05
+            // A failed poll waits 5 s, longer than the whole test may take.
+            tuning.backoffBase = 5
+            tuning.backoffCap = 5
+        }
+        harness.engine.start()
+        try await waitUntil("bootstrap complete") { try harness.store.syncCursor(for: Fixtures.accountID) == "c0" }
+        // Queued, then the polls fail: the first drains go out before any poll does, so a full cycle drains and then fails.
+        try harness.engine.perform(.archive, on: targets(1...1_000))
+        provider.changesQueue = Array(repeating: .failure(ProviderError.server(status: 500, message: "boom")), count: 100)
+        let polls = provider.changesCalls.count
+        try await waitUntil("every target sent", timeout: 3) { Set(provider.applyCalls.flatMap(\.ids)).count == 1_000 }
+        let failedPolls = provider.changesCalls.count - polls
+        XCTAssertGreaterThanOrEqual(failedPolls, 1, "a poll failed while the operation went out")
+        XCTAssertLessThanOrEqual(failedPolls, 2, "the poll kept its backoff")
+        XCTAssertEqual(provider.applyCalls.count, 20)
+        try await waitUntil("confirmed", timeout: 3) {
+            try harness.store.pendingOperations(accountID: Fixtures.accountID, limit: 10).isEmpty
+        }
+        await harness.shutdown()
     }
 
     /// Gmail takes 1,000 ids a call, so 2,345 targets are three calls in one drain, not 47 over twelve.

@@ -6,7 +6,8 @@ import XCTest
 /// mailbox (`PerfMailbox`, 300,000 messages in three accounts, 156,574 of them in the Inbox) in a real file, for its
 /// busiest sender (753 messages in the Inbox), the same address in capitals, the sender with the fewest, an address with
 /// none, and a newsletter with 20,000 messages, 5,000 of them in the Inbox, whose local part is too common to narrow by and
-/// whose read costs what it returns. Reported: the rule's whole step for the busiest sender and for the newsletter (the
+/// whose read costs what it returns. Reported: the walk of the Inbox an address the index cannot fold takes (Cherokee
+/// capitals), the rule's whole step for the busiest sender and for the newsletter (the
 /// read, the summaries before and after, the transaction with its archive in every account) and its undo, beyond the
 /// 16 ms of a key's few conversations, and held: the outbox writing such an operation again before each attempt, which
 /// the user's next action would wait behind, never in proportion to its targets.
@@ -49,6 +50,11 @@ final class SenderInboxPerformanceTests: XCTestCase {
             let found = try measure(label) { try store.inboxMessages(from: address) }
             XCTAssertEqual(found.count, expected, label)
         }
+        // An address the index cannot fold as Foundation lowercases it (Cherokee, written in what Unicode 8 made capitals)
+        // walks the Inbox: reported, not held, since only letters whose case Unicode settled after 6.1 come this way.
+        let walked = try timings { try store.inboxMessages(from: "ᏣᎳᎩ@example.com") }
+        PerfMailbox.report("inboxMessages(from:) walking the Inbox, for an address the index cannot fold (median)", walked.median)
+        PerfMailbox.report("inboxMessages(from:) walking the Inbox, for an address the index cannot fold (max)", walked.max)
 
         // A newsletter with 20,000 messages across the accounts, 5,000 of them in the Inbox, each its own conversation.
         let letter = EmailAddress(name: "Weekly Letter", address: "news@letter.example")

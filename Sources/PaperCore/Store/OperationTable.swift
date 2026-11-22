@@ -132,6 +132,10 @@ enum OperationTable {
             try updateLive(operation, previous: previous, in: db)
             return
         }
+        // A live operation written out of the outbox (given up, or confirmed) may drop the targets the provider took
+        // on its last attempt at the same time; read before the save, which deletes their target rows.
+        let taken = previous?.isLive == true
+            ? try droppedTargets(of: operation, in: db).taken : []
         try touchTargets(of: operation.id, in: db)
         try save(operation, in: db)
         // A live operation written as failed has been given up: it stops winning, and the provider never took
@@ -144,6 +148,7 @@ enum OperationTable {
         try ConversationTable.refreshTouched(db)
         // After the refresh, so the summary rows the mark lands on exist and are current.
         try FailedOperationMarks.operationWritten(operation, previousStatus: previous, in: db)
+        try FailedOperationMarks.targetsTaken(from: operation, in: taken, db: db)
     }
 
     /// An operation that stays live (the outbox's write-ahead before each attempt, a retry's backoff, a throttle, a
@@ -152,17 +157,34 @@ enum OperationTable {
     /// on each attempt held the writer for 200 ms on an archive of 1,667 messages (Always Archive on a busy sender), which
     /// the user's next key action waited behind.
     private static func updateLive(_ operation: Operation, previous: OperationStatus, in db: Database) throws {
-        let existing = Set(try String.fetchAll(
-            db.cachedStatement(sql: "SELECT provider_id FROM operation_targets WHERE operation_id = ?"), arguments: [operation.id]
-        ))
+        let (existing, taken) = try droppedTargets(of: operation, in: db)
         let wanted = Set(operation.targets.map(\.providerID))
-        let dropped = existing.subtracting(wanted)
         // Before the save, which deletes their target rows; the gained ones after it, which creates theirs.
-        try touchConversations(of: dropped, accountID: operation.accountID, in: db)
+        try touchConversations(of: existing.subtracting(wanted), accountID: operation.accountID, in: db)
         try save(operation, in: db)
         try touchConversations(of: wanted.subtracting(existing), accountID: operation.accountID, in: db)
         if existing != wanted { try ConversationTable.refreshTouched(db) }
         try FailedOperationMarks.operationWritten(operation, previousStatus: previous, in: db)
+        // The part that went out is confirmed: the failures it settles must not wait for the rest, which may take many
+        // drains (`SyncTuning.maxApplyCallsPerDrain`) or never land.
+        try FailedOperationMarks.targetsTaken(from: operation, in: taken, db: db)
+    }
+
+    /// The operation's saved targets, and the conversations of those it no longer lists. Only the outbox narrows a live
+    /// operation, and only to the targets still owed (`OperationRunner`): every target it drops is one the provider took.
+    private static func droppedTargets(of operation: Operation, in db: Database)
+        throws -> (existing: Set<String>, taken: [FailedOperationMarks.ConversationKey]) {
+        let existing = Set(try String.fetchAll(
+            db.cachedStatement(sql: "SELECT provider_id FROM operation_targets WHERE operation_id = ?"), arguments: [operation.id]
+        ))
+        let dropped = existing.subtracting(operation.targets.map(\.providerID))
+        guard !dropped.isEmpty else { return (existing, []) }
+        let taken = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT DISTINCT m.account_id, m.conversation_provider_id FROM json_each(?) j
+            CROSS JOIN messages m ON m.account_id = ? AND m.provider_id = j.value
+            """), arguments: [try MailStoreCodec.json(Array(dropped)), operation.accountID.rawValue])
+            .map { (accountID: $0[0] as String, providerID: $0[1] as String) }
+        return (existing, taken)
     }
 
     /// Marks the conversations of the account's messages `providerIDs` for the refresh.

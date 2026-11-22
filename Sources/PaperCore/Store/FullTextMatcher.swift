@@ -55,6 +55,15 @@ enum FullTextMatcher {
     static func startsToken(_ scalar: Unicode.Scalar) -> Bool {
         let properties = scalar.properties
         guard let age = properties.age, age <= (major: 6, minor: 1) else { return true }
+        // The few that 6.1 put in another category than today's (measured against SQLite's tokenizer, every scalar
+        // between two letters): Mongolian's two Ali Gali baluda were letters and are marks now; New Tai Lue's vowel signs
+        // and two Vedic signs were spacing marks and are letters now; SQLite's tables list the noncharacters U+FFFE and
+        // U+FFFF as separators.
+        switch scalar.value {
+        case 0x1885...0x1886: return true
+        case 0x19B0...0x19C0, 0x19C8...0x19C9, 0x1CF2...0x1CF3, 0xFFFE...0xFFFF: return false
+        default: break
+        }
         switch properties.generalCategory {
         case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
              .decimalNumber, .letterNumber, .otherNumber, .privateUse, .unassigned:

@@ -188,30 +188,65 @@ enum MessageTable {
     /// phrase (`senderMatch`), with the Inbox's roles tested in SQL; each one's From address comes out of its JSON in SQL
     /// and is compared exactly here, and only a match is decoded, read in place from a cursor, its From made from the
     /// address and name SQL took out. The phrase only narrows: unicode61 folds case and accents and splits at
-    /// punctuation, so `a.b@c` also finds `x.a.b@c`, `á.b@c` and a name holding those words. Its case folding is Unicode's simple one, which agrees with Foundation's lowercasing for every
-    /// letter but a few that lowercase to two (the Turkish dotted capital İ): only an address written with one of those in
-    /// capitals could be missed. An address with no word the index holds (nothing but punctuation) walks the Inbox instead
-    /// (`conversations_inbox`, then `messages_by_conversation`); walking it for every address outside ASCII, as a first
-    /// version did, took 1.6 s on the 300,000-message benchmark, whose Inbox holds 156,000 messages. There a newsletter
-    /// with 5,000 messages in the Inbox took 32 ms in two steps (the candidates' From decoded from JSON, then the matches
-    /// read again by rowid, copied whole into rows and decoded) and takes 15 ms this way.
+    /// punctuation, so `a.b@c` also finds `x.a.b@c`, `á.b@c` and a name holding those words. Its case folding is Unicode
+    /// 6.1's, which agrees with Foundation's lowercasing for every letter of 6.1 whose case partner is of 6.1 too (the
+    /// dotted capital İ included: the folding drops the dot Foundation adds); an address with a letter the index cannot
+    /// fold so (`indexFoldsLikeLowercasing`: Cherokee and Georgian Mtavruli capitals, Adlam, Osage, any letter Unicode
+    /// gave a case partner after 6.1) walks the Inbox instead (`conversations_inbox`, then `messages_by_conversation`),
+    /// as does an address with no word the index holds (nothing but punctuation): 0.5 s on the 300,000-message benchmark,
+    /// whose Inbox holds 156,000 messages (debug build), paid by those addresses alone. Walking it for every address outside
+    /// ASCII, as a first version did, took 1.6 s there.
+    /// There a newsletter with 5,000 messages in the Inbox took 32 ms in two steps (the candidates' From decoded from
+    /// JSON, then the matches read again by rowid, copied whole into rows and decoded) and takes 15 ms this way.
     static func inboxMessages(from address: String, in db: Database) throws -> [MessageMetadata] {
         let sender = SenderRule.normalizedAddress(address)
         guard !sender.isEmpty else { return [] }
         let rows: RowCursor
-        if SearchGrammar.isIndexable(sender) {
+        if usesTheIndex(sender) {
             rows = try Row.fetchCursor(db.cachedStatement(sql: candidatesSQL), arguments: [try senderMatch(sender, in: db)])
         } else {
             rows = try Row.fetchCursor(db.cachedStatement(sql: inboxWalkSQL))
         }
         var found: [MessageMetadata] = []
         while let row = try rows.next() {
-            let from: String? = row[fromAddressColumn]
+            let from = try text(row, at: fromAddressColumn)
             guard let from, SenderRule.normalizedAddress(from) == sender else { continue }
-            let name: String? = row[fromAddressColumn + 1]
+            let name = try text(row, at: fromAddressColumn + 1)
             found.append(try metadata(from: row, sender: EmailAddress(name: name, address: from)))
         }
         return found
+    }
+
+    /// A text column read by its length. GRDB reads a `String` up to its first NUL, which a From that JSON kept whole
+    /// (`message(_:)` decodes it so) may hold: the name would come back cut short, and the address would not match.
+    private static func text(_ row: Row, at index: Int) throws -> String? {
+        try row.withUnsafeData(atIndex: index) { data in data.map { String(decoding: $0, as: UTF8.self) } }
+    }
+
+    /// Whether the full-text index can find every way `sender` (lowercased) is written: it holds a word, and unicode61
+    /// folds each of its letters' capitals to it as Foundation's lowercasing does.
+    private static func usesTheIndex(_ sender: String) -> Bool {
+        SearchGrammar.isIndexable(sender) && indexFoldsLikeLowercasing(sender)
+    }
+
+    /// unicode61 folds case with Unicode 6.1's tables. A capital whose small letter came later (Cherokee's, from 8.0),
+    /// one that came later itself (Georgian Mtavruli, 11.0, whose small letters Mkhedruli are old; Adlam; Osage) or a
+    /// letter of a later script is folded there to nothing or to itself, never to the letter Foundation lowercases it to:
+    /// the phrase would miss mail from that address written in capitals. Case pairs only ever form with a newly encoded
+    /// letter (Unicode's case-pair stability), so a lowercased address is safe when each of its letters, and the capitals
+    /// and title case it has, were all in 6.1.
+    static func indexFoldsLikeLowercasing(_ sender: String) -> Bool {
+        func inUnicode61(_ scalar: Unicode.Scalar) -> Bool {
+            guard let age = scalar.properties.age else { return false }
+            return age <= (major: 6, minor: 1)
+        }
+        return sender.unicodeScalars.allSatisfy { scalar in
+            guard !scalar.isASCII else { return true }
+            let properties = scalar.properties
+            return inUnicode61(scalar)
+                && properties.uppercaseMapping.unicodeScalars.allSatisfy(inUnicode61)
+                && properties.titlecaseMapping.unicodeScalars.allSatisfy(inUnicode61)
+        }
     }
 
     /// Where the candidates' statements put the From address, then its name, after the columns `metadata(from:)` reads.
@@ -257,7 +292,7 @@ enum MessageTable {
         func explain(_ sql: String, _ arguments: StatementArguments = []) throws -> [String] {
             try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] }
         }
-        guard SearchGrammar.isIndexable(sender) else { return try explain(inboxWalkSQL) }
+        guard usesTheIndex(sender) else { return try explain(inboxWalkSQL) }
         let match = try senderMatch(sender, in: db)
         return try explain(localPartCountSQL, [match, localPartCandidates]) + explain(candidatesSQL, [match])
     }
