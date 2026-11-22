@@ -323,6 +323,13 @@ public struct RenderPayload: Hashable, Codable, Sendable {
     public var participants: String
     /// Oldest first, the order the cards are stacked in.
     public var messages: [Message]
+
+    /// The trackers the sanitizer marked in the messages shown as designed (spec §5.60): what Block trackers holds back on
+    /// this page. A text version counts none, since its page asks for no image.
+    public var heldTrackers: Int {
+        messages.reduce(0) { $0 + $1.trackerImageCount }
+    }
+
     /// The "Load remote images" preference: when false, bodies render under a policy that blocks every
     /// remote fetch until the user loads images for a message, whatever the stored HTML holds.
     public var loadRemoteImages: Bool

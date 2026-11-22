@@ -223,6 +223,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// Messages shown as sent in reader mode for the rest of the session (Show original, spec §5.59): this window's own
     /// choice, as the ⇧⌘O switch is, kept while reader mode goes off and on again.
     private var readerOriginals: Set<MessageID> = []
+    /// Conversations whose held trackers analytics has heard of in this window's run (`reportHeldTrackers`).
+    private var trackerReports: Set<ConversationID> = []
     /// Reader mode as the pages were last rendered under it: a gate change that leaves reader mode as it was renders
     /// nothing again.
     private var renderedReaderMode: Bool
@@ -770,6 +772,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             ConversationSignposts.end(ConversationSignposts.show, state)
             showSignpost = nil
             if let started = showStartedAt { Analytics.sample(.conversationOpen, seconds: Analytics.seconds(since: started)) }
+            reportHeldTrackers(in: slot)
         }
         showStartedAt = nil
         refreshChrome()
@@ -780,6 +783,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
         // Last: a card whose overlap line went stale while the slot waited off screen renders again from here.
         followOverlaps(fresh: true)
+    }
+
+    /// Block trackers held trackers back in the conversation now shown (§5.60): counted once a conversation per window and
+    /// run, whatever brings it back on screen.
+    private func reportHeldTrackers(in slot: PooledConversationView) {
+        guard appSettings.blocksTrackers, slot.heldTrackers > 0, let id = slot.renderedID, id == currentConversationID,
+              trackerReports.insert(id).inserted else { return }
+        Analytics.send(.trackersBlocked(count: slot.heldTrackers))
     }
 
     /// Debug aid for `--snapshot`: runs `completion` with the reader's web view once the shown
@@ -1527,12 +1538,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             case "replyAll": onAction?(.replyAll(messageID))
             case "forward": onAction?(.forward(messageID))
             case "openAttachment":
-                if let attachmentID { openAttachment(id: attachmentID, of: messageID) }
+                if let attachmentID { Analytics.from(.toolbar) { openAttachment(id: attachmentID, of: messageID) } }
             case "openAttachmentWithApp":
                 // A double click: the first click's Quick Look gives way to the default app (spec §5.17).
                 if let attachmentID {
                     preview.cancel()
-                    performAttachment(.open, attachmentID, of: messageID)
+                    Analytics.from(.click) { performAttachment(.open, attachmentID, of: messageID) }
                 }
             case "attachmentMenu":
                 guard let attachmentID else { return }
@@ -1540,9 +1551,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 attachmentMenu.menu().popUp(positioning: nil, at: point ?? .zero, in: slot.webView)
             case "downloadAttachment":
                 guard let attachmentID, let info = attachments(of: messageID).first(where: { $0.id == attachmentID }) else { return }
-                downloadAttachment(info, of: messageID)
+                Analytics.from(.toolbar) { downloadAttachment(info, of: messageID) }
             case "downloadAllAttachments":
-                downloadAllAttachments(of: messageID)
+                Analytics.from(.toolbar) { downloadAllAttachments(of: messageID) }
             case "star":
                 performOnMessage(.setStarred(on ?? true), messageID)
             case "more":
@@ -1554,7 +1565,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
                 guard let conversation = currentConversationID, !bodyFetches.contains(messageID) else { return }
                 fetchBody(messageID, conversation: conversation)
             case "readerOriginal":
+                if let line = value.flatMap(RenderPayload.ReaderView.init(rawValue:)) {
+                    Analytics.send(.readerVersionSwitched(.init(line)))
+                }
                 showReaderOriginal(on ?? true, for: messageID)
+            case "quotedText":
+                Analytics.from(.toolbar) { Analytics.send(.quotedText(shown: on ?? false, Analytics.trigger)) }
             case "dismissColorsNotice":
                 AppSettings.shared.originalColorsNoticeDismissed = true
                 broadcastPreferences()
@@ -1894,7 +1910,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         Quire.Motion.finishAll()
         if action == .readerMode {
             // Global, so it answers whatever is selected, nothing included (§5.59).
-            appSettings.readerModeOn.toggle()
+            Analytics.from(.toolbar) { appSettings.readerModeOn.toggle() }
             return
         }
         switch selection {
@@ -2003,6 +2019,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     }
 
     private func openAttachment(_ info: AttachmentInfo, of messageID: MessageID) {
+        Analytics.send(.attachmentUsed(.quickLook, Analytics.trigger))
         onAction?(.openAttachment(messageID, info))
         let siblings = attachments(of: messageID)
         setAttachmentFailed(false, info.id, of: messageID)
@@ -2091,6 +2108,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let chip = AttachmentDownloadBoard.Chip(message: messageID, attachmentID: info.id)
         guard let folder = downloadsFolder else { return NSSound.beep() }
         guard !ignoresSave(chip) else { return }
+        Analytics.send(.attachmentUsed(.download, Analytics.trigger))
         savesUnderWay.insert(chip)
         Task { [weak self] in
             guard let self else { return }
@@ -2114,6 +2132,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         guard !ignoresSave(chip) else { return }
         let pending = infos.filter { !savesUnderWay.contains(AttachmentDownloadBoard.Chip(message: messageID, attachmentID: $0.id)) }
         guard !pending.isEmpty else { return }
+        Analytics.send(.attachmentUsed(.downloadAll, Analytics.trigger))
         savesUnderWay.insert(chip)
         for info in pending { setAttachmentFailed(false, info.id, of: messageID) }
         let download = beginDownload(chip)
@@ -2162,8 +2181,9 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         case .saveToDownloads:
             downloadAttachment(info, of: messageID)
             return
-        case .open, .saveAs, .copy:
-            break
+        case .open: Analytics.send(.attachmentUsed(.open, Analytics.trigger))
+        case .saveAs: Analytics.send(.attachmentUsed(.saveAs, Analytics.trigger))
+        case .copy: Analytics.send(.attachmentUsed(.copy, Analytics.trigger))
         }
         let window = view.window
         Task { [weak self] in

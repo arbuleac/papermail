@@ -25,7 +25,10 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
 
     /// What a link opened from a message hands the app that opens it.
     func outgoing(_ url: URL) -> URL {
-        stripsTrackingParameters ? TrackingParameters.stripped(url) : url
+        guard stripsTrackingParameters else { return url }
+        let cleaned = TrackingParameters.stripped(url)
+        if cleaned != url { Analytics.send(.linkCleaned) }
+        return cleaned
     }
 
     static func decision(for url: URL?, navigationType: WKNavigationType, isMainFrame: Bool) -> Decision {

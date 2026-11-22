@@ -1534,7 +1534,7 @@ public enum ConversationShellAssets {
         change.addEventListener('click', function (event) {
           stop(event);
           setTarget(card, true);
-          post('ss', { kind: 'action', type: 'readerOriginal', messageID: m.id, attachmentID: null, on: original });
+          post('ss', { kind: 'action', type: 'readerOriginal', messageID: m.id, attachmentID: null, on: original, value: m.reader });
         });
         node.appendChild(change);
         return node;
@@ -3165,6 +3165,8 @@ public enum ConversationShellAssets {
       function toggleQuotes(card) {
         if (!card || !card.message.hasQuotedContent) { return; }
         card.quotesShown = !card.quotesShown;
+        // For analytics only: shown or hidden, never which message's words.
+        post('ss', { kind: 'action', type: 'quotedText', messageID: card.message.id, attachmentID: null, on: card.quotesShown });
         fillQuote(card);
         var doc = frameDocument(card);
         if (doc && doc.body) {

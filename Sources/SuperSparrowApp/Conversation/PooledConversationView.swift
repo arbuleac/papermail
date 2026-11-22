@@ -19,6 +19,9 @@ final class PooledConversationView {
     var renderedID: ConversationID?
     /// What was rendered, minus body bytes, so a stale slot is detected without reading bodies back.
     var renderedInputs: RenderInputs?
+    /// The trackers the rendered page's designs hold back while Block trackers is on (§5.60), for analytics: a text
+    /// version counts none.
+    var heldTrackers = 0
     var isReady = false
     /// Generations and waiters for the slot's renders; see `SlotRenderTracker`.
     var tracker = SlotRenderTracker()
@@ -72,6 +75,7 @@ final class PooledConversationView {
         isReady = false
         renderedID = nil
         renderedInputs = nil
+        heldTrackers = 0
         pendingRender = nil
         markFocused = false
         arrowsFocused = false

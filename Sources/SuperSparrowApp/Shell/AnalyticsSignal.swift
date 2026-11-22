@@ -41,7 +41,26 @@ enum AnalyticsSignal: Equatable, Sendable {
     /// A Help me write write ended (§5.56; `AIWriter`'s milestones): which kind of provider wrote and how it ended. Never
     /// the instruction, the notes, the conversation, the model or a word of the reply, and none for a reply the demo makes
     /// up (`HelpMeWrite.analyticsSignal`).
-    case helpMeWriteUsed(Writer, WriteEnding)
+    case helpMeWriteUsed(Writer, WriteEnding, WriteDetails?)
+    /// Reader mode switched on or off from the reader (§5.59): its switch in the header, ⇧⌘R or View › Reader Mode. Never
+    /// when its experiment's gate moved it (that is Settings › Experimental's change).
+    case readerModeSwitched(on: Bool, Trigger)
+    /// Show original or Show text on one message in reader mode (§5.59): the line the user clicked it on.
+    case readerVersionSwitched(ReaderLine)
+    /// A message's quoted text shown or hidden (§5.15): its mark, or “.”.
+    case quotedText(shown: Bool, Trigger)
+    /// Block trackers held trackers back in a conversation the reader showed (§5.60): how many, once a conversation per
+    /// window and run.
+    case trackersBlocked(count: Int)
+    /// A link opened from a message went without its tracking parameters (§5.60).
+    case linkCleaned
+    /// An attachment opened, saved, copied or dragged out (§5.17).
+    case attachmentUsed(AttachmentAction, Trigger)
+    /// The sign-in that asks an account for a permission on top of what it holds (the server's sender rules, its
+    /// calendar) ended: granted or not.
+    case permissionAsked(Permission, granted: Bool, Provider)
+    /// A sender rule removed with Settings › Accounts › Senders…'s − (§5.52).
+    case senderRuleRemoved(Provider)
     /// A timing where the app keeps an `os_signpost` interval, sampled (`Analytics.performanceSampleRate`).
     case performance(PerformanceSample, seconds: Double)
 
@@ -70,6 +89,14 @@ enum AnalyticsSignal: Equatable, Sendable {
         case accountAdded = "Account.added"
         case accountRemoved = "Account.removed"
         case helpMeWriteUsed = "HelpMeWrite.used"
+        case readerModeSwitched = "ReaderMode.switched"
+        case readerVersionSwitched = "ReaderMode.versionSwitched"
+        case quotedText = "Reader.quotedText"
+        case trackersBlocked = "Trackers.blocked"
+        case linkCleaned = "Trackers.linkCleaned"
+        case attachmentUsed = "Attachment.used"
+        case permissionAsked = "Account.permission"
+        case senderRuleRemoved = "SenderRule.removed"
         case listRefresh = "Performance.listRefresh"
         case conversationOpen = "Performance.conversationOpen"
         case search = "Performance.search"
@@ -198,6 +225,70 @@ enum AnalyticsSignal: Equatable, Sendable {
         }
     }
 
+    /// What a Help me write write worked from and how it was asked for, and where (§5.56): never the words.
+    struct WriteDetails: Equatable, Sendable {
+        var draft: WriteDraft
+        /// An instruction came with it: the prompt line's words or a chip.
+        var instruction: Bool
+        /// Try again: written again from the notes the last reply came from.
+        var retry: Bool
+        var source: SendSource
+
+        init(draft: WriteDraft, instruction: Bool, retry: Bool, source: SendSource) {
+            self.draft = draft
+            self.instruction = instruction
+            self.retry = retry
+            self.source = source
+        }
+
+        init(_ ask: WriteAsk, retry: Bool, source: SendSource) {
+            self.init(draft: WriteDraft(ask.draft), instruction: !ask.instruction.isEmpty, retry: retry, source: source)
+        }
+    }
+
+    /// The field's text a write started from (`WriteAsk.Draft`), by kind only.
+    enum WriteDraft: String, CaseIterable, Sendable {
+        case empty, notes, selection
+
+        init(_ draft: WriteAsk.Draft) {
+            switch draft {
+            case .empty: self = .empty
+            case .notes: self = .notes
+            case .selection: self = .selection
+            }
+        }
+    }
+
+    /// The reader line the user switched a message's version on (§5.59): its text part, the text from its design, its
+    /// snippet (each with Show original), or the message as sent (Show text). `RenderPayload.Message.ReaderView`'s names.
+    enum ReaderLine: String, CaseIterable, Sendable {
+        case text, extracted, snippet, original
+
+        init(_ view: RenderPayload.ReaderView) {
+            switch view {
+            case .text: self = .text
+            case .extracted: self = .extracted
+            case .snippet: self = .snippet
+            case .original: self = .original
+            }
+        }
+    }
+
+    /// What was done with an attachment (§5.17): Quick Look (a click on its chip, Space), the default app (a double click,
+    /// Open), Download, Download all, Save As…, Copy, or a drag out of the reader (to the Finder or a composer).
+    enum AttachmentAction: String, CaseIterable, Sendable {
+        case quickLook, open, download, downloadAll, saveAs, copy, drag
+    }
+
+    /// A permission an account is asked for on top of the mail (§5.52, §5.54).
+    enum Permission: String, CaseIterable, Sendable {
+        case rules, calendar
+    }
+
+    enum PermissionResult: String, CaseIterable, Sendable {
+        case granted, notGranted
+    }
+
     enum PerformanceSample: String, CaseIterable, Sendable {
         case listRefresh, conversationOpen, search
     }
@@ -249,16 +340,33 @@ enum AnalyticsSignal: Equatable, Sendable {
         case launchAtLogin(Bool)
         /// Mail links: SuperSparrow became the default mail app. Only on: the app cannot hand the role back.
         case defaultMailApp
-        /// Settings › Experimental (§5.58): Offer reader mode; reader mode itself, from the reader (never when its gate moved
-        /// it); Block trackers.
+        /// Settings › Experimental (§5.58): Offer reader mode and Block trackers. Reader mode itself, switched from the
+        /// reader, is a signal of its own (`readerModeSwitched`).
         case offerReaderMode(Bool)
-        case readerMode(Bool)
         case blockTrackers(Bool)
+        /// Settings › AI's Provider (§5.40): the kind chosen once turned on, or none; never the model or a key.
+        case aiProvider(Writer?)
+        /// Settings › Accounts' Face for an account (§5.10): chosen automatically, the letters, or a paper face (never
+        /// which, nor whose).
+        case accountFace(AccountFace)
+
+        /// An account's face, by kind.
+        enum FaceKind: String, CaseIterable, Sendable {
+            case automatic, monogram, paper
+
+            init(_ face: AccountFace) {
+                switch face {
+                case .automatic: self = .automatic
+                case .monogram: self = .monogram
+                case .paper: self = .paper
+                }
+            }
+        }
 
         enum Setting: String, CaseIterable, Sendable {
             case listDensity, accountFaces, undoSend, remoteImages, notifications, notificationPreviews, keepMail, theme
             case appearance, font, textSize, adaptMailColours, sendAction, launchAtLogin, defaultMailApp
-            case offerReaderMode, readerMode, blockTrackers
+            case offerReaderMode, blockTrackers, aiProvider, accountFace
         }
 
         var setting: Setting {
@@ -279,8 +387,9 @@ enum AnalyticsSignal: Equatable, Sendable {
             case .launchAtLogin: return .launchAtLogin
             case .defaultMailApp: return .defaultMailApp
             case .offerReaderMode: return .offerReaderMode
-            case .readerMode: return .readerMode
             case .blockTrackers: return .blockTrackers
+            case .aiProvider: return .aiProvider
+            case .accountFace: return .accountFace
             }
         }
 
@@ -289,8 +398,7 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch self {
             case .listDensity(let density): return density.rawValue
             case .accountFaces(let on), .remoteImages(let on), .notifications(let on), .notificationPreviews(let on),
-                 .adaptMailColours(let on), .launchAtLogin(let on), .offerReaderMode(let on), .readerMode(let on),
-                 .blockTrackers(let on):
+                 .adaptMailColours(let on), .launchAtLogin(let on), .offerReaderMode(let on), .blockTrackers(let on):
                 return Toggle(on).rawValue
             case .defaultMailApp: return Toggle.on.rawValue
             case .undoSend(let seconds): return Self.undoSendValue(seconds)
@@ -300,6 +408,8 @@ enum AnalyticsSignal: Equatable, Sendable {
             case .font(let typeface): return typeface.rawValue
             case .textSize(let size): return size.rawValue
             case .sendAction(let action): return action.rawValue
+            case .aiProvider(let writer): return writer?.rawValue ?? Toggle.off.rawValue
+            case .accountFace(let face): return FaceKind(face).rawValue
             }
         }
 
@@ -313,8 +423,10 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch setting {
             case .listDensity: return AppSettings.ListDensity.allCases.map(\.rawValue)
             case .accountFaces, .remoteImages, .notifications, .notificationPreviews, .adaptMailColours, .launchAtLogin,
-                 .offerReaderMode, .readerMode, .blockTrackers:
+                 .offerReaderMode, .blockTrackers:
                 return Toggle.allCases.map(\.rawValue)
+            case .aiProvider: return Writer.allCases.map(\.rawValue) + [Toggle.off.rawValue]
+            case .accountFace: return FaceKind.allCases.map(\.rawValue)
             case .defaultMailApp: return [Toggle.on.rawValue]
             case .undoSend: return AppSettings.undoSendChoices.map(undoSendValue) + ["other"]
             case .keepMail: return MailRetention.allCases.map(\.rawValue)
@@ -345,6 +457,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         static let accounts = CountBuckets(ranges: [(0, "0"), (1, "1"), (2, "2"), (3, "3-5"), (6, "6+")])
         /// Search operators in a query (`from:`, `is:`, a leading minus…).
         static let operators = CountBuckets(ranges: [(0, "0"), (1, "1"), (2, "2"), (3, "3+")])
+        /// Trackers held back in one conversation.
+        static let trackers = CountBuckets(ranges: [(0, "1"), (2, "2-5"), (6, "6-20"), (21, "21+")])
         /// Results a search listed; the list's first page holds 200, so "200+" is a full page.
         static let results = CountBuckets(ranges: [(0, "0"), (1, "1-10"), (11, "11-50"), (51, "51-199"), (200, "200+")])
     }
@@ -401,6 +515,14 @@ enum AnalyticsSignal: Equatable, Sendable {
             "provider": Provider.allCases.map(\.rawValue),
             "aiProvider": Writer.allCases.map(\.rawValue),
             "ending": WriteEnding.allCases.map(\.rawValue),
+            "draft": WriteDraft.allCases.map(\.rawValue),
+            "instruction": Toggle.allCases.map(\.rawValue),
+            "retry": Toggle.allCases.map(\.rawValue),
+            "readerLine": ReaderLine.allCases.map(\.rawValue),
+            "trackers": CountBuckets.trackers.labels,
+            "attachmentAction": AttachmentAction.allCases.map(\.rawValue),
+            "permission": Permission.allCases.map(\.rawValue),
+            "result": PermissionResult.allCases.map(\.rawValue),
             "duration": DurationBuckets.interaction.labels,
         ]
         // Settings' values repeat (on and off for every toggle): each once, in order.
@@ -446,6 +568,14 @@ enum AnalyticsSignal: Equatable, Sendable {
         case .accountAdded: return .accountAdded
         case .accountRemoved: return .accountRemoved
         case .helpMeWriteUsed: return .helpMeWriteUsed
+        case .readerModeSwitched: return .readerModeSwitched
+        case .readerVersionSwitched: return .readerVersionSwitched
+        case .quotedText: return .quotedText
+        case .trackersBlocked: return .trackersBlocked
+        case .linkCleaned: return .linkCleaned
+        case .attachmentUsed: return .attachmentUsed
+        case .permissionAsked: return .permissionAsked
+        case .senderRuleRemoved: return .senderRuleRemoved
         case .performance(let sample, _):
             switch sample {
             case .listRefresh: return .listRefresh
@@ -498,10 +628,32 @@ enum AnalyticsSignal: Equatable, Sendable {
             return ["state": (shown ? DayColumnState.shown : .hidden).rawValue, "trigger": trigger.rawValue]
         case .invitationAnswered(let answer):
             return ["answer": answer.rawValue]
-        case .accountAdded(let provider), .accountRemoved(let provider):
+        case .accountAdded(let provider), .accountRemoved(let provider), .senderRuleRemoved(let provider):
             return ["provider": provider.rawValue]
-        case .helpMeWriteUsed(let writer, let ending):
-            return ["aiProvider": writer.rawValue, "ending": ending.rawValue]
+        case .helpMeWriteUsed(let writer, let ending, let details):
+            var parameters = ["aiProvider": writer.rawValue, "ending": ending.rawValue]
+            if let details {
+                parameters["draft"] = details.draft.rawValue
+                parameters["instruction"] = Toggle(details.instruction).rawValue
+                parameters["retry"] = Toggle(details.retry).rawValue
+                parameters["source"] = details.source.rawValue
+            }
+            return parameters
+        case .readerModeSwitched(let on, let trigger):
+            return ["value": Toggle(on).rawValue, "trigger": trigger.rawValue]
+        case .readerVersionSwitched(let line):
+            return ["readerLine": line.rawValue]
+        case .quotedText(let shown, let trigger):
+            return ["state": (shown ? DayColumnState.shown : .hidden).rawValue, "trigger": trigger.rawValue]
+        case .trackersBlocked(let count):
+            return ["trackers": CountBuckets.trackers.label(count)]
+        case .linkCleaned:
+            return [:]
+        case .attachmentUsed(let action, let trigger):
+            return ["attachmentAction": action.rawValue, "trigger": trigger.rawValue]
+        case .permissionAsked(let permission, let granted, let provider):
+            return ["permission": permission.rawValue, "result": (granted ? PermissionResult.granted : .notGranted).rawValue,
+                    "provider": provider.rawValue]
         case .performance(_, let seconds):
             return ["duration": DurationBuckets.interaction.label(seconds)]
         }

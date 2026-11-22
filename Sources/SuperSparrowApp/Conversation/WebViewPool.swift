@@ -320,6 +320,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         touch(slot)
         assign(id, to: slot)
         slot.renderedInputs = inputs
+        slot.heldTrackers = payload.heldTrackers
         let generation = slot.tracker.begin()
         guard slot.isReady else {
             slot.pendingRender = PooledConversationView.PendingRender(id: id, payload: payload, inputs: inputs, completion: completion)
@@ -343,6 +344,7 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         }
         touch(slot)
         slot.renderedInputs = inputs
+        slot.heldTrackers = payload.heldTrackers
         let generation = slot.tracker.begin()
         evaluate("window.ss.update", payload, in: slot, generation: generation, completion: completion)
     }

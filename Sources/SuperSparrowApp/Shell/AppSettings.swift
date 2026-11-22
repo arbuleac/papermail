@@ -376,7 +376,10 @@ final class AppSettings: ObservableObject {
             }
             guard oldValue != readerModeOn else { return }
             storeExperiment(readerModeOn, forKey: Key.readerModeOn)
-            if !isFollowingGate { reportExperiment(.readerMode(readerModeOn)) }
+            // Switched from the reader: its switch, ⇧⌘R or the menu. Moved by its gate, it is the gate's change alone.
+            if !isFollowingGate, !keepsExperimentsInMemory {
+                Analytics.send(.readerModeSwitched(on: readerModeOn, Analytics.trigger))
+            }
             postReaderModeChange()
         }
     }

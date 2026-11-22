@@ -229,7 +229,10 @@ final class AISettingsModel: ObservableObject {
     private func choose(_ kind: AIProviderKind?) {
         provider = kind
         keyText = ""
-        if !isSnapshot { settings.setAIProvider(kind, demo: center.isDemo) }
+        if !isSnapshot {
+            settings.setAIProvider(kind, demo: center.isDemo)
+            Analytics.send(.settingChanged(.aiProvider(kind.flatMap(AnalyticsSignal.Writer.init))))
+        }
         readState()
         showLocalHealth()
         center.availabilityChanged()
