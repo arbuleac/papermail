@@ -37,6 +37,8 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - outbox: drafts shown in the Outbox (`SendLaterConversation.outboxSummary`, spec §5.53): their date line says
     ///     where the send is, a failed one's reason in `danger`, one still waiting for its Send Later time offers Cancel,
     ///     and their footer offers only Continue editing, and that only while the message is held. Ahead of `sendLater`.
+    ///   - readerMode: given while reader mode is on (spec §5.59): every message it applies to shows its text version
+    ///     (`ReaderText`) on the reading page instead of its HTML, an evicted body's kept text included.
     public func build(
         messages: [MessageMetadata],
         bodies: [MessageID: StoredBody],
@@ -53,6 +55,7 @@ public struct RenderPayloadBuilder: Sendable {
         invitationOverlaps: [MessageID: String] = [:],
         sendLater: [MessageID: SendLaterState] = [:],
         outbox: [MessageID: OutboxState] = [:],
+        readerMode: ReaderModeRender? = nil,
         now: Date = Date()
     ) -> RenderPayload {
         let visible = Self.visibleMessages(messages)
@@ -63,14 +66,16 @@ public struct RenderPayloadBuilder: Sendable {
         // Every revision of an invitation the conversation shows, so an earlier one offers no answer.
         let revisions = visible.compactMap { bodies[$0.id]?.invitation }
         let rendered = visible.map { message -> RenderPayload.Message in
-            let body = bodies[message.id]
-            let html = Self.html(for: message, body: body)
-            // Stored facts describe renderedHTML; a fallback body (snippet or text) is small enough to scan.
-            let stored = body.flatMap { $0.renderedHTML == html ? $0 : nil }
-            let design = Self.design(for: message, body: body, stored: stored)
-            let isFromMe = message.from.map { ownAddresses.contains($0.address.lowercased()) } ?? false
             let isDraft = message.roles.contains(.drafts)
             let isPending = pending.contains(message.id)
+            let reading = isDraft || isPending ? nil : readerMode.flatMap { Self.reading(message, body: bodies[message.id], in: $0) }
+            // An evicted body read in reader mode shows its kept text and lists its kept attachments.
+            let body = bodies[message.id] ?? reading?.kept
+            let html = reading?.html ?? Self.html(for: message, body: body)
+            // Stored facts describe renderedHTML; a fallback body (snippet or text) is small enough to scan.
+            let stored = body.flatMap { $0.renderedHTML == html ? $0 : nil }
+            let design = reading?.design ?? Self.design(for: message, body: body, stored: stored)
+            let isFromMe = message.from.map { ownAddresses.contains($0.address.lowercased()) } ?? false
             let sending = isDraft ? outbox[message.id] : nil
             let later = isDraft && sending == nil ? sendLater[message.id] : nil
             let date: String
@@ -111,8 +116,9 @@ public struct RenderPayloadBuilder: Sendable {
                 hasBody: body != nil,
                 bodyState: body != nil ? .ready : (bodyStates[message.id] ?? .loading),
                 html: html,
-                hasQuotedContent: stored?.hasQuotedContent ?? Self.hasQuotedContent(in: html),
-                blockedRemoteImageCount: stored?.blockedRemoteImageCount ?? Self.blockedRemoteImageCount(in: html),
+                hasQuotedContent: reading?.hasQuotedContent ?? stored?.hasQuotedContent ?? Self.hasQuotedContent(in: html),
+                // Text names no image: nothing is held back, so no banner offers to load one.
+                blockedRemoteImageCount: reading?.html != nil ? 0 : stored?.blockedRemoteImageCount ?? Self.blockedRemoteImageCount(in: html),
                 attachments: attachments,
                 typesetting: design.typesetting,
                 declaresColors: design.declaresColors,
@@ -139,7 +145,8 @@ public struct RenderPayloadBuilder: Sendable {
                 },
                 // The body knows what the reader will show; before it arrives, the flag the list row draws from.
                 // Gmail's flag is a guess from the content type (multipart/mixed), so the body corrects it.
-                hasAttachments: body != nil ? !attachments.isEmpty : message.hasAttachments
+                hasAttachments: body != nil ? !attachments.isEmpty : message.hasAttachments,
+                reader: body != nil ? reading?.view : nil
             )
         }
         let resolvedSubject = subject ?? Self.subject(of: visible)
@@ -155,6 +162,64 @@ public struct RenderPayloadBuilder: Sendable {
             colorsNoticeDismissed: colorsNoticeDismissed,
             adaptsColours: adaptsColours
         )
+    }
+
+    /// What reader mode makes of one message (spec §5.59): nil when it shows nothing new (no words yet: the snippet stands in
+    /// as it always does); the HTML as it is, under the Original line, for a message the user asked to see as sent; a
+    /// text/plain message's stored page as it is, since its text is what that page holds; else its text version set as a
+    /// plain body. Typeset `plain`, so it sits on the reading page in Quire's inks, never the sender's colours; no image, so
+    /// no banner offers to load one; inline pictures stay out of it and attachments keep their chips.
+    struct Reading {
+        var view: RenderPayload.ReaderView
+        /// An evicted body as kept, which stands in for the stored body.
+        var kept: StoredBody? = nil
+        /// Nil where the stored page shows as it is: an original, which renders as without reader mode, and a text/plain
+        /// message, whose page is already its text.
+        var html: String? = nil
+        var hasQuotedContent: Bool? = nil
+        var design: (typesetting: BodyTypesetting, declaresColors: Bool, coveredByNewYork: Bool)? = nil
+    }
+
+    /// Sets the text versions `build` would show for `messages` into `mode.cache`, without building a payload (spec §5.59):
+    /// pure and `Sendable` work, so a reader runs it off the main thread for the conversations it is about to pre-render,
+    /// and the pre-render finds every text already set.
+    public static func setReaderTexts(of messages: [MessageMetadata], bodies: [MessageID: StoredBody], in mode: ReaderModeRender) {
+        guard mode.cache != nil else { return }
+        for message in visibleMessages(messages) where !message.roles.contains(.drafts) {
+            _ = reading(message, body: bodies[message.id], in: mode)
+        }
+    }
+
+    static func reading(_ message: MessageMetadata, body: StoredBody?, in mode: ReaderModeRender) -> Reading? {
+        let kept = body == nil ? mode.kept[message.id] : nil
+        guard let source = body ?? kept else { return nil }
+        if mode.originals.contains(message.id) {
+            // Shown as sent: an evicted body has no HTML to show, so the snippet stands in while it downloads.
+            return body == nil ? nil : Reading(view: .original)
+        }
+        let choice = ReaderText.choose(source, snippet: message.snippet)
+        if choice.source == .plain, body != nil {
+            // Nothing to replace: the page the sanitizer set from this very text at sync time, as without reader mode, and
+            // no pass over its words however long it is.
+            return Reading(view: .text)
+        }
+        let folds = choice.source.foldsHistory
+        let set = mode.cache?.render(choice.text, foldsHistory: folds) ?? {
+            let set = ReaderText.render(choice.text, foldsHistory: folds)
+            return ReaderTextCache.Setting(html: set.html, hasQuotedContent: set.hasQuotedContent,
+                                           coveredByNewYork: NewYorkCoverage.covers(choice.text))
+        }()
+        // The stored coverage was worked out over exactly the extracted text, or an evicted text/plain body's kept text.
+        let covered = choice.source == .extracted || choice.source == .plain ? source.coveredByNewYork ?? set.coveredByNewYork
+            : set.coveredByNewYork
+        let view: RenderPayload.ReaderView
+        switch choice.source {
+        case .plain, .text: view = .text
+        case .extracted: view = .extracted
+        case .snippet: view = .snippet
+        }
+        return Reading(view: view, kept: kept, html: plainBodyPrefix + set.html + "</div>", hasQuotedContent: set.hasQuotedContent,
+                       design: (.plain, false, covered))
     }
 
     /// The design facts the shell sets a body by. A stored body carries them from sync time; one stored before

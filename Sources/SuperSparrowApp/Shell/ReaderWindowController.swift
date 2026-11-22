@@ -406,6 +406,11 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
     /// window's reader and every other reader window step together (spec §4.15).
     @objc func makeReaderTextBigger(_ sender: Any?) { settings.stepReaderTextSize(larger: true) }
     @objc func makeReaderTextSmaller(_ sender: Any?) { settings.stepReaderTextSize(larger: false) }
+    /// View › Reader Mode, ⇧⌘R (§5.59): the app's, so this window and every other reader switch together.
+    @objc func toggleReaderMode(_ sender: Any?) {
+        guard settings.offersReaderMode else { return }
+        settings.readerModeOn.toggle()
+    }
 
     /// Always Archive Mail from This Sender and Block Sender from this window's menus: the sender of its target message, or
     /// of its newest mail from someone else, as in the main window (spec, Sender rules (Q4.2)).
@@ -447,6 +452,9 @@ final class ReaderWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return settings.readerSize.larger != nil
         case #selector(makeReaderTextSmaller(_:)):
             return settings.readerSize.smaller != nil
+        case #selector(toggleReaderMode(_:)):
+            menuItem.state = settings.readerModeOn ? .on : .off
+            return settings.offersReaderMode
         case #selector(toggleMuteSelection(_:)):
             menuItem.title = MailActionCopy.muteCommand(muting: !(opener?.isMuted(conversationID) ?? false))
             return !typing && showsMessages

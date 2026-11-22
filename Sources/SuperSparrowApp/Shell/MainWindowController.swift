@@ -1108,6 +1108,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 ((try? store.messages(in: row.id)) ?? []).contains { $0.subject == DemoComposerSample.handoffSubject }
             }?.id ?? newest
         }
+        if let sample = prepareDebugReaderMode() { first = sample }
         #else
         let first = newest
         #endif
@@ -1124,6 +1125,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             conversation.whenShownRenderLands(timeout: 10) { [weak self] _ in self?.conversation.find.open(query: "the") }
         }
         applyDebugCalendarStates()
+        applyDebugReaderMode()
         applyDebugWriteStates()
         applyDebugSendStates()
         #endif
@@ -3314,6 +3316,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @objc func makeReaderTextBigger(_ sender: Any?) { settings.stepReaderTextSize(larger: true) }
     @objc func makeReaderTextSmaller(_ sender: Any?) { settings.stepReaderTextSize(larger: false) }
 
+    /// View › Reader Mode, ⇧⌘R (§5.59): reader mode for every reader at once, while Settings › Experimental offers it.
+    @objc func toggleReaderMode(_ sender: Any?) {
+        guard settings.offersReaderMode else { return }
+        settings.readerModeOn.toggle()
+    }
+
     private static let readerCommands: Set<Selector> = [
         #selector(nextMessage(_:)), #selector(previousMessage(_:)), #selector(toggleQuotedText(_:)), #selector(loadImages(_:)),
         #selector(toggleOriginalColors(_:)), #selector(saveAttachments(_:)), #selector(downloadAttachments(_:)),
@@ -3434,6 +3442,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !showingWelcome && settings.readerSize.larger != nil
         case #selector(makeReaderTextSmaller(_:)):
             return !showingWelcome && settings.readerSize.smaller != nil
+        case #selector(toggleReaderMode(_:)):
+            menuItem.state = settings.readerModeOn ? .on : .off
+            return !showingWelcome && settings.offersReaderMode
         case #selector(searchServer(_:)):
             menuItem.title = ServerSearchRow.menuTitle(for: ServerSearchRow.target(scope: scope.accountIDs, accounts: accounts))
             let words = !listPane.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

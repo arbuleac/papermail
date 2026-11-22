@@ -473,6 +473,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             window.makeKeyAndOrderFront(nil)
+            #if DEBUG
+            // With `--snapshot-state=reader-mode`, the sheet lists reader mode's key (§5.59), whichever snapshot set it first.
+            self.mainWindow?.holdDebugReaderMode()
+            #endif
             CheatSheetController.shared.present(in: window, animated: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 MainActor.assumeIsolated {

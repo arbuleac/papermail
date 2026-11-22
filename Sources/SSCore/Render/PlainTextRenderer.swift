@@ -14,24 +14,46 @@ import Foundation
 public enum PlainTextRenderer {
     /// Inner HTML for the body (the sanitizer adds the `ss-body` wrapper) and whether a quote block was found.
     public static func render(_ text: String) -> (html: String, hasQuotedContent: Bool) {
-        let lines = text
+        var hasQuote = false
+        let html = renderBlock(lines(of: text)[...], depth: 0, hasQuote: &hasQuote)
+        return (html, hasQuote)
+    }
+
+    /// Inner HTML for text that already sits inside a fold (reader mode's quoted history, spec §5.59): paragraphs, links and
+    /// ">" blocks as `render` sets them, but no block of its own folds, so the history folds once, as a whole.
+    public static func renderNested(_ text: String) -> String {
+        var hasQuote = false
+        return renderBlock(lines(of: text)[...], depth: 1, hasQuote: &hasQuote)
+    }
+
+    /// One line as a paragraph's line is set: leading indentation kept, every character escaped, links made.
+    public static func renderSingleLine(_ line: String) -> String {
+        renderLine(line)
+    }
+
+    private static func lines(of text: String) -> [String] {
+        text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
-        var hasQuote = false
-        let html = renderBlock(lines[...], depth: 0, hasQuote: &hasQuote)
-        return (html, hasQuote)
     }
 
     /// Escapes `text` and wraps http(s) URLs and email addresses in anchors.
     public static func linkify(_ text: String) -> String {
+        // A link needs “://” and an address “@”: text with neither colon nor at sign (most lines of a letter) is escaped
+        // whole, without walking it scalar by scalar.
+        let hasColon = text.utf8.contains(UInt8(ascii: ":"))
+        let hasAt = text.utf8.contains(UInt8(ascii: "@"))
+        guard hasColon || hasAt else { return HTMLEscaping.escape(text) }
         let scalars = Array(text.unicodeScalars)
         var html = ""
         var textStart = 0
         var index = 0
         while index < scalars.count {
-            if let end = urlEnd(in: scalars, at: index) {
+            // A link can start only at an “h”, and an address only in text that has an “@”.
+            let scalar = scalars[index]
+            if hasColon, scalar == "h" || scalar == "H", let end = urlEnd(in: scalars, at: index) {
                 html += escaped(scalars[textStart..<index])
                 let url = escaped(scalars[index..<end])
                 html += "<a href=\"\(url)\">\(url)</a>"
@@ -39,7 +61,7 @@ public enum PlainTextRenderer {
                 textStart = end
                 continue
             }
-            if let end = emailEnd(in: scalars, at: index) {
+            if hasAt, let end = emailEnd(in: scalars, at: index) {
                 html += escaped(scalars[textStart..<index])
                 let address = escaped(scalars[index..<end])
                 html += "<a href=\"mailto:\(address)\">\(address)</a>"

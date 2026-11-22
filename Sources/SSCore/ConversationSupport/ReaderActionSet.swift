@@ -15,6 +15,8 @@ public struct ReaderActionSet: Equatable, Sendable {
         case forward
         case continueEditing
         case discardDraft
+        /// Reader mode on or off (spec §5.59): offered only while Settings › Experimental offers it.
+        case readerMode
     }
 
     /// What the reader shows. `view` is the mailbox the selection came from.
@@ -39,6 +41,11 @@ public struct ReaderActionSet: Equatable, Sendable {
     public var disabled: Set<Action>
     /// Star draws `star.fill` in `star`: the conversation is starred, or every selected one is.
     public var starOn: Bool
+    /// A group of its own before the first, for what changes the view rather than the mail: reader mode's toggle while
+    /// the experiment is offered (`offeringReaderMode`), else empty.
+    public var view: [Action] = []
+    /// Reader mode is on: its toggle draws on. It is global, so it is never disabled with the rest.
+    public var readerModeOn = false
 
     public init(primary: [Action], replies: [Action], disabled: Set<Action> = [], starOn: Bool = false) {
         self.primary = primary
@@ -47,7 +54,15 @@ public struct ReaderActionSet: Equatable, Sendable {
         self.starOn = starOn
     }
 
-    public var all: [Action] { primary + replies }
+    public var all: [Action] { view + primary + replies }
+
+    /// The set with reader mode's toggle when `on` is not nil (the experiment is offered), showing `on`.
+    public func offeringReaderMode(_ on: Bool?) -> ReaderActionSet {
+        var set = self
+        set.view = on == nil ? [] : [.readerMode]
+        set.readerModeOn = on ?? false
+        return set
+    }
 
     public func isEnabled(_ action: Action) -> Bool {
         all.contains(action) && !disabled.contains(action)
