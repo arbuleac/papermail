@@ -9,6 +9,9 @@ public struct SanitizedBody: Hashable, Sendable {
     public var blockedRemoteImageCount: Int
     /// True when quoted earlier messages were detected and wrapped in `<div class="ss-quote">`.
     public var hasQuotedContent: Bool
+    /// Remote images parked and marked as trackers (`TrackerRules`, `HTMLSanitizer.trackerAttribute`), whatever the
+    /// remote-images setting; each is counted in `blockedRemoteImageCount` too, since each is parked.
+    public var trackerImageCount: Int
     /// Whether the reader sets the body on its own page or keeps the sender's design; see `BodyTypesetting`.
     public var typesetting: BodyTypesetting
     /// True when the body sets its own background or text colour (docs/DESIGN-LANGUAGE.md §8.5), so a dark
@@ -35,6 +38,7 @@ public struct SanitizedBody: Hashable, Sendable {
         plainText: String,
         blockedRemoteImageCount: Int,
         hasQuotedContent: Bool,
+        trackerImageCount: Int = 0,
         typesetting: BodyTypesetting = .styled,
         declaresColors: Bool = true,
         coveredByNewYork: Bool = false
@@ -43,6 +47,7 @@ public struct SanitizedBody: Hashable, Sendable {
         self.plainText = plainText
         self.blockedRemoteImageCount = blockedRemoteImageCount
         self.hasQuotedContent = hasQuotedContent
+        self.trackerImageCount = trackerImageCount
         self.typesetting = typesetting
         self.declaresColors = declaresColors
         self.coveredByNewYork = coveredByNewYork

@@ -228,6 +228,13 @@ enum MailSchema {
                 UPDATE sender_rules SET sync = 'creating';
                 """)
         }
+        migrator.registerMigration("v24-tracker-images") { db in
+            // The remote images the sanitizer parked as trackers (docs/DATA-MODEL.md, `bodies.tracker_images`; Quire §5.60).
+            // NULL for every body already here: those were stored before the marks, so the reader counts no trackers in
+            // them and the content blocker alone keeps their known pixels from loading. Nothing is backfilled, since that
+            // would mean sanitizing every stored body again.
+            try db.execute(sql: "ALTER TABLE bodies ADD COLUMN tracker_images INTEGER")
+        }
         return migrator
     }
 

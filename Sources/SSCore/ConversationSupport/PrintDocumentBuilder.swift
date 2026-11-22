@@ -151,7 +151,10 @@ public struct PrintDocumentBuilder: Sendable {
         // Under an invitation card the message starts folded, its body most often the card again (spec §5.14).
         if message.invitation != nil, !state.messageShown { return Self.note("Message hidden", elided: true) }
         var html = ""
-        let hidden = max(0, message.blockedRemoteImageCount) + max(0, state.liveRemoteImages)
+        // Trackers held back by Block trackers (spec §5.60) are not images the reader offers, so the note leaves them out.
+        let holdsTrackers = payload.blocksTrackers && message.trackerImageCount > 0
+        let trackers = holdsTrackers ? message.trackerImageCount : 0
+        let hidden = max(0, max(0, message.blockedRemoteImageCount) + max(0, state.liveRemoteImages) - trackers)
         if !state.imagesShown, hidden > 0 {
             html += Self.note(hidden == 1 ? "1 remote image hidden" : "\(hidden) remote images hidden")
         }
@@ -163,7 +166,8 @@ public struct PrintDocumentBuilder: Sendable {
         }
         if state.quotesShown { classes.append("ss-show-quotes") }
         html += "<div class=\"ss-pbody" + (typeset ? " ss-pind" : "") + "\" data-body=\"\(index)\" data-images=\""
-            + (state.imagesShown ? "shown" : "hidden") + "\" data-classes=\"" + Self.escape(classes.joined(separator: " ")) + "\"></div>"
+            + (state.imagesShown ? "shown" : "hidden") + "\"" + (holdsTrackers ? " data-trackers=\"held\"" : "")
+            + " data-classes=\"" + Self.escape(classes.joined(separator: " ")) + "\"></div>"
         // The stored body as the reader got it: sanitized at sync time, with no template, slot or script element and
         // every text node escaped, so nothing in it can close this template early.
         html += "<template id=\"ss-pb-\(index)\">" + message.html + "</template>"

@@ -27,6 +27,7 @@ public struct RenderPayloadBuilder: Sendable {
     ///   - textSize: the reader's Text size by name (spec §4.15).
     ///   - colorsNoticeDismissed: the Original colors notice was dismissed for good (spec §5.16).
     ///   - adaptsColours: the Dark Mode default (spec §5.14); nil leaves the shell's.
+    ///   - blocksTrackers: Settings › Experimental › Block trackers (spec §5.60), passed through to the shell.
     ///   - pending: messages that are replies still in the outbox (`PendingSheet`), shown as sending.
     ///   - invitationPermissionNeeded: accounts whose answered invitations wait for permission to update the calendar
     ///     (`AccountSyncStatus.permissionsNeeded`): their cards ask to reconnect.
@@ -48,6 +49,7 @@ public struct RenderPayloadBuilder: Sendable {
         textSize: String = "default",
         colorsNoticeDismissed: Bool = false,
         adaptsColours: Bool? = nil,
+        blocksTrackers: Bool = false,
         pending: Set<MessageID> = [],
         invitationPermissionNeeded: Set<AccountID> = [],
         invitationOverlaps: [MessageID: String] = [:],
@@ -113,6 +115,8 @@ public struct RenderPayloadBuilder: Sendable {
                 html: html,
                 hasQuotedContent: stored?.hasQuotedContent ?? Self.hasQuotedContent(in: html),
                 blockedRemoteImageCount: stored?.blockedRemoteImageCount ?? Self.blockedRemoteImageCount(in: html),
+                // Unknown for a body stored before the marks, which carries none: nothing to scan for.
+                trackerImageCount: stored?.trackerImageCount ?? 0,
                 attachments: attachments,
                 typesetting: design.typesetting,
                 declaresColors: design.declaresColors,
@@ -153,7 +157,8 @@ public struct RenderPayloadBuilder: Sendable {
             readingSans: readingSans,
             textSize: textSize,
             colorsNoticeDismissed: colorsNoticeDismissed,
-            adaptsColours: adaptsColours
+            adaptsColours: adaptsColours,
+            blocksTrackers: blocksTrackers
         )
     }
 

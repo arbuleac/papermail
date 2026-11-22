@@ -26,7 +26,7 @@ public enum ConversationShellAssets {
     public static let symbols: [String] = [
         "star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right",
         "ellipsis", "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-        "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip",
+        "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip", "checkmark.shield",
     ]
 
     /// The custom property a rasterised symbol travels in: `star.fill` → `--sym-star-fill`.
@@ -397,6 +397,9 @@ public enum ConversationShellAssets {
     }
     .ss-bx:hover { background: var(--q-hover); color: var(--q-ink); }
 
+    /* The trackers note (spec §5.60): the banner's box drawn in a hairline instead of a fill, its words and mark in ink2. */
+    .ss-banner.ss-quiet { background: none; box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule); color: var(--q-ink2); }
+    html.ss-ic .ss-banner.ss-quiet { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
     .ss-banner.ss-info { background: var(--q-infoWash); }
     .ss-banner.ss-info > .ss-sym { color: var(--q-info); }
     .ss-banner.ss-wrap { align-items: flex-start; }
@@ -772,7 +775,7 @@ public enum ConversationShellAssets {
       var loadRemote = false;
       // `adaptsColours` is the Dark Mode default (spec §5.14): styled mail that declares its own colours opens adapted (on)
       // or as sent on the white page (off).
-      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default', adaptsColours: true };
+      var prefs = { readingSans: false, noticeDismissed: false, textSize: 'default', adaptsColours: true, blocksTrackers: false };
       // Session memory that outlives a render: measured body heights per message and width, the colours each message was
       // switched to by hand (true for the sender's, false for adapted; a message never switched follows the default), and
       // the recipient blocks the user opened (spec §4.10, §5.14).
@@ -1092,9 +1095,10 @@ public enum ConversationShellAssets {
         }
       }
 
-      // Puts parked remote sources back. Runs only in a frame built without the blocking policy.
+      // Puts parked remote sources back. Runs only in a frame built without the blocking policy. While Block trackers is on
+      // the images the sanitizer marked as trackers stay parked (spec §5.60).
       function restoreRemote(card, doc) {
-        var images = doc.querySelectorAll('img[data-ss-src]');
+        var images = doc.querySelectorAll(prefs.blocksTrackers ? 'img[data-ss-src]:not([data-ss-tracker])' : 'img[data-ss-src]');
         for (var i = 0; i < images.length; i++) {
           var img = images[i];
           img.src = img.getAttribute('data-ss-src');
@@ -1403,11 +1407,27 @@ public enum ConversationShellAssets {
 
       function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 
+      // The remote images Load images would bring in (spec §5.16): the parked and the live ones, less the trackers while
+      // Block trackers keeps them parked (spec §5.60), so a message whose only remote images are trackers offers nothing.
+      function heldBack(card) {
+        var m = card.message;
+        var count = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+        if (prefs.blocksTrackers) { count -= m.trackerImageCount || 0; }
+        return Math.max(0, count);
+      }
+
+      // The trackers the card says were blocked (spec §5.60): only while Block trackers is on, loaded images or not, since
+      // the sender meant to track either way.
+      function blockedTrackers(card) {
+        var m = card.message;
+        return prefs.blocksTrackers && m.hasBody ? (m.trackerImageCount || 0) : 0;
+      }
+
       function renderBanners(card) {
         var m = card.message;
         var list = [];
         if (m.hasBody) {
-          var blocked = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+          var blocked = heldBack(card);
           if (card.imageLoad) {
             var loading = bannerNode('', null, 'Loading ' + plural(card.imageLoad.total || blocked, 'image', 'images') + '…');
             loading.insertBefore(el('span', 'ss-spin'), loading.firstChild);
@@ -1424,6 +1444,14 @@ public enum ConversationShellAssets {
             load.addEventListener('click', function (event) { stop(event); loadImages(card); });
             images.appendChild(load);
             list.push(images);
+          }
+          var trackers = blockedTrackers(card);
+          if (trackers > 0) {
+            // A quiet line, never a question: there is nothing to decide (spec §5.60).
+            var note = bannerNode('ss-quiet', 'checkmark.shield', plural(trackers, 'tracker', 'trackers') + ' blocked');
+            note.classList.add('ss-trackers');
+            note.title = 'Kept from loading, so the sender can’t tell when or where you opened this message.';
+            list.push(note);
           }
           // The notice shows while a message is not as the Dark Mode default chose, and on every adapted message: with the
           // default off, a message shown as sent has none, since Settings chose it (spec §5.16).
@@ -2976,7 +3004,7 @@ public enum ConversationShellAssets {
       // sources are restored once the new document has loaded.
       function loadImages(card) {
         if (!card || card.imagesLoaded) { return; }
-        var blocked = (card.message.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
+        var blocked = heldBack(card);
         card.imagesLoaded = true;
         card.imageFailures = 0;
         card.imageLoad = blocked > 0 ? { total: blocked, failed: 0, pending: blocked, tracking: false, timer: null } : null;
@@ -3113,6 +3141,18 @@ public enum ConversationShellAssets {
         }
         if (defaultChanged) { coloursDefaultChanged(); }
         if (sizeChanged) { textSizeChanged(); }
+        if (typeof p.blocksTrackers === 'boolean' && p.blocksTrackers !== prefs.blocksTrackers) { setBlocksTrackers(p.blocksTrackers); }
+      }
+
+      // Block trackers changed (spec §5.60): every card's count and note follow, and a frame showing its images is built
+      // again, so its trackers are held back or put back; a frame under the blocking policy loads nothing either way.
+      function setBlocksTrackers(on) {
+        prefs.blocksTrackers = !!on;
+        for (var i = 0; i < state.cards.length; i++) {
+          var card = state.cards[i];
+          renderBanners(card);
+          if (card.imagesLoaded && card.iframe && (card.message.trackerImageCount || 0) > 0) { renderFrame(card); }
+        }
       }
 
       // The app mirrors Increase Contrast, Reduce Motion, Reduce Transparency and Graphite onto the shell and
@@ -3705,6 +3745,7 @@ public enum ConversationShellAssets {
       // changed, for `update`, which keeps the cards.
       function readPayloadSettings(payload) {
         loadRemote = !!payload.loadRemoteImages;
+        prefs.blocksTrackers = !!payload.blocksTrackers;
         prefs.readingSans = !!payload.readingSans;
         prefs.noticeDismissed = !!payload.colorsNoticeDismissed;
         prefs.textSize = typeof payload.textSize === 'string' ? payload.textSize : 'default';
@@ -3789,7 +3830,7 @@ public enum ConversationShellAssets {
       function update(payload) {
         var messages = payload.messages || [];
         if (!state.payload || state.cards.length === 0 || messages.length === 0) { return render(payload); }
-        if (!!payload.loadRemoteImages !== loadRemote) { return render(payload); }
+        if (!!payload.loadRemoteImages !== loadRemote || !!payload.blocksTrackers !== prefs.blocksTrackers) { return render(payload); }
         var defaultChanged = readPayloadSettings(payload);
         var parts = root.querySelector('.ss-parts');
         if (parts) {
@@ -4009,7 +4050,7 @@ public enum ConversationShellAssets {
           var m = card.message;
           return {
             id: m.id, offersOriginal: offersOriginal(card), original: showsInset(card),
-            imagesBlocked: m.hasBody && !card.imagesLoaded && ((m.blockedRemoteImageCount || 0) + (card.liveRemote || 0)) > 0,
+            imagesBlocked: m.hasBody && !card.imagesLoaded && heldBack(card) > 0,
             hasQuotes: !!(m.hasBody && m.hasQuotedContent), quotesShown: !!card.quotesShown, isStarred: !!m.isStarred
           };
         },
@@ -4031,7 +4072,8 @@ public enum ConversationShellAssets {
             states.push({
               id: card.message.id, expanded: card.expanded, imagesLoaded: card.imagesLoaded,
               quotesShown: card.quotesShown, hasFrame: !!card.iframe, folded: card.folded,
-              foldsMessage: foldsMessage(card), messageShown: !!card.messageShown, liveRemote: card.liveRemote || 0
+              foldsMessage: foldsMessage(card), messageShown: !!card.messageShown, liveRemote: card.liveRemote || 0,
+              trackers: blockedTrackers(card)
             });
           }
           return states;

@@ -1090,6 +1090,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func selectFirstConversation() -> ConversationID? {
         #if DEBUG
         applyDebugSnapshotStates()
+        applyDebugTrackerStates()
         #endif
         guard let newest = list.conversations.first?.id else { return nil }
         #if DEBUG
@@ -1108,6 +1109,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 ((try? store.messages(in: row.id)) ?? []).contains { $0.subject == DemoComposerSample.handoffSubject }
             }?.id ?? newest
         }
+        if let sample = debugTrackerSampleConversation() { first = sample }
         #else
         let first = newest
         #endif

@@ -262,6 +262,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         notificationTokens.append(center.addObserver(forName: AppSettings.displayPreferencesChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.displayPreferencesDidChange() }
         })
+        // Block trackers (spec §5.60): every shell, the pre-rendered ones too, holds its trackers back or lets them load in
+        // place, and the pool's content blocker comes or goes.
+        pool.blocksTrackers = appSettings.blocksTrackers
+        notificationTokens.append(center.addObserver(forName: AppSettings.trackerBlockingChanged, object: appSettings, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.trackerBlockingDidChange() }
+        })
         // The Font setting and Text size live in the Quire environment: every shell, the pre-rendered ones too, is
         // told in place. The reader's own size (⌘+, ⌘−) is the settings'.
         notificationTokens.append(center.addObserver(forName: QuireEnvironment.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -931,6 +937,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             loadRemoteImages: Self.loadRemoteImages, readingSans: QuireEnvironment.typeface == .sfPro,
             textSize: appSettings.readerSize.rawValue,
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
+            blocksTrackers: appSettings.blocksTrackers,
             pending: pending, invitationPermissionNeeded: invitationPermissionNeeded, invitationOverlaps: overlaps.lines,
             sendLater: laterStates, outbox: outboxStates
         )
@@ -1252,6 +1259,11 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         broadcastPreferences()
     }
 
+    private func trackerBlockingDidChange() {
+        pool.blocksTrackers = appSettings.blocksTrackers
+        broadcastPreferences()
+    }
+
     /// The typeface and reader Text size last told to the shells. Graphite and contrast changes post the same
     /// notification; they reach the shells through the pool's modes, so only these are broadcast here.
     private var broadcastTypeface = QuireEnvironment.typeface
@@ -1290,7 +1302,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let sans = broadcastTypeface == .sfPro
         let adapts = adaptsColours ?? appSettings.adaptsMailColours
         let script = "window.ss && window.ss.preferences({readingSans: \(sans), textSize: '\(size.rawValue)', "
-            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed), adaptsColours: \(adapts)})"
+            + "colorsNoticeDismissed: \(settings.originalColorsNoticeDismissed), adaptsColours: \(adapts), "
+            + "blocksTrackers: \(appSettings.blocksTrackers)})"
         guard sizeChanged else {
             pool.broadcastPreferences(script)
             return
@@ -2727,6 +2740,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             let payload = self.prepare(messages).payload
             let sheets = PrintSheetState.states(fromShell: states, loadRemoteImages: payload.loadRemoteImages)
             let document = PrintDocumentBuilder(imageWait: Quire.Motion.printImageWait).document(for: payload, sheets: sheets)
+            self.printer.blocksTrackers = payload.blocksTrackers
             self.printer.print(document, title: PrintDocumentBuilder.title(of: payload), imageWait: Quire.Motion.printImageWait, on: window)
         }
         // A shell still loading has shown nothing yet: the conversation prints as it opens.

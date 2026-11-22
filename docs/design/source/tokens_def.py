@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.16.0"
+VERSION = "1.18.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -511,7 +511,7 @@ GLYPHS = {
 }
 READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right", "ellipsis",
                   "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",
-                  "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip"]
+                  "calendar", "checkmark", "info.circle", "arrow.down.circle", "paperclip", "checkmark.shield"]
 
 # Graphite system accent (§3.1): every accent-family token, mapped to the neutral ramp. A value is a token or a stack
 # (composited left to right). Tokens not listed are unchanged, including selWashIdle, selRuleIdle and every account ink.

@@ -25,6 +25,10 @@ public struct HTMLSanitizer: BodySanitizing, Sendable {
     public static let blockedSourceAttribute = "data-ss-src"
     /// A blocked remote `background=` attribute, parked so "Load images" can put it back.
     public static let blockedBackgroundAttribute = "data-ss-background"
+    /// Marks a parked image `TrackerRules` calls a tracker (spec §5.60), its value the `TrackerRules.Reason`. Set whatever
+    /// the remote-images setting, so Block trackers acts at render time: while it is on, the reader and the printout leave
+    /// marked images parked when they put the others back. Like every `data-ss-` attribute, one in incoming mail is dropped.
+    public static let trackerAttribute = "data-ss-tracker"
     /// 1x1 transparent GIF standing in for blocked remote images so layouts keep their shape.
     public static let placeholderImage = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
     /// Width constraints every body carries; the shell may add to them but a body renders acceptably alone.
@@ -99,6 +103,7 @@ public struct HTMLSanitizer: BodySanitizing, Sendable {
             plainText: plainText,
             blockedRemoteImageCount: pass.blockedRemoteImages,
             hasQuotedContent: hasQuotes,
+            trackerImageCount: pass.trackerImages,
             // A colour is author styling too, so an unstyled body never needs adapting in a dark appearance.
             typesetting: declaresColors || pass.styled ? .styled : .unstyled,
             declaresColors: declaresColors,
@@ -201,6 +206,11 @@ private struct Pass {
     let allowRemoteImages: Bool
     private let css: CSSFilter
     private(set) var blockedRemoteImages = 0
+    /// Remote images parked as trackers (`TrackerRules`), whether or not remote images are allowed; part of
+    /// `blockedRemoteImages`, since each is parked.
+    private(set) var trackerImages = 0
+    /// The remote address `imagePolicy` last saw on an `<img src>`.
+    private var lastRemoteImage: String?
     /// The body sets a colour (`SanitizedBody.declaresColors`); noticed while scrubbing, like everything here.
     private(set) var declaresColors = false
     /// The body carries author styling other than colour (`BodyTypesetting.unstyled` lists what counts).
@@ -323,10 +333,23 @@ private struct Pass {
         // drop or rewrite what is already there (and an incoming data-ss-src is dropped by it first).
         var blockedSource: String?
         var blockedBackground: String?
+        // An image's remote source and what its own attributes say about its size and visibility, for `TrackerRules`
+        // once every attribute has been seen (the source may come before the size).
+        var remoteSource: String?
+        var hints = TrackerRules.ImageHints()
         attributes.compactAndMutate { attribute in
             let key = Pass.lowercased(attribute.getKeyUTF8())
             if Pass.hasPrefix(key, Pass.eventPrefix) || Pass.hasPrefix(key, Pass.reservedAttributePrefix) {
                 return Pass.drop
+            }
+            if isImage {
+                if key == Pass.widthKey {
+                    hints.width = attribute.getValue()
+                } else if key == Pass.heightKey {
+                    hints.height = attribute.getValue()
+                } else if key == Pass.hiddenKey {
+                    hints.hidden = true
+                }
             }
             if isTable, !styled, let hint = Pass.layoutTableAttributes[key] {
                 // The table's own grid markup; colours and backgrounds are caught by their roles below.
@@ -341,6 +364,7 @@ private struct Pass {
                 return Pass.drop
             case .style:
                 let value = attribute.getValueUTF8()
+                if isImage { hints.style = String(decoding: value, as: UTF8.self) }
                 if isDiv, QuoteCandidates.mentionsBorderTop(value) { facts.styleMentionsBorderTop = true }
                 let result = css.filter(bytes: value, mode: .attribute)
                 blockedRemoteImages += result.blockedRemoteImages
@@ -376,7 +400,12 @@ private struct Pass {
                 facts.type = attribute.getValueUTF8()
                 return Pass.keep
             case .src:
-                if isImage { return imagePolicy(attribute.getValue(), isImageSource: true, blockedSource: &blockedSource) }
+                if isImage {
+                    lastRemoteImage = nil
+                    let mutation = imagePolicy(attribute.getValue(), isImageSource: true, blockedSource: &blockedSource)
+                    remoteSource = lastRemoteImage
+                    return mutation
+                }
                 if isSVGImage { return imagePolicy(attribute.getValue(), isImageSource: false, blockedSource: &blockedSource) }
                 return Pass.drop
             case .background:
@@ -402,6 +431,16 @@ private struct Pass {
                 return linkPolicy(attribute.getValue())
             }
         }
+        if let remoteSource, let reason = TrackerRules.reason(forImageAt: remoteSource, hints: hints) {
+            trackerImages += 1
+            if blockedSource == nil {
+                // Remote images are allowed, so the source was kept live: a tracker is parked all the same.
+                blockedRemoteImages += 1
+                blockedSource = remoteSource
+                try element.attr("src", HTMLSanitizer.placeholderImage)
+            }
+            try element.attr(HTMLSanitizer.trackerAttribute, reason.rawValue)
+        }
         if let blockedSource { try element.attr(HTMLSanitizer.blockedSourceAttribute, blockedSource) }
         if let blockedBackground { try element.attr(HTMLSanitizer.blockedBackgroundAttribute, blockedBackground) }
         return facts
@@ -409,7 +448,8 @@ private struct Pass {
 
     /// `isImageSource` is true only for `<img src>`: that is the one place a data: payload or a blocked-image
     /// placeholder makes sense. Backgrounds, posters and SVG image references are dropped instead; with `parks`
-    /// (a `background=` attribute) a blocked remote URL is still handed back so it can be parked.
+    /// (a `background=` attribute) a blocked remote URL is still handed back so it can be parked. The remote address of
+    /// an `<img src>`, parked or kept, is left in `lastRemoteImage` for the tracker rules.
     private mutating func imagePolicy(_ value: String, isImageSource: Bool, parks: Bool = false, blockedSource: inout String?) -> AttributeMutation {
         switch URLPolicy.classify(value) {
         case .inlineImage(let contentID):
@@ -418,6 +458,7 @@ private struct Pass {
             guard isImageSource else { return Pass.drop }
             return data == value ? Pass.keep : Pass.replacing(data)
         case .remote(let url):
+            if isImageSource { lastRemoteImage = url }
             if allowRemoteImages { return url == value ? Pass.keep : Pass.replacing(url) }
             blockedRemoteImages += 1
             guard isImageSource else {
@@ -532,6 +573,9 @@ private struct Pass {
     }
 
     private static let preTag = "pre"
+    private static let widthKey = Array("width".utf8)
+    private static let heightKey = Array("height".utf8)
+    private static let hiddenKey = Array("hidden".utf8)
     private static let placeholderBytes = Array(HTMLSanitizer.placeholderImage.utf8)
 
     private enum AttributeRole {
