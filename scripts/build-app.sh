@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Assemble dist/SuperSparrow.app from the SwiftPM build. Usage: scripts/build-app.sh [debug|release]
+# Assemble dist/Paper.app from the SwiftPM build. Usage: scripts/build-app.sh [debug|release]
 set -euo pipefail
 CONFIG="${1:-debug}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-swift build -c "$CONFIG" --product SuperSparrow
+swift build -c "$CONFIG" --product Paper
 BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
-APP="$ROOT/dist/SuperSparrow.app"
+APP="$ROOT/dist/Paper.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/SuperSparrow" "$APP/Contents/MacOS/SuperSparrow"
+cp "$BIN_DIR/Paper" "$APP/Contents/MacOS/Paper"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 # Crash reporting (docs/ANALYTICS-AND-REPORTS.md): the Sentry project's DSN, from SENTRY_DSN or the untracked file
 # Resources/SentryDSN. Without one the app sends no crash reports.
@@ -36,10 +36,10 @@ else
   echo "note: no TelemetryDeck app ID (TELEMETRYDECK_APP_ID or Resources/TelemetryDeckAppID); this build sends no analytics" >&2
 fi
 # The build's debug symbols beside the bundle, so its crash reports can be symbolicated (scripts/upload-dsyms.sh).
-DSYM="$ROOT/dist/SuperSparrow.app.dSYM"
+DSYM="$ROOT/dist/Paper.app.dSYM"
 rm -rf "$DSYM"
 if xcrun --find dsymutil >/dev/null 2>&1; then
-  xcrun dsymutil "$BIN_DIR/SuperSparrow" -o "$DSYM" >/dev/null 2>&1 \
+  xcrun dsymutil "$BIN_DIR/Paper" -o "$DSYM" >/dev/null 2>&1 \
     || echo "warning: dsymutil failed; crash reports from this build will show addresses, not function names" >&2
 fi
 # SwiftPM resource bundles (if any target declares resources) sit next to the binary.
@@ -55,7 +55,7 @@ HAS_ICON_DOCUMENT=0
 if [ -d "$ROOT/Resources/Assets.xcassets" ]; then
   if xcrun --find actool >/dev/null 2>&1; then
     # A private directory, removed on every exit path, so a failing actool leaves nothing in $TMPDIR.
-    ASSET_DIR="$(mktemp -d -t supersparrow-assets)"
+    ASSET_DIR="$(mktemp -d -t paper-assets)"
     trap 'rm -rf "$ASSET_DIR"' EXIT
     ASSET_PLIST="$ASSET_DIR/partial.plist"
     if [ -d "$ROOT/Resources/AppIcon.icon" ]; then
@@ -102,5 +102,5 @@ if [ "$HAS_ICON_DOCUMENT" = 1 ]; then
 fi
 # Ad-hoc signature so Keychain, notifications and WebKit behave like a real app. Replace with a
 # Developer ID identity for distribution: CODESIGN_IDENTITY="Developer ID Application: …" scripts/build-app.sh release
-codesign --force --sign "${CODESIGN_IDENTITY:--}" --entitlements "$ROOT/Resources/SuperSparrow.entitlements" "$APP" >/dev/null
+codesign --force --sign "${CODESIGN_IDENTITY:--}" --entitlements "$ROOT/Resources/Paper.entitlements" "$APP" >/dev/null
 echo "$APP"

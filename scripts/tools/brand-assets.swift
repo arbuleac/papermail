@@ -13,8 +13,9 @@
 // height) and `lockupGap` (0.55 cap heights) before the word's origin, as the approved lockup draws it. The symbol carries
 // one step of the isometric lattice (10 glyph units, 80 px on the icon) of clear space around the plane's box; the
 // wordmark and the lockup half the cap height around their frames. SVGs are sized at 1 px per icon pixel for the symbol
-// (8 px a glyph unit) and 0.2 px per unit for the word and the lockup; PNGs at twice that. The construction drawing is
-// the symbol on the app icon's 1024 canvas, 1 px per unit, with its 8 px grid, its isometric lattice and its guides.
+// (8 px a glyph unit) and 0.2 px per unit for the word and the lockup; PNGs at twice that, rounded to whole pixels, a
+// file's ground (the lockup on black's) covering every one of them. The construction drawing is the symbol on the app
+// icon's 1024 canvas, 1 px per unit, with its 8 px grid, its isometric lattice and its guides.
 import AppKit
 import Foundation
 import ImageIO
@@ -254,13 +255,15 @@ struct Shape {
     var opacity: CGFloat = 1
 }
 
-/// A brand file: its frame in units, the shapes on it, how many pixels a unit is in the SVG and in the PNG.
+/// A brand file: its frame in units, the shapes on it, how many pixels a unit is in the SVG and in the PNG, and the
+/// colour of its ground, if it has one, which fills the whole frame under the shapes (in the PNG, every pixel).
 struct Artwork {
     let name: String
     let width: CGFloat, height: CGFloat
     let shapes: [Shape]
     let svgScale: CGFloat
     let pngScale: CGFloat
+    var ground: String? = nil
 }
 
 /// A number written the same way on every run, so the files only change when their sources do.
@@ -272,7 +275,7 @@ func fixed(_ value: CGFloat, _ places: Int = 2) -> String {
 }
 
 func svg(_ art: Artwork) -> String {
-    var body = ""
+    var body = art.ground.map { "<path fill=\"\($0)\" d=\"\(rect(CGRect(x: 0, y: 0, width: art.width, height: art.height)))\"/>" } ?? ""
     for shape in art.shapes {
         let transform = shape.scale == 1 && shape.x == 0 && shape.y == 0 ? ""
             : shape.scale == 1 ? " transform=\"translate(\(fixed(shape.x)) \(fixed(shape.y)))\""
@@ -288,7 +291,7 @@ func svg(_ art: Artwork) -> String {
         body += "<path\(transform)\(paint)\(opacity) d=\"\(shape.data)\"/>"
     }
     return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(fixed(art.width * art.svgScale))\" height=\"\(fixed(art.height * art.svgScale))\" "
-        + "viewBox=\"0 0 \(fixed(art.width)) \(fixed(art.height))\" role=\"img\" aria-label=\"SuperSparrow\">" + body + "</svg>\n"
+        + "viewBox=\"0 0 \(fixed(art.width)) \(fixed(art.height))\" role=\"img\" aria-label=\"Paper\">" + body + "</svg>\n"
 }
 
 func cgColor(_ hex: String, alpha: CGFloat = 1) -> CGColor {
@@ -302,6 +305,12 @@ func png(_ art: Artwork) -> CGImage {
     guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { fail("cannot make \(art.name).png") }
+    // The ground fills every whole pixel, not the frame in units: a frame that is not a whole number of pixels wide or
+    // tall ends inside the canvas's last column or row, and a ground drawn to it would leave a translucent seam there.
+    if let ground = art.ground {
+        context.setFillColor(cgColor(ground))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    }
     // y down, in units.
     context.translateBy(x: 0, y: CGFloat(height))
     context.scaleBy(x: art.pngScale, y: -art.pngScale)
@@ -387,11 +396,10 @@ do {
     let origin = markWidth + gap
     let width = origin + wordAdvance + 2 * clear, height = bottom - top + 2 * clear
     for (suffix, colour, ground) in [("", ink, nil), ("-white", paper, nil), ("-on-black", paper, ink)] as [(String, String, String?)] {
-        var shapes: [Shape] = []
-        if let ground { shapes.append(Shape(data: rect(CGRect(x: 0, y: 0, width: width, height: height)), paint: .fill(ground))) }
-        shapes.append(plane(height: markHeight, x: clear, y: clear + centre - markHeight / 2 - top, colour))
-        shapes.append(Shape(data: wordmarkPath, x: clear + origin, y: clear - top, paint: .fill(colour)))
-        artworks.append(Artwork(name: "lockup-horizontal\(suffix)", width: width, height: height, shapes: shapes, svgScale: 0.2, pngScale: 0.4))
+        let shapes = [plane(height: markHeight, x: clear, y: clear + centre - markHeight / 2 - top, colour),
+                      Shape(data: wordmarkPath, x: clear + origin, y: clear - top, paint: .fill(colour))]
+        artworks.append(Artwork(name: "lockup-horizontal\(suffix)", width: width, height: height, shapes: shapes, svgScale: 0.2,
+                                pngScale: 0.4, ground: ground))
     }
 }
 
@@ -436,8 +444,7 @@ do {
                   line(CGPoint(x: at(v.s).x, y: at(v.s).y - 37 * unit), CGPoint(x: at(v.s).x, y: at(v.s).y + 38 * unit)),
                   extended(v.n, v.wf, -0.05, 1.12)].joined(separator: " ")
     let guide = mix(0.673)
-    var shapes = [Shape(data: rect(CGRect(x: 0, y: 0, width: canvas, height: canvas)), paint: .fill(paper)),
-                  Shape(data: fine.trimmingCharacters(in: .whitespaces), paint: .stroke(mix(0.11), width: 1, dash: [])),
+    var shapes = [Shape(data: fine.trimmingCharacters(in: .whitespaces), paint: .stroke(mix(0.11), width: 1, dash: [])),
                   Shape(data: lattice.trimmingCharacters(in: .whitespaces), paint: .stroke(mix(0.306), width: 1.5, dash: [])),
                   Shape(data: planeData, scale: unit, x: ox, y: oy, paint: .fill(ink)),
                   Shape(data: guides, paint: .stroke(guide, width: 2.5, dash: [14, 8]))]
@@ -445,7 +452,7 @@ do {
         shapes.append(Shape(data: rect(CGRect(x: m.x - 6, y: m.y - 6, width: 12, height: 12)), paint: .fill(paper)))
         shapes.append(Shape(data: rect(CGRect(x: m.x - 6, y: m.y - 6, width: 12, height: 12)), paint: .stroke(guide, width: 3, dash: [])))
     }
-    artworks.append(Artwork(name: "construction", width: canvas, height: canvas, shapes: shapes, svgScale: 1, pngScale: 1))
+    artworks.append(Artwork(name: "construction", width: canvas, height: canvas, shapes: shapes, svgScale: 1, pngScale: 1, ground: paper))
 }
 
 // MARK: - Write

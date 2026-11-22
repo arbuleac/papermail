@@ -1,5 +1,5 @@
 // Measures which Unicode scalars the system serif (New York) draws itself and prints them as the range table
-// that Sources/SSCore/Render/NewYorkCoverage.swift embeds. SSCore cannot import AppKit, and New York is a
+// that Sources/PaperCore/Render/NewYorkCoverage.swift embeds. PaperCore cannot import AppKit, and New York is a
 // system font reachable only by design (not by name), so the table is measured here once and checked in.
 //
 // Usage: swift scripts/tools/newyork-coverage.swift > ranges.txt

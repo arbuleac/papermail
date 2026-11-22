@@ -1,8 +1,8 @@
 # Quire
 
-> **Historical proposal.** Its sparrow mark (`ss.sparrow`) and laid-paper app icon are retired. The brand is in [`docs/brand`](../../../brand/README.md), and the design language in [`docs/DESIGN-LANGUAGE.md`](../../../DESIGN-LANGUAGE.md).
+> **Historical proposal.** Its sparrow mark (`ss.sparrow`) and laid-paper app icon are retired. Its other glyphs are named here as the app names them today (`paper.quire`, `paper.nib`, `paper.elide`); the retired mark keeps the name it had. The brand is in [`docs/brand`](../../../brand/README.md), and the design language in [`docs/DESIGN-LANGUAGE.md`](../../../DESIGN-LANGUAGE.md).
 
-**A design language for SuperSparrow.** Editorial direction · proposal · 2 November 2026
+**A design language for Paper.** Editorial direction · proposal · 2 November 2026
 
 A quire is a gathering of folded sheets, the unit a book is sewn from. Quire treats mail the same way: each conversation is a tight stack of folded messages and one open sheet, set in New York on warm paper and marked in a single ink, **Iron Gall**, the blue-black ink letters were written in for a thousand years. The list stays compact and still, like an index. The reader gets the room of a page.
 
@@ -347,7 +347,7 @@ SF Symbols, **Regular** weight, **scale small** in rows and medium elsewhere. Si
 | Reply | `arrowshape.turn.up.left` | R |
 | Reply All | `arrowshape.turn.up.left.2` | A |
 | Forward | `arrowshape.turn.up.right` | F |
-| New Message | custom `ss.nib` | C |
+| New Message | custom `paper.nib` | C |
 | Search | `magnifyingglass` | / or ⌘F |
 | Undo | `arrow.uturn.backward` | Z or ⌘Z |
 | Send | `paperplane` (button), `paperplane.fill` (panel) | ⌘↩ |
@@ -356,8 +356,8 @@ SF Symbols, **Regular** weight, **scale small** in rows and medium elsewhere. Si
 | Open in composer | `arrow.up.left.and.arrow.down.right` | ⇧⌘R |
 | Load images | `photo` | ⇧⌘I |
 | Original colors | `circle.lefthalf.filled` | ⇧⌘O |
-| Show / Hide quoted text | custom `ss.elide` | . (period, focused message) |
-| Unified inbox | custom `ss.quire` | ⌘0 |
+| Show / Hide quoted text | custom `paper.elide` | . (period, focused message) |
+| Unified inbox | custom `paper.quire` | ⌘0 |
 | Account N | monogram | ⌘1…⌘9 |
 | Add account | `plus` | — |
 | Settings | `gearshape` | ⌘, |
@@ -378,7 +378,7 @@ SF Symbols, **Regular** weight, **scale small** in rows and medium elsewhere. Si
 
 **Custom glyphs (four of the six allowed).** All are drawn on the stated grid at the stated stroke, round caps and joins, in `currentColor`. They scale with the symbol point size (grid units × pointSize / 16). Exact path data:
 
-`ss.quire`: unified inbox (a gathering of letters). 16 × 16 grid, stroke 1.5, no fill.
+`paper.quire`: unified inbox (a gathering of letters). 16 × 16 grid, stroke 1.5, no fill.
 ```
 M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z
 M2.1 7 8 10.6 13.9 7
@@ -386,7 +386,7 @@ M3.5 3.75h9
 M5.25 1.5h5.5
 ```
 
-`ss.nib`: new message (a pen nib at 45°). 16 × 16 grid, stroke 1.5, plus one filled circle (the vent).
+`paper.nib`: new message (a pen nib at 45°). 16 × 16 grid, stroke 1.5, plus one filled circle (the vent).
 ```
 M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z
 M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z
@@ -394,7 +394,7 @@ M2.91 13.09 L6.66 9.34
 fill: circle cx 7.47 cy 8.53 r 0.9
 ```
 
-`ss.elide`: quoted text, the editor's `[…]`. 16 × 16 grid, stroke 1.5, plus three filled dots.
+`paper.elide`: quoted text, the editor's `[…]`. 16 × 16 grid, stroke 1.5, plus three filled dots.
 ```
 M4.75 2.75h-2v10.5h2
 M11.25 2.75h2v10.5h-2
@@ -486,7 +486,7 @@ Anatomy, top to bottom: title-bar zone (52) · unified inbox tile · 20 pt hairl
 |---|---|
 | Width | 76 pt; hidden in minimal mode (⌃⌘S, View › Hide Account Rail) |
 | Tile | 38 × 38 visual, 44 × 44 hit, centred at x = 38 |
-| Unified tile | first tile top at y = 62; `ss.quire` 18 pt; radius 11 |
+| Unified tile | first tile top at y = 62; `paper.quire` 18 pt; radius 11 |
 | Divider | 20 × hairline at y = 116, centred |
 | Account tiles | first at y = 130, pitch 50; avatar face 30 pt with 1.5 pt gap and 1.5 pt account-ink ring (38 pt overall); monogram New York Semibold 12.5 pt, or the account photo |
 | Badge | count badge (§5.27), top −5, trailing −8 relative to the tile, 2 pt `spine` cut-out ring |
@@ -520,7 +520,7 @@ Height 92 = row 1 (52, title-bar zone) + row 2 (40). Bottom hairline `rule` span
 |---|---|
 | Masthead | x 16, vertically centred on y 26 (aligned with the traffic lights); `masthead` (New York 20/24 Semibold); followed 6 pt later by `chevron.down` 9 pt Semibold `ink2`. Hit area: text + chevron + 6 pt padding, radius 6 |
 | Account suffix | when narrowed to one account: " · alex@contoso.test" in `snippet` `ink3`, truncates first |
-| Compose | 28 × 28 icon button, `ss.nib` 18 pt, trailing 12, top 12 |
+| Compose | 28 × 28 icon button, `paper.nib` 18 pt, trailing 12, top 12 |
 | Tabs (Inbox only) | row 2, x 16, gap 18 (§5.5) |
 | Search | row 2, trailing 12, top 58, 168 × 26 (§5.6); full width (x 12…352) in views without tabs |
 
@@ -743,7 +743,7 @@ Dark mode and HTML mail: bodies render with `color-scheme: light dark`. If a bod
 | Part | Metric |
 |---|---|
 | Shape | 24 pt high, radius 6, padding 0 9 0 6, gap 6 |
-| Glyph | `ss.elide` 14 pt |
+| Glyph | `paper.elide` 14 pt |
 | Label | `label` (12 Medium): "Show quoted text" / "Hide quoted text" |
 
 | State | Fill | Text / glyph |
@@ -943,7 +943,7 @@ Badges do not animate when counts change.
 | 48 | contact popover | 20 |
 | 64 | welcome (account added), About | 27 |
 
-Face = avatar tint (§4.3) or photo; initials New York Semibold, max 2 letters, from the display name (first + last word), else the first letter of the address; non-letter names ("[sparrow-sync]") use the first alphanumeric. **Account ring**: 1.5 pt gap in the surface colour + 1.5 pt ring in the account ink, drawn outside the face; unified views only. Groups (several senders) show the most recent sender. States: none (avatars are not interactive in rows); in the reader, hover shows the address tooltip.
+Face = avatar tint (§4.3) or photo; initials New York Semibold, max 2 letters, from the display name (first + last word), else the first letter of the address; non-letter names ("[paper-sync]") use the first alphanumeric. **Account ring**: 1.5 pt gap in the surface colour + 1.5 pt ring in the account ink, drawn outside the face; unified views only. Groups (several senders) show the most recent sender. States: none (avatars are not interactive in rows); in the reader, hover shows the address tooltip.
 
 ### 5.29 Toast
 
@@ -988,7 +988,7 @@ System `NSToolTip` on every icon-only control and on truncated text. Content: ac
 
 Main menu (system), with Quire content:
 
-- **SuperSparrow**: About SuperSparrow · Settings… ⌘, · Services · Hide/Quit.
+- **Paper**: About Paper · Settings… ⌘, · Services · Hide/Quit.
 - **File**: New Message ⌘N (also C) · Close Window ⌘W · Add Gmail Account… · Add Microsoft Account… · Save Attachments…
 - **Edit**: standard, plus Find… ⌘F (focus search).
 - **View**: Inbox / Starred / Sent / Drafts / Trash / All Mail (G-sequences shown) · All / Focused / Other ⌥1–3 · All Inboxes ⌘0 · Account 1–9 ⌘1–9 · Show/Hide Account Rail ⌃⌘S · Compact Rows ⌥⌘C · Load Images ⇧⌘I · Original Colors ⇧⌘O · Show Quoted Text .
@@ -1040,7 +1040,7 @@ Fills the main window until the first account is added; the rail and list are hi
 |---|---|
 | Block | centred, max width 360 |
 | Mark | `ss.sparrow` 52 pt in `accent` |
-| Title | "SuperSparrow" in `display` (New York 34/40 Semibold), 14 below the mark |
+| Title | "Paper" in `display` (New York 34/40 Semibold), 14 below the mark |
 | Tagline | "Your mail, quietly fast." New York Italic 17/24 `ink2`, 4 below |
 | Actions | 28 below; two large secondary buttons, 328 wide, 10 apart: `envelope` 18 + "Add Gmail account" (trailing "Google" in `snippet` `ink3`), "Add Microsoft account" (trailing "365 · Outlook") |
 | Footnote | 20 below, `meta` 11/15 `ink3`, max 330 wide: "Your mail is stored on this Mac and travels only between this Mac and Google or Microsoft. No analytics, ever." |
@@ -1243,8 +1243,8 @@ Not tested on purpose: `inkDisabled` (disabled text and glyphs are exempt, WCAG 
 
 **Files.**
 
-- `Sources/SuperSparrowApp/Design/quire-tokens.json`: the single source (colours in four modes, type roles, spacing, radii, motion, elevation).
-- `scripts/tools/quire-tokens.swift`: a SwiftPM-friendly generator (no Node) that writes `QuireTokens.swift` (NSColor providers, `NSFont` role factories, `CGFloat` metrics, `CAMediaTimingFunction`s), the CSS head inside `ConversationShellAssets.css`, and `Tests/SSCoreTests/QuireContrastTests.swift`, which asserts every pair in §6.
+- `Sources/PaperApp/Design/quire-tokens.json`: the single source (colours in four modes, type roles, spacing, radii, motion, elevation).
+- `scripts/tools/quire-tokens.swift`: a SwiftPM-friendly generator (no Node) that writes `QuireTokens.swift` (NSColor providers, `NSFont` role factories, `CGFloat` metrics, `CAMediaTimingFunction`s), the CSS head inside `ConversationShellAssets.css`, and `Tests/PaperCoreTests/QuireContrastTests.swift`, which asserts every pair in §6.
 - `QuireFont.swift`: `static func role(_ role: QuireTypeRole) -> NSFont`, using `NSFontDescriptor.withDesign(.serif / .rounded / .monospaced)` and cached per text-size setting.
 
 **AppKit.** Rows: build `NSAttributedString`s with role fonts, `.kern` and fixed-line-height paragraph styles; draw pip, margin rule, account ring and count badge in `draw(_:)` with `NSBezierPath`; never set layer shadows on row views. Rail: `NSVisualEffectView(.sidebar)` behind a plain view; tiles draw themselves. Focus rings: override `drawFocusRingMask()` and `focusRingMaskBounds`, and set the ring colour via `NSColor.qFocus` in a custom `focusRingType` drawing (or draw the ring in `draw(_:)` when `window?.firstResponder === self`).

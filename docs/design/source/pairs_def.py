@@ -43,7 +43,7 @@ PAIRS = [
  ("Star glyph, selected idle", "star", ["selWashIdle"], U),
  ("Paperclip glyph, rest", "ink2", ["paper"], U),
  ("Paperclip glyph, selected", "ink2", ["selWash"], U),
- ("Queued glyph (ss.queued), rest", "ink3", ["paper"], U),
+ ("Queued glyph (paper.queued), rest", "ink3", ["paper"], U),
  ("Queued glyph, hover", "ink3", ["paper", "hover"], U),
  ("Queued glyph, selected", "ink3", ["selWash"], U),
  ("Queued glyph, selected idle", "ink3", ["selWashIdle"], U),

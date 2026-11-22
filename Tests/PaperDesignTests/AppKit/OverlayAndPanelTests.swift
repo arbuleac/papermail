@@ -1,0 +1,287 @@
+import AppKit
+import XCTest
+@testable import PaperDesign
+
+/// The undo-send panel (§5.31), the g-sequence HUD and the cheat-sheet overlay (§5.32): metrics, states,
+/// content from `cheatSheetContent`, keys and colours.
+@MainActor
+final class OverlayAndPanelTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        QuireTestEnvironment.forceDefaults()
+    }
+
+    override func tearDown() async throws {
+        QuireTestEnvironment.reset()
+        try await super.tearDown()
+    }
+
+    // MARK: Undo panel
+
+    func testUndoPanelMetricsAndCountingState() {
+        let panel = QuireUndoPanelView(summary: "Re: Contoso rollout · to Ben Carter")
+        XCTAssertEqual(panel.frame.size, NSSize(width: 280, height: 52))
+        XCTAssertEqual(panel.surfaceRadius, 12)
+        XCTAssertEqual(panel.surfaceElevation, Quire.Elevation.e3)
+        panel.startCountdown(5, remaining: 3.9)
+        panel.isCountdownPaused = true
+        XCTAssertEqual(panel.state, .counting(secondsLeft: 4), "whole seconds, counted up")
+        XCTAssertEqual(panel.state.title, "Sending in 4 s")
+        XCTAssertFalse(panel.countdownContrail.isHidden)
+        XCTAssertEqual(panel.countdownContrail.mode, .countdown(duration: 5, remaining: 3.9))
+        let action = try! XCTUnwrap(panel.actionButton)
+        XCTAssertEqual(action.title, "Undo")
+        XCTAssertEqual(action.keycap, "⌘Z")
+        XCTAssertTrue(action.showsRestingOutline, "no divider, so the outline says “button”")
+        panel.layoutSubtreeIfNeeded()
+        let visual = action.alignmentRect(forFrame: action.frame)
+        XCTAssertEqual(visual.maxX, 280 - Quire.Layout.UndoPanel.padRight)
+        XCTAssertEqual(visual.height, Quire.Layout.UndoPanel.action)
+        XCTAssertEqual(visual.midY, 26, accuracy: 0.5)
+        panel.ownsUndoKey = false
+        XCTAssertNil(panel.actionButton?.keycap, "a newer toast took ⌘Z: the keycap hides, the click still works")
+        XCTAssertEqual(QuireUndoPanelView.shadowMargins.top, 32)
+        XCTAssertEqual(QuireUndoPanelView.shadowMargins.bottom, 68)
+        XCTAssertEqual(QuireUndoPanelView.shadowMargins.left, 48)
+    }
+
+    func testUndoPanelStates() {
+        let panel = QuireUndoPanelView(summary: "Re: Lunch · to Maya Singh")
+        panel.state = .sending
+        XCTAssertNil(panel.actionButton, "sending has no action")
+        XCTAssertNil(panel.state.symbolName, "the spinner takes the glyph's place")
+        XCTAssertEqual(panel.state.title, "Sending…")
+        panel.state = .sent
+        XCTAssertEqual(panel.state.symbolName, Quire.Icon.upToDate)
+        XCTAssertEqual(panel.accessibilityLabel(), "Sent. Re: Lunch · to Maya Singh.")
+        panel.state = .undoTooLate
+        XCTAssertEqual(panel.accessibilityLabel(), "Already sent. Undo came after the message left.")
+        panel.state = .failed
+        XCTAssertEqual(panel.actionButton?.title, "Open draft")
+        XCTAssertNil(panel.actionButton?.keycap)
+        XCTAssertEqual(panel.state.symbolName, Quire.Icon.error)
+        var clicked: [QuireUndoPanelView.State] = []
+        panel.onAction = { clicked.append($0) }
+        panel.actionButton?.performClick(nil)
+        XCTAssertEqual(clicked, [.failed])
+        XCTAssertEqual(QuireUndoPanelView.wholeSeconds(4.2), 5)
+        XCTAssertEqual(QuireUndoPanelView.wholeSeconds(4.0), 4)
+        XCTAssertEqual(QuireUndoPanelView.wholeSeconds(0), 0)
+    }
+
+    func testUndoPanelColours() {
+        for mode in [QuireMode.light, .dark, .lightHC, .darkHC] {
+            let panel = QuireUndoPanelView(state: .sent, summary: "Re: Lunch")
+            let snapshot = ComponentSnapshot.render(panel, mode: mode, surface: .qPaper, padding: 20)
+            XCTAssertTrue(snapshot.matches(expected("slip", mode: mode), at: NSPoint(x: 20 + 200, y: 20 + 40)), "\(mode) slip fill")
+            // slipEdge is translucent white over the slip (clear in light appearances).
+            XCTAssertTrue(snapshot.matches(expected("slip", "slipEdge", mode: mode), at: NSPoint(x: 20 + 140, y: 20.25)),
+                          "\(mode) slipEdge: \(snapshot.hex(at: NSPoint(x: 20 + 140, y: 20.25)))")
+        }
+    }
+
+    // MARK: HUD
+
+    func testHUDRowsComeFromTheCheatSheet() {
+        let rows = QuireSequenceHUDView.sequenceRows()
+        XCTAssertEqual(rows.map(\.keys), ["I", "L", "S", "T", "D", "O", "#", "A"])
+        XCTAssertEqual(rows.map(\.label), ["Inbox", "Later", "Starred", "Sent", "Drafts", "Outbox", "Trash", "All Mail"])
+        let hud = QuireSequenceHUDView()
+        XCTAssertEqual(hud.frame.size, NSSize(width: 220, height: 234), "12 + 28 + 6 + 8 × 22 + 12, Later's row included")
+        // The shell leaves Later's row out while nothing is snoozed and the Outbox's while nothing waits to go (§5.32): seven
+        // rows with one of them, 212 pt, and the six views alone, 190 pt.
+        let seven = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" })
+        XCTAssertEqual(seven.frame.size, NSSize(width: 220, height: 212), "12 + 28 + 6 + 7 × 22 + 12")
+        let six = QuireSequenceHUDView(rows: rows.filter { $0.keys != "L" && $0.keys != "O" })
+        XCTAssertEqual(six.rows.map(\.keys), ["I", "S", "T", "D", "#", "A"])
+        XCTAssertEqual(six.frame.size, NSSize(width: 220, height: 190), "12 + 28 + 6 + 6 × 22 + 12")
+        XCTAssertFalse(hud.acceptsFirstResponder, "not focusable")
+        XCTAssertEqual(hud.accessibilityLabel()?.hasPrefix("Go to…"), true)
+    }
+
+    func testHUDColours() {
+        for mode in [QuireMode.light, .dark] {
+            let hud = QuireSequenceHUDView()
+            let snapshot = ComponentSnapshot.render(hud, mode: mode, surface: .qPaper, padding: 20)
+            XCTAssertTrue(snapshot.matches(expected("slip", mode: mode), at: NSPoint(x: 20 + 200, y: 20 + 100)), "\(mode) slip fill")
+        }
+    }
+
+    // MARK: Cheat sheet
+
+    func testCheatSheetPanelMetrics() {
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(), 736, "24 + 28 + 16 + (22 + 10 × 28) + 20 + (22 + 9 × 28) + 20 + 28 + 24")
+        XCTAssertEqual(QuireCheatSheetPanel.naturalHeight(searchTerms: []), 688, "no search line, no room for one")
+        let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
+        XCTAssertEqual(bands.map { $0.map(\.title) }, [["Move", "Act", "Go"], ["Write", "Format", "View"]])
+        let panel = QuireCheatSheetPanel()
+        XCTAssertEqual(panel.frame.size, NSSize(width: 816, height: 736))
+        XCTAssertFalse(panel.scrolls)
+        panel.layoutSubtreeIfNeeded()
+        let close = panel.closeButton.alignmentRect(forFrame: panel.closeButton.frame)
+        XCTAssertEqual(close, NSRect(x: 816 - 16 - 24, y: 16, width: 24, height: 24), "a 24 pt close button 16 pt from the corner")
+        XCTAssertEqual(panel.accessibilityLabel(), "Keyboard Shortcuts")
+        XCTAssertEqual(panel.accessibilitySubrole(), .dialog)
+    }
+
+    /// Every row fits its column whole (§5.32): its keycaps in the 96 pt key column, its label in the 144 pt after it,
+    /// never tail-truncated. Rows that share keys (J K, → esc, E ⇧I, # !, [ ] T, D W) are how the sheet keeps every key
+    /// on it in two bands.
+    func testEveryCheatSheetRowFitsItsColumn() {
+        let c = Quire.Layout.CheatSheet.self
+        for section in Quire.cheatSheet {
+            for row in section.rows {
+                var width: CGFloat = 0
+                var previousWasKeycap = false
+                for part in row.parts {
+                    if part.isKeycap {
+                        if previousWasKeycap { width += c.keycapGap }
+                        width += QuireKeycap.size(for: part.text, style: .large).width
+                    } else {
+                        width += 2 * Quire.Space.s3 + QuireDraw.width(QuireDraw.line(part.text, .meta, .qInk3))
+                    }
+                    previousWasKeycap = part.isKeycap
+                }
+                XCTAssertLessThanOrEqual(width, c.keyColumn, "\(section.title): \(row.keys)")
+                let label = QuireDraw.width(QuireDraw.line(row.label, .snippet, .qInk))
+                XCTAssertLessThanOrEqual(label, c.columnWidth - c.keyColumn, "\(section.title): “\(row.label)” is cut")
+            }
+        }
+    }
+
+    /// The keys this release added each have a row (§5.32, §6): ! and M in Act with Print, → and ⇧⌘D in Move (→ opens in
+    /// the reader now that ↩ opens a window of its own, §5.49, and ⌘O is ↩'s menu alternate), ⇧⌘L in Write, ⌥⌘I in Format,
+    /// and Find, its next and previous, and the reader's size in View.
+    func testTheReleasesNewKeysAreOnTheSheet() {
+        let keycaps = Dictionary(grouping: Quire.cheatSheet.flatMap { section in
+            section.rows.flatMap { row in row.parts.filter(\.isKeycap).map { ($0.text, section.title) } }
+        }, by: \.0).mapValues { $0.map(\.1) }
+        let expected = ["!": "Act", "M": "Act", "⌘P": "Act", "→": "Move", "⇧⌘D": "Move", "⇧⌘L": "Write", "⌥⌘I": "Format",
+                        "⌥⌘F": "View", "⌘G": "View", "⇧⌘G": "View", "⌘+": "View", "⌘−": "View"]
+        for (key, section) in expected {
+            XCTAssertEqual(keycaps[key], [section], "\(key) has one row, in \(section)")
+        }
+    }
+
+    /// Day and week's keys (§5.54, §6) have three rows and no more: B with the other things done to the selected
+    /// conversation, [ ] T with the places Go goes to, D W in View beside the rail's toggle. Each section grows by one,
+    /// so band 1 holds ten rows and band 2 nine, and Undo stays Act's last row.
+    func testTheCalendarKeysAreOnTheSheet() {
+        let rows = Quire.cheatSheet.flatMap { section in section.rows.map { (section.title, $0.keys, $0.label) } }
+        XCTAssertTrue(rows.contains { $0 == ("Act", "B", "Block time for this mail") })
+        XCTAssertTrue(rows.contains { $0 == ("Go", "[ ] T", "Day before · after · today") })
+        XCTAssertTrue(rows.contains { $0 == ("View", "D W", "Day column · week") })
+        XCTAssertEqual(Quire.cheatSheet.first { $0.title == "Act" }?.rows.last?.keys, "Z")
+        let bands = QuireCheatSheetPanel.bands(of: Quire.cheatSheet)
+        XCTAssertEqual(bands.map { $0.map(\.rows.count).max() }, [10, 9])
+    }
+
+    /// The search operators' line (§5.32, §5.6): every operator the field takes, as typed, on one line that fits
+    /// after the key column without truncating.
+    func testTheSearchLineListsTheOperatorsAndFits() {
+        XCTAssertEqual(Quire.cheatSheetSearchTitle, "Search")
+        XCTAssertEqual(Quire.cheatSheetSearch, ["from:", "to:", "subject:", "is:unread", "is:read", "is:starred", "has:attachment",
+                                                "before:", "after:", "in:sent", "in:trash", "\"phrase\"", "-word"])
+        let c = Quire.Layout.CheatSheet.self
+        let terms = Quire.cheatSheetSearch.map { QuireDraw.width(QuireDraw.line($0, .snippet, .qInk)) }
+        let width = terms.reduce(0, +) + CGFloat(terms.count - 1) * c.searchTermGap
+        XCTAssertLessThanOrEqual(width, c.width - 2 * c.pad - c.keyColumn, "\(width) pt of operators")
+    }
+
+    func testOverlayPlacesThePanelUnderTheHorizon() {
+        let roomy = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1280, height: 800))
+        XCTAssertEqual(roomy, NSRect(x: 232, y: 92, width: 816, height: 684),
+                       "centred, top at 92, 24 pt from the bottom: 92 + 736 + 24 = 852 > 800 since the calendar's rows, so it scrolls")
+        let tall = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 1304, height: 852))
+        XCTAssertEqual(tall, NSRect(x: 244, y: 92, width: 816, height: 736), "whole from 852 pt")
+        let roomyOverlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1304, height: 800))
+        roomyOverlay.layoutSubtreeIfNeeded()
+        XCTAssertTrue(roomyOverlay.panel.scrolls, "the default window scrolls the bands under the title row")
+        let short = QuireCheatSheetOverlay.panelFrame(in: NSSize(width: 960, height: 600))
+        XCTAssertEqual(short.minY, 92)
+        XCTAssertEqual(short.height, 600 - 92 - 24, "at least 24 pt from the bottom; the bands scroll")
+        XCTAssertEqual(short.minX, 72, "72 pt to spare on each side of the minimum window")
+        let overlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 960, height: 600))
+        overlay.layoutSubtreeIfNeeded()
+        XCTAssertTrue(overlay.panel.scrolls)
+        XCTAssertEqual(overlay.scrim.frame, overlay.bounds)
+    }
+
+    /// At the default window the panel is a little short of its content: the bands' bottom padding scrolls away first,
+    /// so every row of keycaps draws whole at rest and only the search line below them waits for a scroll.
+    func testTheLastRowOfKeycapsDrawsWholeAtTheDefaultWindow() {
+        let c = Quire.Layout.CheatSheet.self
+        let overlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1304, height: 800))
+        overlay.layoutSubtreeIfNeeded()
+        let panel = overlay.panel
+        XCTAssertTrue(panel.scrolls, "the search line still scrolls")
+        let rows = QuireCheatSheetPanel.bands(of: panel.sections).map(QuireCheatSheetPanel.bandHeight).reduce(0, +)
+            + c.sectionGap * CGFloat(QuireCheatSheetPanel.bands(of: panel.sections).count - 1)
+        let visible = panel.scrollView.contentView.bounds
+        XCTAssertEqual(visible.minY, 0, "at rest")
+        XCTAssertGreaterThanOrEqual(visible.height, rows, "every band's last row inside the visible rect")
+        XCTAssertEqual(panel.scrollView.frame.maxY, panel.bounds.height, "the bands scroll to the panel's edge")
+        let document = panel.scrollView.documentView?.frame.height ?? 0
+        XCTAssertEqual(document, QuireCheatSheetPanel.bandsHeight(for: panel.sections) + c.pad, "the padding is the content's")
+        // Tall enough for everything, nothing scrolls and the padding sits under the search line.
+        let tall = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1304, height: 852))
+        tall.layoutSubtreeIfNeeded()
+        XCTAssertFalse(tall.panel.scrolls)
+        XCTAssertEqual(tall.panel.scrollView.contentView.bounds.height, document)
+    }
+
+    func testOverlayKeys() {
+        let action = QuireCheatSheetOverlay.action(forCharacters:keyCode:modifiers:)
+        XCTAssertEqual(action("\u{1b}", 53, []), .dismiss, "Esc")
+        XCTAssertEqual(action("?", 44, .shift), .dismiss, "? again")
+        XCTAssertEqual(action("/", 44, .command), .dismiss, "⌘/ again")
+        XCTAssertEqual(action("w", 13, .command), .dismiss, "⌘W")
+        XCTAssertEqual(action("\t", 48, []), .focusNext)
+        XCTAssertEqual(action("\u{19}", 48, .shift), .focusPrevious)
+        XCTAssertEqual(action("", 125, []), .scroll(rows: 1))
+        XCTAssertEqual(action("", 121, []), .scrollPage(1))
+        XCTAssertEqual(action("e", 14, []), .swallow, "single keys are swallowed, so learning them is safe")
+        XCTAssertEqual(action("j", 38, []), .swallow)
+        var dismissed = 0
+        let overlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1280, height: 800))
+        overlay.onDismiss = { dismissed += 1 }
+        overlay.scrim.mouseDown(with: NSEvent())
+        overlay.panel.closeButton.performClick(nil)
+        XCTAssertEqual(dismissed, 2, "a click on the scrim and the close button dismiss")
+    }
+
+    func testOverlayMotionScalesFromTheCentreAndOnlyFadesUnderReduceMotion() {
+        let t = QuireCheatSheetOverlay.scaleTransform(0.98, size: NSSize(width: 816, height: 576))
+        let affine = CATransform3DGetAffineTransform(t)
+        let centre = CGPoint(x: 408, y: 288).applying(affine)
+        XCTAssertEqual(centre.x, 408, accuracy: 0.001)
+        XCTAssertEqual(centre.y, 288, accuracy: 0.001)
+        XCTAssertEqual(affine.a, 0.98, accuracy: 0.0001)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let overlay = QuireCheatSheetOverlay(frame: NSRect(x: 0, y: 0, width: 1280, height: 800))
+        window.contentView = overlay
+        QuireEnvironment.shared.setOverrides(.init(isGraphite: false, increaseContrast: false, reduceMotion: true, reduceTransparency: false))
+        overlay.present()
+        XCTAssertNil(overlay.panel.layer?.animation(forKey: "quire.transform"), "Reduce Motion: fades only")
+        XCTAssertNotNil(overlay.panel.layer?.animation(forKey: "quire.opacity"))
+        XCTAssertTrue(window.firstResponder === overlay, "the overlay takes focus")
+        Quire.Motion.finishAll()
+        QuireTestEnvironment.forceDefaults()
+        overlay.present()
+        XCTAssertNotNil(overlay.panel.layer?.animation(forKey: "quire.transform"), "the panel scales up from 0.98")
+        Quire.Motion.finishAll()
+        XCTAssertTrue(CATransform3DIsIdentity(overlay.panel.layer?.transform ?? CATransform3DIdentity))
+    }
+
+    func testCheatSheetPanelColoursAndIncreasedContrastEdge() {
+        for mode in QuireMode.allCases {
+            let panel = QuireCheatSheetPanel()
+            let snapshot = ComponentSnapshot.render(panel, mode: mode, surface: .qPaper, padding: 30)
+            XCTAssertTrue(snapshot.matches(expected("raised", mode: mode), at: NSPoint(x: 30 + 400, y: 30 + 10)), "\(mode) raised fill")
+            if mode.isIncreasedContrast {
+                XCTAssertTrue(snapshot.matches(expected("ruleStrong", mode: mode), at: NSPoint(x: 30 + 400, y: 30.25)), "\(mode) ruleStrong edge")
+            }
+        }
+    }
+}

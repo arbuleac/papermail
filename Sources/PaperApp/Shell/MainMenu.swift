@@ -1,0 +1,552 @@
+import AppKit
+import PaperCore
+import PaperDesign
+
+/// The menu bar (spec §5.35): system menus with Quire content. Items carry their symbol, title-case names and
+/// their shortcut, single keys included (“Archive  E”), so nothing is learnable only from the cheat sheet.
+/// Mail commands target the first responder so they reach the main window controller, the reader, a reader window
+/// (which answers the same selectors for its conversation, §5.49) or a composer; app-level commands target the app
+/// delegate. Items that do not apply stay visible, disabled.
+///
+/// Single-key shortcuts belong to `KeyboardRouter`, which acts only outside text fields; the menu bar shows
+/// them but never matches them (`MainMenuBar`), so typing “e” in a field can never archive.
+@MainActor
+enum MainMenu {
+    static func build(appDelegate: AppDelegate) -> NSMenu {
+        let main = MainMenuBar()
+        main.addItem(submenu(appMenu(appDelegate)))
+        main.addItem(submenu(fileMenu(appDelegate)))
+        let edit = editMenu()
+        main.addItem(submenu(edit.menu))
+        let view = viewMenu(appDelegate)
+        main.addItem(submenu(view))
+        let message = messageMenu()
+        main.addItem(submenu(message.menu))
+        let format = submenu(formatMenu())
+        main.addItem(format)
+        #if DEBUG
+        // The gallery rewrites app-wide QuireEnvironment overrides while open: a development tool only.
+        main.addItem(submenu(debugMenu(appDelegate)))
+        #endif
+        let window = windowMenu()
+        main.addItem(submenu(window))
+        NSApp.windowsMenu = window
+        let help = helpMenu(appDelegate)
+        main.addItem(submenu(help))
+        NSApp.helpMenu = help
+        MainMenuController.shared = MainMenuController(mainWindowItems: message.mainWindow + [edit.searchServer],
+                                                       composerItems: message.composer,
+                                                       formatItem: format, viewMenu: view, editMenu: edit.menu,
+                                                       appDelegate: appDelegate)
+        return main
+    }
+
+    private static func submenu(_ menu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: menu.title, action: nil, keyEquivalent: "")
+        item.submenu = menu
+        return item
+    }
+
+    private static func menu(_ title: String) -> NSMenu {
+        let menu = MainMenuBar(title: title)
+        return menu
+    }
+
+    /// One item. `key` with no modifiers is a single-key shortcut, shown in the menu and handled by
+    /// `KeyboardRouter`.
+    static func item(
+        _ title: String,
+        _ action: Selector?,
+        _ key: String = "",
+        _ modifiers: NSEvent.ModifierFlags = .command,
+        symbol: String? = nil,
+        target: AnyObject? = nil,
+        tag: Int = 0
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.keyEquivalentModifierMask = modifiers
+        item.target = target
+        item.tag = tag
+        if let symbol { item.image = QuireSymbol.image(symbol, size: .inText, accessibilityDescription: nil) }
+        return item
+    }
+
+    /// A G-sequence item: two keys cannot be a key equivalent, so they are set as right-aligned shortcut text.
+    private static func sequenceItem(_ title: String, keys: String, symbol: String, tag: Int) -> NSMenuItem {
+        let item = item(title, #selector(MainWindowController.goToMailboxView(_:)), "", [], symbol: symbol, tag: tag)
+        let font = NSFont.menuFont(ofSize: 0)
+        let style = NSMutableParagraphStyle()
+        style.tabStops = [NSTextTab(textAlignment: .right, location: sequenceColumn)]
+        let text = NSMutableAttributedString(string: title, attributes: [.font: font, .paragraphStyle: style])
+        text.append(NSAttributedString(string: "\t" + keys, attributes: [.font: font, .paragraphStyle: style,
+                                                                          .foregroundColor: NSColor.secondaryLabelColor]))
+        item.attributedTitle = text
+        return item
+    }
+
+    /// Where the G-sequence keys end: past the View menu's longest title and its native shortcut column.
+    private static var sequenceColumn: CGFloat {
+        let font = NSFont.menuFont(ofSize: 0)
+        let widest = ["Show Account Rail", "Check for New Mail", "Original Colors"]
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 120
+        return ceil(widest) + 64
+    }
+
+    private static func appMenu(_ delegate: AppDelegate) -> NSMenu {
+        let menu = menu("Paper")
+        menu.addItem(item("About Paper", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp))
+        menu.addItem(.separator())
+        menu.addItem(item("Settings…", #selector(AppDelegate.showSettings(_:)), ",", symbol: Quire.Icon.settings, target: delegate))
+        menu.addItem(.separator())
+        let services = NSMenu(title: "Services")
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        servicesItem.submenu = services
+        NSApp.servicesMenu = services
+        menu.addItem(servicesItem)
+        menu.addItem(.separator())
+        menu.addItem(item("Hide Paper", #selector(NSApplication.hide(_:)), "h", target: NSApp))
+        menu.addItem(item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: NSApp))
+        menu.addItem(item("Show All", #selector(NSApplication.unhideAllApplications(_:)), target: NSApp))
+        menu.addItem(.separator())
+        menu.addItem(item("Quit Paper", #selector(NSApplication.terminate(_:)), "q", target: NSApp))
+        return menu
+    }
+
+    private static func fileMenu(_ delegate: AppDelegate) -> NSMenu {
+        let menu = menu("File")
+        menu.addItem(item("New Message", #selector(AppDelegate.newMessage(_:)), "n", symbol: Quire.Icon.compose, target: delegate))
+        // The main window's selected conversation in a reader window (§5.49); disabled wherever there is none to open.
+        menu.addItem(item("Open in New Window", #selector(MainWindowController.openSelectionInNewWindow(_:)), "o"))
+        menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w"))
+        menu.addItem(.separator())
+        menu.addItem(item("Add Gmail Account…", #selector(AppDelegate.addGmailAccount(_:)), symbol: Quire.Icon.addAccountProvider,
+                          target: delegate))
+        menu.addItem(item("Add Microsoft Account…", #selector(AppDelegate.addMicrosoftAccount(_:)), symbol: Quire.Icon.addAccountProvider,
+                          target: delegate))
+        menu.addItem(.separator())
+        // The reader saves the target message's attachments (spec §5.17).
+        menu.addItem(item("Save Attachments…", #selector(MainWindowController.saveAttachments(_:)), symbol: Quire.Icon.attach))
+        menu.addItem(item("Download Attachments", #selector(MainWindowController.downloadAttachments(_:)), "d", [.command, .shift],
+                          symbol: Quire.Icon.download))
+        menu.addItem(.separator())
+        // The open conversation's sheets, through the system print panel and its PDF menu (spec §5.48). Not `print(_:)`,
+        // which every view and window answers by printing itself: the list's table or the window would print the screen.
+        menu.addItem(item("Print…", #selector(MainWindowController.printConversation(_:)), "p", symbol: Quire.Icon.print))
+        // Shown only in demo mode: the app delegate reveals it when it installs a demo environment.
+        let leaveDemo = item("Leave Demo…", #selector(AppDelegate.leaveDemo(_:)), symbol: Quire.Icon.undo, target: delegate)
+        leaveDemo.isHidden = true
+        menu.addItem(leaveDemo)
+        return menu
+    }
+
+    /// Edit › Help Me Write's titles where it does not apply; where it does, the field titles it (§5.35).
+    static let helpMeWriteTitle = "Help Me Write"
+    static let helpMeWriteWithInstructionsTitle = "Help Me Write with Instructions\u{2026}"
+
+    /// `searchServer` is the main window's: hidden while a composer is key.
+    private static func editMenu() -> (menu: NSMenu, searchServer: NSMenuItem) {
+        let menu = menu("Edit")
+        menu.addItem(item("Undo", NSSelectorFromString("undo:"), "z"))
+        menu.addItem(item("Redo", NSSelectorFromString("redo:"), "z", [.command, .shift]))
+        menu.addItem(.separator())
+        menu.addItem(item("Cut", #selector(NSText.cut(_:)), "x"))
+        menu.addItem(item("Copy", #selector(NSText.copy(_:)), "c"))
+        menu.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
+        menu.addItem(item("Paste and Match Style", #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .option, .shift]))
+        menu.addItem(item("Delete", #selector(NSText.delete(_:))))
+        menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
+        menu.addItem(.separator())
+        menu.addItem(item("Find…", #selector(MainWindowController.focusSearchField(_:)), "f", symbol: Quire.Icon.search))
+        // Find in the open conversation (§5.50): ⌘F stays the list's search, so this one takes ⌥⌘F; ⌘G and ⇧⌘G are the
+        // Mac's Find Next and Find Previous.
+        menu.addItem(item("Find in Conversation…", #selector(MainWindowController.findInConversation(_:)), "f", [.command, .option],
+                          symbol: Quire.Icon.findInConversation))
+        menu.addItem(item("Find Next", #selector(MainWindowController.findNextMatch(_:)), "g"))
+        menu.addItem(item("Find Previous", #selector(MainWindowController.findPreviousMatch(_:)), "g", [.command, .shift]))
+        // Titled by the scope when it validates (“Search Gmail for More”, §5.10). No key equivalent: ↩ in the search
+        // field runs it (§5.6), and a menu's plain ↩ would take Return from the list, the composer and every sheet.
+        let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)))
+        menu.addItem(searchServer)
+        // Help me write (§5.56): on the focused quick reply or reply composer's text, beside the Mac's own Writing Tools,
+        // which AppKit adds to this menu. Nil-targeted: the reader or the composer answers it while its field has focus,
+        // and titles it for what it does there (“Write Reply from Notes”, “Rewrite Selection”, “Write Reply”).
+        menu.addItem(.separator())
+        menu.addItem(item(helpMeWriteTitle, #selector(ConversationViewController.helpMeWrite(_:)), "j", symbol: Quire.Icon.helpMeWrite))
+        menu.addItem(item(helpMeWriteWithInstructionsTitle, #selector(ConversationViewController.helpMeWriteWithInstructions(_:)), "j",
+                          [.command, .shift]))
+        // The text system's own submenus, acting on whichever text view has focus. Without them spelling, text
+        // replacement and smart quotes could be switched only from a text view's context menu. Writing Tools, AutoFill,
+        // Start Dictation and Emoji & Symbols are not built here: AppKit adds them at launch to the menu titled "Edit"
+        // that holds Cut, Copy and Paste.
+        menu.addItem(submenu(spellingMenu()))
+        menu.addItem(submenu(substitutionsMenu()))
+        menu.addItem(submenu(transformationsMenu()))
+        menu.addItem(submenu(speechMenu()))
+        return (menu, searchServer)
+    }
+
+    private static func spellingMenu() -> NSMenu {
+        let menu = menu("Spelling and Grammar")
+        menu.addItem(item("Show Spelling and Grammar", #selector(NSText.showGuessPanel(_:)), ":"))
+        menu.addItem(item("Check Document Now", #selector(NSText.checkSpelling(_:)), ";"))
+        menu.addItem(.separator())
+        menu.addItem(item("Check Spelling While Typing", #selector(NSTextView.toggleContinuousSpellChecking(_:))))
+        menu.addItem(item("Check Grammar With Spelling", #selector(NSTextView.toggleGrammarChecking(_:))))
+        menu.addItem(item("Correct Spelling Automatically", #selector(NSTextView.toggleAutomaticSpellingCorrection(_:))))
+        return menu
+    }
+
+    private static func substitutionsMenu() -> NSMenu {
+        let menu = menu("Substitutions")
+        menu.addItem(item("Show Substitutions", #selector(NSTextView.orderFrontSubstitutionsPanel(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Smart Copy/Paste", #selector(NSTextView.toggleSmartInsertDelete(_:))))
+        menu.addItem(item("Smart Quotes", #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
+        menu.addItem(item("Smart Dashes", #selector(NSTextView.toggleAutomaticDashSubstitution(_:))))
+        menu.addItem(item("Smart Links", #selector(NSTextView.toggleAutomaticLinkDetection(_:))))
+        menu.addItem(item("Data Detectors", #selector(NSTextView.toggleAutomaticDataDetection(_:))))
+        menu.addItem(item("Text Replacement", #selector(NSTextView.toggleAutomaticTextReplacement(_:))))
+        return menu
+    }
+
+    private static func transformationsMenu() -> NSMenu {
+        let menu = menu("Transformations")
+        menu.addItem(item("Make Upper Case", #selector(NSResponder.uppercaseWord(_:))))
+        menu.addItem(item("Make Lower Case", #selector(NSResponder.lowercaseWord(_:))))
+        menu.addItem(item("Capitalize", #selector(NSResponder.capitalizeWord(_:))))
+        return menu
+    }
+
+    private static func speechMenu() -> NSMenu {
+        let menu = menu("Speech")
+        menu.addItem(item("Start Speaking", #selector(NSTextView.startSpeaking(_:))))
+        menu.addItem(item("Stop Speaking", #selector(NSTextView.stopSpeaking(_:))))
+        return menu
+    }
+
+    private static func viewMenu(_ delegate: AppDelegate) -> NSMenu {
+        let menu = menu("View")
+        let views: [(MailboxView, String, String, String)] = [
+            (.inbox, "Inbox", "G I", Quire.Icon.viewInbox), (.later, "Later", "G L", Quire.Icon.viewLater),
+            (.starred, "Starred", "G S", Quire.Icon.viewStarred),
+            (.sent, "Sent", "G T", Quire.Icon.viewSent), (.drafts, "Drafts", "G D", Quire.Icon.viewDrafts),
+            (.outbox, OutboxCopy.title, "G O", Quire.Icon.viewOutbox),
+            (.trash, "Trash", "G #", Quire.Icon.viewTrash), (.all, "All Mail", "G A", Quire.Icon.viewAllMail),
+        ]
+        for (view, title, keys, symbol) in views {
+            let item = sequenceItem(title, keys: keys, symbol: symbol, tag: MailboxView.allCases.firstIndex(of: view) ?? 0)
+            // Later only while something in the main window's scope is snoozed, the Outbox only while a send in it waits to
+            // go (MainMenuController), as the rail's tiles.
+            item.isHidden = view == .later || view == .outbox
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("All Inboxes", #selector(MainWindowController.selectAccountShortcut(_:)), "0", symbol: Quire.Icon.unifiedInbox,
+                          tag: 0))
+        for number in 1...9 {
+            // Retitled with the account's name and hidden past the last account (MainMenuController). Hidden
+            // items keep their shortcut, so an account added since the menu last opened still answers ⌘n; the
+            // main window's validation decides whether that account exists.
+            let account = item("Account \(number)", #selector(MainWindowController.selectAccountShortcut(_:)), "\(number)", tag: number)
+            account.allowsKeyEquivalentWhenHidden = true
+            menu.addItem(account)
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("Check for New Mail", #selector(AppDelegate.checkForNewMail(_:)), "n", [.command, .shift],
+                          symbol: Quire.Icon.retry, target: delegate))
+        menu.addItem(item("Hide Account Rail", #selector(MainWindowController.toggleAccountStrip(_:)), "s", [.command, .control],
+                          symbol: Quire.Icon.toggleRail))
+        menu.addItem(item("Compact Rows", #selector(AppDelegate.toggleCompactRows(_:)), "c", [.command, .option], target: delegate))
+        menu.addItem(.separator())
+        menu.addItem(item("Load Images", #selector(MainWindowController.loadImages(_:)), "i", [.command, .shift], symbol: Quire.Icon.loadImages))
+        menu.addItem(item("Original Colors", #selector(MainWindowController.toggleOriginalColors(_:)), "o", [.command, .shift],
+                          symbol: Quire.Icon.originalColors))
+        // Reader mode (§5.59), listed only while Settings › Experimental offers it (MainMenuController); hidden, its key
+        // does nothing, and the quick reply keeps ⇧⌘R for Open in Composer while it is typed in.
+        let reader = item(readerModeTitle, #selector(MainWindowController.toggleReaderMode(_:)), "r", [.command, .shift],
+                          symbol: Quire.Icon.readerMode)
+        reader.isHidden = true
+        menu.addItem(reader)
+        menu.addItem(item("Show Quoted Text", #selector(MainWindowController.toggleQuotedText(_:)), ".", [], symbol: Quire.Icon.quotedText))
+        menu.addItem(.separator())
+        // The day column and the week (§5.54), retitled by what shows (Hide Day, Show Week, Previous Week…).
+        menu.addItem(item("Hide Day", #selector(MainWindowController.toggleDayColumn(_:)), "d", [], symbol: Quire.Icon.dayColumn))
+        menu.addItem(item("Show Week", #selector(MainWindowController.toggleWeek(_:)), "w", [], symbol: Quire.Icon.week))
+        menu.addItem(item("Previous Day", #selector(MainWindowController.previousCalendarDay(_:)), "[", [], symbol: Quire.Icon.previousDay))
+        menu.addItem(item("Next Day", #selector(MainWindowController.nextCalendarDay(_:)), "]", [], symbol: Quire.Icon.nextDay))
+        menu.addItem(item("Today", #selector(MainWindowController.calendarToday(_:)), "t", []))
+        menu.addItem(.separator())
+        // The reader's own Text size (§4.15). No ⌘0 to reset it: that is All Inboxes; the other key comes back.
+        menu.addItem(item("Make Text Bigger", #selector(MainWindowController.makeReaderTextBigger(_:)), "+"))
+        // ⌘= is ⌘+ without the Shift most layouts need for +, and Safari takes it the same way.
+        let biggerUnshifted = item("Make Text Bigger", #selector(MainWindowController.makeReaderTextBigger(_:)), "=")
+        biggerUnshifted.isHidden = true
+        biggerUnshifted.allowsKeyEquivalentWhenHidden = true
+        menu.addItem(biggerUnshifted)
+        menu.addItem(item("Make Text Smaller", #selector(MainWindowController.makeReaderTextSmaller(_:)), "-"))
+        menu.addItem(.separator())
+        menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
+        return menu
+    }
+
+    static let readerModeTitle = "Reader Mode"
+
+    /// The Message menu holds the main window's commands, or a composer's when a composer is key (§5.35).
+    private static func messageMenu() -> (menu: NSMenu, mainWindow: [NSMenuItem], composer: [NSMenuItem]) {
+        let menu = menu("Message")
+        let main: [NSMenuItem] = [
+            item("Reply", #selector(MainWindowController.replyToSelection(_:)), "r", [], symbol: Quire.Icon.reply),
+            item("Reply All", #selector(MainWindowController.replyAllToSelection(_:)), "a", [], symbol: Quire.Icon.replyAll),
+            item("Forward", #selector(MainWindowController.forwardSelection(_:)), "f", [], symbol: Quire.Icon.forward),
+            .separator(),
+            item("Archive", #selector(MainWindowController.archiveSelection(_:)), "e", [], symbol: Quire.Icon.archive),
+            item("Later…", #selector(MainWindowController.laterSelection(_:)), "l", [], symbol: Quire.Icon.later),
+            item("Move to Trash", #selector(MainWindowController.trashSelection(_:)), "#", [], symbol: Quire.Icon.trash),
+            item("Mark as Spam", #selector(MainWindowController.markSelectionSpam(_:)), "!", [], symbol: Quire.Icon.spam),
+            item("Move to Inbox", #selector(MainWindowController.moveSelectionToInbox(_:)), "I", [.shift], symbol: Quire.Icon.moveToInbox),
+            item("Star", #selector(MainWindowController.toggleStarSelection(_:)), "s", [], symbol: Quire.Icon.star),
+            item("Mark as Unread", #selector(MainWindowController.markSelectionUnread(_:)), "u", [], symbol: Quire.Icon.markUnread),
+            // Titled Unmute when every selected conversation is muted, as Star reads Unstar.
+            item("Mute", #selector(MainWindowController.toggleMuteSelection(_:)), "m", [], symbol: Quire.Icon.mute),
+            // 30 minutes set aside for the selected conversation (§5.54).
+            item("Block Time", #selector(MainWindowController.blockTimeForSelection(_:)), "b", [], symbol: Quire.Icon.blockTime),
+            item("Undo", #selector(MainWindowController.undoMailAction(_:)), "z", [], symbol: Quire.Icon.undo),
+            .separator(),
+            item("Unsubscribe", #selector(MainWindowController.unsubscribeFromConversation(_:)), "u", [.command, .shift]),
+            // The open conversation's sender, as the context menu's items (spec, Sender rules (Q4.2)); no key: a rule is
+            // set rarely, and a single key could set one by a slip.
+            item(MailActionCopy.senderRuleCommand(.archive), #selector(MainWindowController.alwaysArchiveSender(_:)),
+                 symbol: Quire.Icon.alwaysArchiveSender),
+            item(MailActionCopy.senderRuleCommand(.trash), #selector(MainWindowController.blockSender(_:)), symbol: Quire.Icon.blockSender),
+            .separator(),
+            item("Next Message", #selector(MainWindowController.nextMessage(_:)), "n", []),
+            item("Previous Message", #selector(MainWindowController.previousMessage(_:)), "p", []),
+        ]
+        let composer: [NSMenuItem] = [
+            // Send does what the Send button does (Send and Archive unless the user chose Send); Send and Archive always
+            // archives (§5.23). Hidden outside a composer, both still claim their keys there, so the quick reply's text
+            // view takes ⌘↩ and ⇧⌘↩ before the menu does.
+            item("Send", #selector(ComposeWindowController.send(_:)), "\r", symbol: Quire.Icon.send),
+            item("Send and Archive", #selector(ComposeWindowController.sendAndArchive(_:)), "\r", [.command, .shift]),
+            // Send Later's times, hung from Send's drop-down (§5.23); the quick reply's text view takes ⇧⌘L itself.
+            item(SendLaterCopy.command + "\u{2026}", #selector(ComposeWindowController.sendLater(_:)), "l", [.command, .shift],
+                 symbol: Quire.Icon.later),
+            item("Attach Files…", #selector(ComposeWindowController.attachFile(_:)), "a", [.command, .shift], symbol: Quire.Icon.attach),
+            item("Add Cc Field", #selector(ComposeWindowController.addCcField(_:)), "c", [.command, .shift]),
+            item("Add Bcc Field", #selector(ComposeWindowController.addBccField(_:)), "b", [.command, .shift]),
+            .separator(),
+            item("Discard Draft…", #selector(ComposeWindowController.discardDraft(_:)), symbol: Quire.Icon.discardDraft),
+        ]
+        for entry in main + composer { menu.addItem(entry) }
+        return (menu, main, composer)
+    }
+
+    /// Composer windows only (§5.35); the items act on the composer's text view.
+    private static func formatMenu() -> NSMenu {
+        let menu = menu("Format")
+        menu.addItem(item("Show Format Row", #selector(ComposeWindowController.toggleFormatRow(_:)), "t", [.command, .shift],
+                          symbol: Quire.Icon.format))
+        menu.addItem(.separator())
+        menu.addItem(item("Bold", #selector(ComposeWindowController.toggleBold(_:)), "b", symbol: Quire.Icon.bold))
+        menu.addItem(item("Italic", #selector(ComposeWindowController.toggleItalic(_:)), "i", symbol: Quire.Icon.italic))
+        menu.addItem(item("Underline", #selector(ComposeWindowController.toggleUnderline(_:)), "u", symbol: Quire.Icon.underline))
+        menu.addItem(.separator())
+        menu.addItem(item("Bulleted List", #selector(ComposeWindowController.toggleBulletList(_:)), "8", [.command, .shift],
+                          symbol: Quire.Icon.bulletedList))
+        menu.addItem(item("Numbered List", #selector(ComposeWindowController.toggleNumberedList(_:)), "7", [.command, .shift],
+                          symbol: Quire.Icon.numberedList))
+        menu.addItem(item("Quote", #selector(ComposeWindowController.toggleBlockQuote(_:)), "'", symbol: Quire.Icon.blockQuote))
+        menu.addItem(.separator())
+        menu.addItem(item("Add Link…", #selector(ComposeWindowController.insertLink(_:)), "k", symbol: Quire.Icon.link))
+        // Pictures into the text from the keyboard (§5.20, Images in the body); Attach Files… puts files on the strip.
+        menu.addItem(item("Insert Picture…", #selector(ComposeWindowController.insertPicture(_:)), "i", [.command, .option]))
+        return menu
+    }
+
+    #if DEBUG
+    /// Tools for checking the app's own drawing; nothing here touches mail. Debug builds only.
+    private static func debugMenu(_ delegate: AppDelegate) -> NSMenu {
+        let menu = menu("Debug")
+        menu.addItem(item("Design Gallery", #selector(AppDelegate.showDesignGallery(_:)), target: delegate))
+        return menu
+    }
+    #endif
+
+    private static func windowMenu() -> NSMenu {
+        let menu = menu("Window")
+        menu.addItem(item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
+        menu.addItem(item("Zoom", #selector(NSWindow.performZoom(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:)), target: NSApp))
+        return menu
+    }
+
+    private static func helpMenu(_ delegate: AppDelegate) -> NSMenu {
+        let menu = menu("Help")
+        menu.addItem(item("Keyboard Shortcuts", #selector(AppDelegate.showKeyboardHelp(_:)), "/", symbol: Quire.Icon.keyboard, target: delegate))
+        return menu
+    }
+}
+
+/// A menu that never matches a key equivalent without ⌘, ⌃ or ⌥. Single-key shortcuts are shown in the menus
+/// but performed by `KeyboardRouter`, which knows when focus is in a text field; matched here, “e” typed in
+/// the search field would archive.
+@MainActor
+final class MainMenuBar: NSMenu {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            return super.performKeyEquivalent(with: event)
+        }
+        // The Globe-key items AppKit adds to Edit (Emoji & Symbols fn-E, Start Dictation fn-D) carry only fn, and
+        // must keep working in text fields. NSMenu ignores fn when it matches, so fn-E would reach Archive's plain
+        // E through `super`; those keys are matched exactly instead, once, from the top of the bar.
+        guard self === NSApp.mainMenu, event.modifierFlags.contains(.function), event.specialKey == nil else { return false }
+        return Self.performExactly(event, in: self)
+    }
+
+    /// `KeyboardRouter`'s way to the single-key items (N, P, . and the rest): the visible item whose key
+    /// equivalent is exactly this key with no ⌘, ⌃ or ⌥, performed only when it validates, so a disabled item
+    /// lets the key go on to the responder chain.
+    static func performSingleKey(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let bar = NSApp.mainMenu else { return false }
+        return performExactly(event, in: bar)
+    }
+
+    private static func performExactly(_ event: NSEvent, in menu: NSMenu) -> Bool {
+        guard let item = exactItem(for: event, in: menu), let action = item.action,
+              let target = NSApp.target(forAction: action, to: item.target, from: item) as AnyObject? else { return false }
+        if let validator = target as? NSMenuItemValidation {
+            guard validator.validateMenuItem(item) else { return false }
+        } else if let validator = target as? NSUserInterfaceValidations {
+            guard validator.validateUserInterfaceItem(item) else { return false }
+        }
+        return NSApp.sendAction(action, to: target, from: item)
+    }
+
+    /// The item whose key equivalent and modifiers are exactly the event's, depth first. Shift counts for
+    /// letters (an uppercase equivalent implies it) and is ignored for symbols it produces (# is ⇧3).
+    static func exactItem(for event: NSEvent, in menu: NSMenu) -> NSMenuItem? {
+        let key = (event.charactersIgnoringModifiers ?? "").lowercased()
+        guard !key.isEmpty else { return nil }
+        let significant: NSEvent.ModifierFlags = [.command, .control, .option, .shift, .function]
+        var pressed = event.modifierFlags.intersection(significant)
+        // Arrows and function keys always carry fn; only a fn chord (Globe-E) means it.
+        if event.specialKey != nil { pressed.remove(.function) }
+        for item in menu.items {
+            if let submenu = item.submenu {
+                if let found = exactItem(for: event, in: submenu) { return found }
+                continue
+            }
+            guard !item.keyEquivalent.isEmpty, !item.isHidden || item.allowsKeyEquivalentWhenHidden else { continue }
+            var mask = item.keyEquivalentModifierMask.intersection(significant)
+            let equivalent = item.keyEquivalent
+            let isLetter = equivalent.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+            if isLetter, equivalent != equivalent.lowercased() { mask.insert(.shift) }
+            var flags = pressed
+            if !isLetter, !mask.contains(.shift) { flags.remove(.shift) }
+            if equivalent.lowercased() == key, mask == flags { return item }
+        }
+        return nil
+    }
+}
+
+/// Keeps the menus in step with the key window and the accounts: the Message menu's composer items and the
+/// Format menu show only while a composer is key, View's ⌘1…⌘9 items carry the accounts' names, View's Later and
+/// Outbox show while the rail's Later and Outbox tiles do, and Edit's Help Me Write items start from their own titles
+/// each time the menu opens.
+@MainActor
+final class MainMenuController: NSObject, NSMenuDelegate {
+    static var shared: MainMenuController?
+
+    private let mainWindowItems: [NSMenuItem]
+    private let composerItems: [NSMenuItem]
+    private let formatItem: NSMenuItem
+    private weak var appDelegate: AppDelegate?
+    private var observers: [NSObjectProtocol] = []
+
+    private weak var editMenu: NSMenu?
+    private weak var readerModeItem: NSMenuItem?
+    /// Whose gate lists View › Reader Mode: the app's settings, or a test's throwaway ones.
+    var readerModeSettings: AppSettings = .shared {
+        didSet { showReaderMode() }
+    }
+
+    init(mainWindowItems: [NSMenuItem], composerItems: [NSMenuItem], formatItem: NSMenuItem, viewMenu: NSMenu, editMenu: NSMenu? = nil,
+         appDelegate: AppDelegate) {
+        self.mainWindowItems = mainWindowItems
+        self.composerItems = composerItems
+        self.formatItem = formatItem
+        self.appDelegate = appDelegate
+        self.editMenu = editMenu
+        super.init()
+        viewMenu.delegate = self
+        editMenu?.delegate = self
+        readerModeItem = viewMenu.items.first { $0.action == #selector(MainWindowController.toggleReaderMode(_:)) }
+        let center = NotificationCenter.default
+        // Its key must stop working the moment the gate closes, not when the menu next opens: a hidden item has none.
+        observers.append(center.addObserver(forName: AppSettings.readerModeChanged, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, note.object as AnyObject? === self.readerModeSettings else { return }
+                self.showReaderMode()
+            }
+        })
+        showReaderMode()
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { MainMenuController.shared?.updateForKeyWindow() }
+            })
+        }
+        updateForKeyWindow()
+    }
+
+    /// View › Reader Mode is listed while Settings › Experimental offers reader mode (§5.59).
+    func showReaderMode() {
+        readerModeItem?.isHidden = !readerModeSettings.offersReaderMode
+    }
+
+    func updateForKeyWindow() {
+        let composing = NSApp.keyWindow?.windowController is ComposeWindowController
+        for item in mainWindowItems { item.isHidden = composing }
+        for item in composerItems { item.isHidden = !composing }
+        formatItem.isHidden = !composing
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === editMenu {
+            Self.resetHelpMeWriteTitles(in: menu)
+            return
+        }
+        Self.showConditionalViews(in: menu, later: appDelegate?.menuShowsLater ?? false, outbox: appDelegate?.menuShowsOutbox ?? false)
+        let accounts = appDelegate?.menuAccounts ?? []
+        for item in menu.items where item.action == #selector(MainWindowController.selectAccountShortcut(_:)) && item.tag > 0 {
+            let index = item.tag - 1
+            item.isHidden = index >= accounts.count
+            if index < accounts.count { item.title = AccountLabels.name(for: accounts[index]) + " · " + accounts[index].email }
+        }
+    }
+
+    /// Help Me Write's items take their own titles before the menu validates: the reader or a composer whose field has
+    /// the keyboard titles them for what ⌘J does there (“Rewrite Selection”), and where nothing answers them (the keyboard
+    /// in the list, Settings key) AppKit disables them without asking anyone, which would leave that title behind.
+    static func resetHelpMeWriteTitles(in menu: NSMenu) {
+        for item in menu.items {
+            if item.action == #selector(ConversationViewController.helpMeWrite(_:)) { item.title = MainMenu.helpMeWriteTitle }
+            if item.action == #selector(ConversationViewController.helpMeWriteWithInstructions(_:)) {
+                item.title = MainMenu.helpMeWriteWithInstructionsTitle
+            }
+        }
+    }
+
+    /// Lists View's Later and Outbox items only while the main window's rail shows their tiles (§5.2, §5.53); hidden, the
+    /// main window refuses them too, as it refuses G L and G O.
+    static func showConditionalViews(in menu: NSMenu, later: Bool, outbox: Bool) {
+        let tags = MailboxView.allCases.indices
+        for item in menu.items where item.action == #selector(MainWindowController.goToMailboxView(_:)) && tags.contains(item.tag) {
+            switch MailboxView.allCases[item.tag] {
+            case .later: item.isHidden = !later
+            case .outbox: item.isHidden = !outbox
+            default: break
+            }
+        }
+    }
+}

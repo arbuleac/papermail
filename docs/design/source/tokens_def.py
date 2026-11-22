@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.18.1"
+VERSION = "1.19.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -475,17 +475,17 @@ LAYOUT = {
 ICON = {
  "archive": "archivebox", "trash": "trash", "star": "star", "unstar": "star.fill", "markUnread": "envelope.badge", "markRead": "envelope.open",
  "reply": "arrowshape.turn.up.left", "replyAll": "arrowshape.turn.up.left.2", "forward": "arrowshape.turn.up.right",
- "compose": "ss.nib", "search": "magnifyingglass", "undo": "arrow.uturn.backward", "send": "paperplane", "sendPanel": "paperplane.fill",
+ "compose": "paper.nib", "search": "magnifyingglass", "undo": "arrow.uturn.backward", "send": "paperplane", "sendPanel": "paperplane.fill",
  "attach": "paperclip", "format": "textformat", "openInComposer": "arrow.up.left.and.arrow.down.right", "loadImages": "photo",
- "originalColors": "circle.lefthalf.filled", "quotedText": "ss.elide", "unifiedInbox": "ss.quire", "addAccount": "plus", "settings": "gearshape",
- "toggleRail": "sidebar.left", "titleMenu": "chevron.down", "popup": "chevron.up.chevron.down", "pending": "ss.queued",
+ "originalColors": "circle.lefthalf.filled", "quotedText": "paper.elide", "unifiedInbox": "paper.quire", "addAccount": "plus", "settings": "gearshape",
+ "toggleRail": "sidebar.left", "titleMenu": "chevron.down", "popup": "chevron.up.chevron.down", "pending": "paper.queued",
  "failed": "exclamationmark.triangle.fill", "upToDate": "checkmark", "offline": "wifi.slash", "retrying": "clock",
  "error": "exclamationmark.triangle.fill", "signIn": "exclamationmark.triangle.fill", "retry": "arrow.clockwise", "remove": "xmark",
  "more": "ellipsis", "accountsTab": "person.crop.circle", "oauthTab": "key", "generalTab": "gearshape", "appearanceTab": "paintpalette",
  "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
  "viewLater": "clock", "viewOutbox": "tray.and.arrow.up", "later": "clock", "spam": "xmark.bin",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
- "brand": "ss.paperPlane", "keyboard": "keyboard", "dismiss": "xmark",
+ "brand": "paper.paperPlane", "keyboard": "keyboard", "dismiss": "xmark",
  "removeAccount": "minus", "bold": "bold", "italic": "italic", "underline": "underline", "bulletedList": "list.bullet", "numberedList": "list.number",
  "blockQuote": "text.quote", "link": "link", "undone": "arrow.uturn.backward", "demo": "info.circle",
  "addAccountProvider": "person.crop.circle.badge.plus", "attention": "exclamationmark", "waitingToSync": "clock", "discardDraft": "trash",
@@ -504,11 +504,11 @@ ICON = {
  "blockTime": "calendar.badge.plus", "joinCall": "video", "eventPlace": "mappin.and.ellipse", "fromThisMail": "envelope",
 }
 GLYPHS = {
- "ss.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},
- "ss.nib": {"grid": 16, "stroke": 1.5, "paths": ["M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z", "M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z", "M2.91 13.09 L6.66 9.34"], "fills": [{"circle": [7.47, 8.53, 0.9]}], "meaning": "New message: a pen nib"},
- "ss.elide": {"grid": 16, "stroke": 1.5, "paths": ["M4.75 2.75h-2v10.5h2", "M11.25 2.75h2v10.5h-2"], "fills": [{"circle": [5.6, 10.6, 0.95]}, {"circle": [8, 10.6, 0.95]}, {"circle": [10.4, 10.6, 0.95]}], "meaning": "Quoted text folded: the editor's […]"},
- "ss.queued": {"grid": 12, "stroke": 1.5, "paths": ["M5.75 6.25 9.75 2.25", "M6.25 2.25h3.5v3.5"], "fills": [{"circle": [2.75, 9.25, 1.6]}], "meaning": "Applied on this Mac, waiting to reach the server: a dot (here) and a straight arrow (on its way). Static, never rotates"},
- "ss.paperPlane": {"grid": 80, "stroke": 0, "paths": ["M80 10 L0 30 L16 38 Z M80 10 L20 40 L40 50 Z M38 52 L20 43 L20 70 Z"], "fills": [], "meaning": "Brand mark, the paper plane on an isometric grid: one sheet folded into a dart, its far wing, near wing and keel three straight-edged triangles cut apart by two folds (welcome, app icon, About, inbox zero)"},
+ "paper.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},
+ "paper.nib": {"grid": 16, "stroke": 1.5, "paths": ["M2.91 13.09 L4.32 7.01 C4.43 6.27 4.99 5.7 5.67 5.53 L8.64 4.68 L11.32 7.36 L10.47 10.33 C10.3 11.01 9.73 11.57 8.99 11.68 Z", "M10.47 2.56 L13.44 5.53 L11.46 7.51 L8.49 4.54 Z", "M2.91 13.09 L6.66 9.34"], "fills": [{"circle": [7.47, 8.53, 0.9]}], "meaning": "New message: a pen nib"},
+ "paper.elide": {"grid": 16, "stroke": 1.5, "paths": ["M4.75 2.75h-2v10.5h2", "M11.25 2.75h2v10.5h-2"], "fills": [{"circle": [5.6, 10.6, 0.95]}, {"circle": [8, 10.6, 0.95]}, {"circle": [10.4, 10.6, 0.95]}], "meaning": "Quoted text folded: the editor's […]"},
+ "paper.queued": {"grid": 12, "stroke": 1.5, "paths": ["M5.75 6.25 9.75 2.25", "M6.25 2.25h3.5v3.5"], "fills": [{"circle": [2.75, 9.25, 1.6]}], "meaning": "Applied on this Mac, waiting to reach the server: a dot (here) and a straight arrow (on its way). Static, never rotates"},
+ "paper.paperPlane": {"grid": 80, "stroke": 0, "paths": ["M80 10 L0 30 L16 38 Z M80 10 L20 40 L40 50 Z M38 52 L20 43 L20 70 Z"], "fills": [], "meaning": "Brand mark, the paper plane on an isometric grid: one sheet folded into a dart, its far wing, near wing and keel three straight-edged triangles cut apart by two folds (welcome, app icon, About, inbox zero)"},
 }
 READER_SYMBOLS = ["star", "star.fill", "arrowshape.turn.up.left", "arrowshape.turn.up.left.2", "arrowshape.turn.up.right", "ellipsis",
                   "circle.lefthalf.filled", "xmark", "photo", "exclamationmark.triangle.fill", "wifi.slash",

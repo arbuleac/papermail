@@ -1,6 +1,6 @@
-# SuperSparrow roadmap: November 2026 to October 2027
+# Paper roadmap: November 2026 to October 2027
 
-**Revision: 7 November 2026.** One year of features for the Mac client, chosen and ordered so that the four things SuperSparrow is for stay true: it is usable, light, simple and fast. Every entry says what it costs on those four and how it stays inside. Dates are targets; each quarter is re-planned at its end from what shipped and what the measurements say.
+**Revision: 7 November 2026.** One year of features for the Mac client, chosen and ordered so that the four things Paper is for stay true: it is usable, light, simple and fast. Every entry says what it costs on those four and how it stays inside. Dates are targets; each quarter is re-planned at its end from what shipped and what the measurements say.
 
 **Status, 19 November 2026.** Built ahead of their quarters, and described in `docs/ARCHITECTURE.md` and Quire 1.7.0 rather than here: from Q2, Send later (Q2.2), Mark as spam (Q2.3), Text size (Q2.6), Launch at login (Q2.7) and Services (Q2.8); from Q3, inline images in the composer (Q3.3), Print and PDF (Q3.4), a conversation in its own window (Q3.5), find in conversation (Q3.6) and Mute (Q3.7); from Q4, sender rules (Q4.2) and the 300,000-message check (Q4.3, measured 20 November 2026; the architecture's budget table records it). The entries below keep their plan as written; where a built feature differs, the architecture and the spec say what it does (Send later's key, for one, is ⇧⌘L, since ⇧⌘↩ is Send and Archive). Built outside any quarter: **day and week** (Quire 1.9.0 §5.54, the architecture's "Calendar"), every account's main calendar as a day column beside the reader and a week in the reader's place, read from the store and fetched on the live lane's cycle; it writes only answers to invitations and time set aside for a mail (B), and the invitation card now says what an invitation overlaps. It is not the calendar app §6 leaves out.
 
@@ -16,7 +16,7 @@ Four guardrails. A feature that cannot pass all four is not on the roadmap, howe
 
 **Simple.** Six views, one list, one reader, one composer. No folders, no labels, no tabs, no categories, no modes, no plugins. One way to do each thing, and a feature ships complete or not at all (no flags, no beta switches in a release). New settings are rationed: this year adds at most four to General (updates, retention, text size, launch at login), three in one Appearance tab (theme, appearance, the Dark Mode default for mail colours), two per-account fields to Accounts (signature, send-as addresses), and one AI tab for Help me write (provider, its API key or CLI, its model, and the stored permission it can forget; §7, 20 November 2026), and no Settings tab ever scrolls. A feature exists on both providers, or says plainly where it does not.
 
-**Fast.** The budgets in `docs/ARCHITECTURE.md` are unchanged and every new interaction gets a row there before it is built and a measurement before it ships. Nothing waits on the network between a keystroke and a pixel: every action is a store transaction first and an `Operation` second, as today. The `SS_PERF=1` run goes before every release; a regression blocks it.
+**Fast.** The budgets in `docs/ARCHITECTURE.md` are unchanged and every new interaction gets a row there before it is built and a measurement before it ships. Nothing waits on the network between a keystroke and a pixel: every action is a store transaction first and an `Operation` second, as today. The `PAPER_PERF=1` run goes before every release; a regression blocks it.
 
 ### How a feature ships
 
@@ -52,7 +52,7 @@ What it does not do is the subject of §4. The deliberate omissions of Quire §9
 | Attachment cache | 23 MB | 1 GB, oldest first |
 | Source | 60,127 lines of Swift in five modules; 30,027 lines of tests; 1,434 tests in the last full run | no limit, but a feature's tests land with it |
 | New mail visible | 5 s active, 30 s in the background | unchanged; under 1 s on JMAP push (Q4) |
-| Launch to usable inbox, move selection, open conversation, search keystroke, list refresh | the budgets, 500 / 16 / 50 (100 with a cached body) / 50 / 50 ms, last checked by the `SS_PERF=1` run; not re-measured today | unchanged (`docs/ARCHITECTURE.md`), measured on every release |
+| Launch to usable inbox, move selection, open conversation, search keystroke, list refresh | the budgets, 500 / 16 / 50 (100 with a cached body) / 50 / 50 ms, last checked by the `PAPER_PERF=1` run; not re-measured today | unchanged (`docs/ARCHITECTURE.md`), measured on every release |
 | Settings controls in General | 7 | 12; 9 after Q3.9 moves Font and Text size |
 | Settings controls in Appearance | — | 5 (three new, Font and Text size moved from General) |
 | Views in the rail | 6 | 6, plus Later while something is snoozed (Q2) |
@@ -76,9 +76,9 @@ The client is feature-complete for v1 and nobody but its author can install it. 
 
 **1. Signed, notarized, installable (S).** A Developer ID identity, the hardened runtime, notarization and a DMG, from `scripts/release.sh` built on `scripts/build-app.sh` (which already takes `CODESIGN_IDENTITY`). Version 1.0.0 and a `CHANGELOG.md`. A stable identity also ends the keychain prompt every rebuild causes today. *Costs:* nothing on the four. *Done when* a clean Mac installs from the DMG, Gatekeeper is silent and the keychain asks once.
 
-**2. Check for Updates (S).** SuperSparrow › Check for Updates… and one check a day against a small JSON manifest on the release host. A newer version shows as a one-line banner, "1.0.1 is available · Download", which opens the DMG in the browser. No in-app installer, no framework, no background helper. *Costs:* one request a day; one setting ("Check for updates automatically", on). *Stays inside* by being a check, not an updater; §7 holds the Sparkle decision if installing by hand turns out to be the thing users complain about. The check is the one request that goes somewhere other than Google, Microsoft and this Mac (it carries the version, and the Mac's address as every request does), so the README's privacy section and the welcome copy name it and its off switch.
+**2. Check for Updates (S).** Paper › Check for Updates… and one check a day against a small JSON manifest on the release host. A newer version shows as a one-line banner, "1.0.1 is available · Download", which opens the DMG in the browser. No in-app installer, no framework, no background helper. *Costs:* one request a day; one setting ("Check for updates automatically", on). *Stays inside* by being a check, not an updater; §7 holds the Sparkle decision if installing by hand turns out to be the thing users complain about. The check is the one request that goes somewhere other than Google, Microsoft and this Mac (it carries the version, and the Mac's address as every request does), so the README's privacy section and the welcome copy name it and its off switch.
 
-**3. mailto and the default mail app (S).** `CFBundleURLTypes` for `mailto`, RFC 6068 parsing (to, cc, bcc, subject, body) into a new composer, and Settings › General › "Set as default mail app". *Costs:* one button. *Done when* a mail link in Safari and a right-click in Contacts open a SuperSparrow composer.
+**3. mailto and the default mail app (S).** `CFBundleURLTypes` for `mailto`, RFC 6068 parsing (to, cc, bcc, subject, body) into a new composer, and Settings › General › "Set as default mail app". *Costs:* one button. *Done when* a mail link in Safari and a right-click in Contacts open a Paper composer.
 
 **4. Notification actions (S).** Archive and Mark as Read on the notification, and Reply, which opens the composer. Each is the existing operation, enqueued the usual way, so it syncs; taken from the notification it has no toast and no undo (the history lives in the window), and the spec says so. Quire §9 excluded these from v1; they are the single highest return on zero screen space. *Costs:* nothing visible in the app. *Spec:* §5.41 gains the two actions and their copy.
 
@@ -90,7 +90,7 @@ The client is feature-complete for v1 and nobody but its author can install it. 
 
 **8. Free from the system, verified (S).** The composer's text view already carries Writing Tools, text replacements, dictation and spell check, and the reader has Quick Look and the Services menu. Check each on macOS 15 and 26, and say so in the README, so nobody builds what the Mac provides.
 
-*1.0 ships at the end of January 2027 when:* a notarized build installs from the DMG; the whole suite and the `SS_PERF=1` run pass; the baseline table above is measured again on the release and recorded here.
+*1.0 ships at the end of January 2027 when:* a notarized build installs from the DMG; the whole suite and the `PAPER_PERF=1` run pass; the baseline table above is measured again on the release and recorded here.
 
 ### Q2 · February to April 2027 · 1.1, triage
 
@@ -98,7 +98,7 @@ The actions people reach for a hundred times a day in Superhuman and Gmail, done
 
 **1. Snooze: Later (M).** `L` on a conversation offers Later today, This evening, Tomorrow, Next week and Pick a date…; the conversation is archived now and moved back to the Inbox at the time, its latest message marked unread, where it sorts by the time it came back (a `returned_at` the Inbox query orders by, so last week's mail does not return under last week's date head) with a "Back" tag on the row. A new message in the conversation before the time ends the snooze, since the provider puts it back in the inbox anyway; a time missed while the app was closed returns at the next launch. Both halves are the ordinary archive and move-to-inbox operations, so the phone and the web see the same state; only the timer lives on this Mac (a `snoozes` table and its observation, schema v9), and a snooze due while the Mac slept returns at wake. Neither Gmail's nor Outlook's own snooze is reachable through their APIs, which is why the round-trippable form is the design. A **Later** tile (G L) appears in the rail only while something is snoozed, as Apple Mail's Send Later mailbox does, and its rows carry "Back Tue 09:00". *Costs:* one key, one conditional tile, five presets, no setting. *Budget:* 16 ms like every local action. *Spec:* §5.2, §5.7, §6.
 
-**2. Send later (S to M).** ⇧⌘↩ in the composer, or the Send button's menu: Tomorrow 9:00, Monday 9:00, Pick a time…. The message waits in `pending_sends` with that `send_after`, which `SendRunner` already honours, and shows in Drafts as "Sends Mon 09:00 · Cancel" (an observation on `pending_sends` and a row kind beside the local drafts); opening it cancels the schedule. It sends while SuperSparrow is running, and the row says so; a time missed while the app was closed is a `scheduled` status the runner does not claim at launch until the app has asked. *Costs:* one key, one popover. *Stays inside* by reusing the undo-send pipeline instead of adding a second one.
+**2. Send later (S to M).** ⇧⌘↩ in the composer, or the Send button's menu: Tomorrow 9:00, Monday 9:00, Pick a time…. The message waits in `pending_sends` with that `send_after`, which `SendRunner` already honours, and shows in Drafts as "Sends Mon 09:00 · Cancel" (an observation on `pending_sends` and a row kind beside the local drafts); opening it cancels the schedule. It sends while Paper is running, and the row says so; a time missed while the app was closed is a `scheduled` status the runner does not claim at launch until the app has asked. *Costs:* one key, one popover. *Stays inside* by reusing the undo-send pipeline instead of adding a second one.
 
 **3. Mark as spam (S).** `!` (⇧1, routed like `#`), the context menu and the Message menu. Gmail adds the SPAM label through `batchModify`; Graph moves to Junk Email. Toast "Marked as spam · Undo", and the inverse operation for the undo. No Spam view: the provider's own spam folder stays the place to rescue mail, as it is today. *Costs:* one key. *Model:* two new `MetadataChange` cases.
 
@@ -110,7 +110,7 @@ The actions people reach for a hundred times a day in Superhuman and Gmail, done
 
 **7. Launch at login (S).** A General toggle through `SMAppService`, so notifications arrive from login. *Costs:* one setting.
 
-**8. Services (S).** "New Message with Selection" and "Send with SuperSparrow" (files) in the Services menu, from `NSServices` in `Info.plist`, no extension bundle needed.
+**8. Services (S).** "New Message with Selection" and "Send with Paper" (files) in the Services menu, from `NSServices` in `Info.plist`, no extension bundle needed.
 
 *1.1 ships at the end of April 2027.* General then holds eleven settings and the default-mail button, at the limit of twelve controls; the next setting has to replace one. Q3.9 moves Font and Text size to a new Appearance tab, which leaves General nine (ten with the update check).
 
@@ -144,7 +144,7 @@ Depth in the two places people spend their time, and the one provider feature th
 
 A third provider that proves the port, the smallest form of rules, and the housekeeping a year brings.
 
-**1. JMAP: Fastmail (L).** An `SSJMAP` module over the same `MailProvider` port the two existing providers have proven: `Email/query` and `Email/changes` for sync, `EmailSubmission` for sending, and the EventSource push channel for new mail, so a JMAP account sees mail in under a second with no polling. JMAP returns parsed bodies, so no MIME parser is needed, which is why it comes before IMAP (§6). OAuth through the same loopback flow. *Costs:* a module of about the size of `SSGmail` (2,000 lines), a third case wherever `ProviderKind` is switched (the OAuth endpoints and the OAuth tab, the quota table, the Add Account menu, the account tags), a section in `docs/OAUTH-SETUP.md`, and one long-lived connection per JMAP account for push. *Stays inside* because the list, the reader, the composer and the store do not change: a third `kind` in `accounts`.
+**1. JMAP: Fastmail (L).** An `PaperJMAP` module over the same `MailProvider` port the two existing providers have proven: `Email/query` and `Email/changes` for sync, `EmailSubmission` for sending, and the EventSource push channel for new mail, so a JMAP account sees mail in under a second with no polling. JMAP returns parsed bodies, so no MIME parser is needed, which is why it comes before IMAP (§6). OAuth through the same loopback flow. *Costs:* a module of about the size of `PaperGmail` (2,000 lines), a third case wherever `ProviderKind` is switched (the OAuth endpoints and the OAuth tab, the quota table, the Add Account menu, the account tags), a section in `docs/OAUTH-SETUP.md`, and one long-lived connection per JMAP account for push. *Stays inside* because the list, the reader, the composer and the store do not change: a third `kind` in `accounts`.
 
 **2. Sender rules, the smallest kind (M).** Two rules from a message's context menu: "Always archive mail from this sender" and "Block sender" (to Trash on arrival). They are applied the way mute is (inside the poll's upsert, the operation enqueued in the same transaction), so they round-trip and never flash; they are listed in one sheet from the account's detail form in Settings › Accounts ("Senders…") with a − button, and nowhere else, since General is at its limit after Q2. The architecture's "no rules" becomes "no rules beyond these two". *Why last:* rules are where mail clients get complicated. This is the last item added to the year and the first cut if the quarter is short.
 
@@ -161,7 +161,7 @@ A third provider that proves the port, the smallest form of rules, and the house
 At the end of every quarter, on the release build:
 
 - the baseline table in §2 is measured again and its "Today" column updated;
-- the `SS_PERF=1` run on 100,000 messages (300,000 from Q4) is recorded against the budgets in `docs/ARCHITECTURE.md`;
+- the `PAPER_PERF=1` run on 100,000 messages (300,000 from Q4) is recorded against the budgets in `docs/ARCHITECTURE.md`;
 - the counts of settings, views, keys and dependencies are compared with their limits;
 - VoiceOver is walked through every new surface, and the four-mode snapshots are looked at, not only generated.
 

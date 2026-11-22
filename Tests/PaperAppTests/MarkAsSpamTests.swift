@@ -1,0 +1,313 @@
+import AppKit
+import PaperCore
+import PaperDesign
+import WebKit
+import XCTest
+@testable import PaperApp
+
+/// Mark as spam (roadmap Q2.3, spec “Mark as spam”): ! routed as # is, Message › Mark as Spam and the context menu's
+/// item, the cheat sheet's row, the rows leaving the list with a toast and an undo that brings them back where they were
+/// (to Later, snoozed as before, and under Today with their Back tag), ! with focus in the reader, and nothing done in
+/// the Trash and Drafts or on their `in:` results.
+@MainActor
+final class MarkAsSpamTests: XCTestCase {
+    private func messages(_ id: ConversationID, _ harness: MainWindowHarness) throws -> [MessageMetadata] {
+        try harness.environment.store.messages(in: id)
+    }
+
+    private func queued(_ account: AccountID, _ harness: MainWindowHarness) throws -> [MetadataChange] {
+        try harness.environment.store.pendingOperations(accountID: account, limit: 100).map(\.change)
+    }
+
+    private func select(_ id: ConversationID, _ harness: MainWindowHarness) {
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+    }
+
+    private func listed(_ id: ConversationID, _ harness: MainWindowHarness) -> Bool {
+        harness.list.conversations.contains { $0.id == id }
+    }
+
+    private var menuItem: NSMenuItem {
+        NSMenuItem(title: "Mark as Spam", action: #selector(MainWindowController.markSelectionSpam(_:)), keyEquivalent: "!")
+    }
+
+    // MARK: Keys and menus
+
+    func testBangIsRoutedAsHashIs() {
+        func command(_ characters: String, _ keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags, reader: Bool = false) -> KeyCommand? {
+            KeyboardRouter.command(characters: characters, keyCode: keyCode, modifiers: modifiers, pendingG: false, readerFocused: reader).command
+        }
+        XCTAssertEqual(command("!", 18, .shift), .markSpam, "⇧1 on a US layout")
+        XCTAssertEqual(command("!", 30, []), .markSpam, "read from the character, so a layout with ! on a key of its own works")
+        XCTAssertEqual(command("!", 18, .shift, reader: true), .markSpam, "with focus in the reader too")
+        XCTAssertNil(command("!", 18, [.command, .shift]), "⇧⌘1 is not it")
+        XCTAssertEqual(command("1", 18, []), nil, "nor is a plain 1")
+        XCTAssertNil(KeyboardRouter.sequenceView(characters: "!"), "there is no Spam view to go to")
+    }
+
+    /// Message › Mark as Spam ! sits after Move to Trash with its symbol; the cheat sheet lists ! beside # in Act, the two
+    /// ways out to a provider's folder sharing a row, so Act keeps nine rows and the sheet fits the default window whole;
+    /// “Show · hide quoted text” is in View, where its menu item lives.
+    func testTheMessageMenuAndTheCheatSheetCarryIt() throws {
+        let previous = (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { (MainMenuController.shared, NSApp.windowsMenu, NSApp.helpMenu) = previous }
+        let bar = MainMenu.build(appDelegate: AppDelegate(options: LaunchOptions(arguments: ["Paper"])))
+        let message = try XCTUnwrap(bar.items.first { $0.submenu?.title == "Message" }?.submenu)
+        let trash = try XCTUnwrap(message.items.firstIndex { $0.action == #selector(MainWindowController.trashSelection(_:)) })
+        let spam = message.items[trash + 1]
+        XCTAssertEqual(spam.title, "Mark as Spam")
+        XCTAssertEqual(spam.action, #selector(MainWindowController.markSelectionSpam(_:)))
+        XCTAssertEqual(spam.keyEquivalent, "!")
+        XCTAssertEqual(spam.keyEquivalentModifierMask, [])
+        XCTAssertNotNil(spam.image, "with its symbol")
+        XCTAssertEqual(Quire.Icon.spam, "xmark.bin")
+
+        let act = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "Act" }?.rows)
+        let row = try XCTUnwrap(act.first { $0.keys == "# !" })
+        XCTAssertEqual(row.label, "Move to Trash · spam")
+        XCTAssertEqual(act.count, 10, "nine rows, and B for the day column's time set aside (§5.54)")
+        let view = try XCTUnwrap(Quire.cheatSheet.first { $0.title == "View" }?.rows)
+        XCTAssertTrue(view.contains { $0.keys == "." && $0.label == "Show · hide quoted text" })
+    }
+
+    func testTheContextMenuOffersItAfterMoveToTrash() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = harness.list.conversations[0].id
+        select(id, harness)
+        let menu = harness.controller.selectionContextMenu()
+        menu.update()
+        let trash = try XCTUnwrap(menu.items.firstIndex { $0.title == "Move to Trash" })
+        let item = menu.items[trash + 1]
+        XCTAssertEqual(item.title, "Mark as Spam")
+        XCTAssertEqual(item.keyEquivalent, "!")
+        XCTAssertNotNil(item.image)
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles == [.spam] })
+        XCTAssertEqual(harness.toastMessage, "Marked as spam")
+    }
+
+    // MARK: Acting
+
+    /// Store first and queued, the row leaves, the toast offers Undo, and Z brings it back to the Inbox, selected.
+    func testBangMarksTheSelectionAsSpamAndZBringsItBack() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = harness.list.conversations[1].id
+        XCTAssertEqual(harness.controller.accounts.first { $0.id == id.accountID }?.kind, .microsoft)
+        select(id, harness)
+        XCTAssertTrue(harness.controller.validateMenuItem(menuItem))
+
+        XCTAssertTrue(harness.controller.perform(.markSpam))
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles == [.spam] }, "applied before anything reaches the network")
+        XCTAssertEqual(try queued(id.accountID, harness).last, .markSpam)
+        XCTAssertEqual(harness.toastMessage, "Marked as spam")
+        harness.spin { !self.listed(id, harness) }
+        XCTAssertFalse(listed(id, harness))
+        XCTAssertNotEqual(harness.list.selectedConversationID, id, "the selection moves on, as after #")
+        XCTAssertEqual(harness.controller.undoMenuTitle(for: harness.controller.zTarget), "Undo Mark as Spam")
+
+        XCTAssertTrue(harness.controller.perform(.undo))
+        XCTAssertEqual(harness.toastMessage, "Undid Mark as Spam")
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles == [.inbox] })
+        XCTAssertEqual(try queued(id.accountID, harness).suffix(2), [.markSpam, .markNotSpam])
+        harness.spin { self.listed(id, harness) }
+        XCTAssertEqual(harness.list.selectedConversationIDs, [id], "back, and selected")
+    }
+
+    func testSeveralSelectedMakeOneToastAndOneUndo() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.selectFirst(3)
+        let ids = harness.list.selectedConversationIDs
+        XCTAssertEqual(ids.count, 3)
+        XCTAssertTrue(harness.controller.perform(.markSpam))
+        XCTAssertEqual(harness.toastMessage, "Marked 3 as spam")
+        harness.spin { ids.allSatisfy { !self.listed($0, harness) } }
+        XCTAssertTrue(harness.controller.perform(.undo))
+        harness.spin { ids.allSatisfy { self.listed($0, harness) } }
+        XCTAssertTrue(ids.allSatisfy(harness.list.selectedConversationIDs.contains))
+        for id in ids { XCTAssertTrue(try messages(id, harness).allSatisfy(\.isInInbox)) }
+    }
+
+    /// From an archived conversation (All Mail), the undo puts it back in the archive, not the Inbox.
+    func testTheUndoPutsArchivedMailBackInTheArchive() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = harness.list.conversations[2].id
+        try harness.environment.engine.perform(.archive, on: id)
+        XCTAssertTrue(harness.controller.perform(.goTo(.all)))
+        harness.spin { harness.list.query.view == .all && self.listed(id, harness) }
+        select(id, harness)
+        XCTAssertTrue(harness.controller.perform(.markSpam))
+        harness.spin { !self.listed(id, harness) }
+        XCTAssertTrue(harness.controller.perform(.undo))
+        harness.spin { self.listed(id, harness) }
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles.isEmpty }, "archived again, out of Spam and the Inbox")
+    }
+
+    /// A muted conversation of other people's mail keeps its mute on its summary row, which goes once every message is in
+    /// Spam; Z brought the row back unmuted, so the next reply reached the Inbox and notified. The undo mutes it again.
+    func testTheUndoKeepsAMutedConversationMuted() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let store = harness.environment.store
+        let id = harness.list.conversations[2].id
+        let inbox = try messages(id, harness).filter(\.isInInbox).map(\.id)
+        try harness.environment.engine.setMuted(true, conversations: [id], performing: [MailActionRecord.Step(change: .archive, targets: inbox)])
+        XCTAssertTrue(try store.isMuted(id))
+        XCTAssertTrue(harness.controller.perform(.goTo(.all)))
+        harness.spin { harness.list.query.view == .all && self.listed(id, harness) }
+        select(id, harness)
+
+        XCTAssertTrue(harness.controller.perform(.markSpam))
+        harness.spin { !self.listed(id, harness) }
+        XCTAssertFalse(try store.isMuted(id), "the mute went with the row")
+        XCTAssertTrue(harness.controller.perform(.undo))
+        harness.spin { self.listed(id, harness) }
+        XCTAssertTrue(try store.isMuted(id), "muted again")
+        XCTAssertEqual(harness.list.conversations.first { $0.id == id }?.isMuted, true, "the row shows it")
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles.isEmpty }, "archived, as the mute left it")
+    }
+
+    /// The Trash and Drafts take no Mark as Spam: the menu items are disabled and ! beeps, changing nothing.
+    func testNothingIsMarkedAsSpamFromTheTrashOrDrafts() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let id = harness.list.conversations[0].id
+        try harness.environment.engine.perform(.trash, on: id)
+        XCTAssertTrue(harness.controller.perform(.goTo(.trash)))
+        harness.spin { self.listed(id, harness) }
+        select(id, harness)
+        XCTAssertFalse(harness.controller.validateMenuItem(menuItem), "disabled in the Trash")
+        let before = try queued(id.accountID, harness)
+        XCTAssertTrue(harness.controller.perform(.markSpam), "the key is spent, with a beep")
+        XCTAssertEqual(try queued(id.accountID, harness), before)
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles == [.trash] })
+
+        XCTAssertTrue(harness.controller.perform(.goTo(.drafts)))
+        harness.spin { harness.list.query.view == .drafts }
+        XCTAssertFalse(harness.controller.validateMenuItem(menuItem))
+    }
+
+    private func typeSearch(_ text: String, _ harness: MainWindowHarness) {
+        harness.controller.listPane.header.search.query = text
+        harness.controller.listPane.header.search.onQueryChange?(text)
+        harness.spin { harness.list.query.searchText == text && !harness.list.conversations.isEmpty }
+    }
+
+    /// ! follows the view a search looks through, as L does (§5.6): `in:trash` and `in:drafts` results, typed from the
+    /// Inbox, are refused as in the Trash and Drafts. The draft's conversation also holds mail from others in the Inbox,
+    /// which ! would otherwise send to Spam.
+    func testInTrashAndInDraftsResultsAreRefused() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let store = harness.environment.store
+        let trashed = harness.list.conversations[0].id
+        try harness.environment.engine.perform(.trash, on: trashed)
+        let drafted = try XCTUnwrap(harness.list.conversations.first { $0.id != trashed && $0.id.accountID == ListTestSupport.accountA.id }).id
+        let account = ListTestSupport.accountA
+        try store.upsertMessages([MessageMetadata(
+            id: MessageID(accountID: account.id, providerID: "spam-test-draft"), conversationID: drafted, subject: "Re: Project update",
+            snippet: "Not sent yet", from: EmailAddress(address: account.email), to: [ListTestSupport.senders[0]], date: Date(),
+            roles: [.drafts], isRead: true, isStarred: false, hasAttachments: false)])
+
+        for (text, view, id) in [("in:trash", MailboxView.trash, trashed), ("in:drafts", .drafts, drafted)] {
+            typeSearch(text, harness)
+            XCTAssertEqual(harness.list.query.view, view, text)
+            harness.spin { self.listed(id, harness) }
+            select(id, harness)
+            XCTAssertFalse(harness.controller.validateMenuItem(menuItem), "Message › Mark as Spam is disabled on \(text) results")
+            let menu = harness.controller.selectionContextMenu()
+            menu.update()
+            XCTAssertEqual(menu.items.first { $0.title == "Mark as Spam" }?.isEnabled, false, "and so is the context menu's item")
+            let before = try store.messages(in: id)
+            let queuedBefore = try queued(id.accountID, harness)
+            XCTAssertTrue(harness.controller.perform(.markSpam), "the key is spent, with a beep")
+            XCTAssertEqual(try queued(id.accountID, harness), queuedBefore, "nothing queued from \(text)")
+            XCTAssertEqual(try store.messages(in: id), before)
+            XCTAssertTrue(listed(id, harness))
+        }
+    }
+
+    /// With focus in the reader (its page), ! is routed as it is from the list and marks the open conversation.
+    func testBangActsWithFocusInTheReader() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.selectFirst(1)
+        let id = harness.list.conversations[0].id
+        func webView(in view: NSView) -> NSView? {
+            if view is WKWebView, !view.isHiddenOrHasHiddenAncestor { return view }
+            return view.subviews.lazy.compactMap(webView(in:)).first
+        }
+        let page = try XCTUnwrap(webView(in: harness.reader.view), "the reader shows the conversation in a web view")
+        XCTAssertTrue(harness.controller.window?.makeFirstResponder(page) == true)
+        XCTAssertTrue(harness.controller.isReaderFocused)
+
+        let command = KeyboardRouter.command(characters: "!", keyCode: 18, modifiers: .shift, pendingG: false,
+                                             readerFocused: harness.controller.isReaderFocused).command
+        XCTAssertEqual(command, .markSpam)
+        XCTAssertTrue(harness.controller.perform(try XCTUnwrap(command)))
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles == [.spam] })
+        XCTAssertEqual(try queued(id.accountID, harness).last, .markSpam)
+        XCTAssertEqual(harness.toastMessage, "Marked as spam")
+        harness.spin { !self.listed(id, harness) }
+        XCTAssertFalse(listed(id, harness))
+    }
+
+    // MARK: Later
+
+    func testInLaterTheSnoozeEndsAndUndoPutsItBack() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let store = harness.environment.store
+        let id = harness.list.conversations[0].id
+        let targets = try messages(id, harness).filter(\.isInInbox).map(\.id)
+        try store.setSnoozes([Snooze.Change(conversationID: id, until: Date().addingTimeInterval(86_400))],
+                             enqueueing: [PaperCore.Operation(accountID: id.accountID, change: .archive, targets: targets)], at: Date())
+        harness.spin { harness.controller.snoozes.count == 1 }
+        XCTAssertTrue(harness.controller.perform(.goTo(.later)))
+        harness.spin { harness.list.query.view == .later && self.listed(id, harness) }
+        select(id, harness)
+
+        XCTAssertTrue(harness.controller.perform(.markSpam))
+        XCTAssertEqual(harness.toastMessage, "Marked as spam")
+        XCTAssertTrue(try store.snoozes().isEmpty, "out of Later: nothing would come back")
+        harness.spin { harness.list.query.view == .inbox }
+
+        XCTAssertTrue(harness.controller.perform(.undo))
+        XCTAssertEqual(try store.snoozes().map(\.conversationID), [id], "snoozed as before")
+        XCTAssertTrue(try messages(id, harness).allSatisfy { $0.roles.isEmpty }, "archived, out of Spam")
+        harness.spin { harness.list.query.view == .later }
+        XCTAssertEqual(harness.list.query.view, .later)
+    }
+
+    /// A conversation back from Later loses its place under Today as it leaves the Inbox; Z puts it back there.
+    func testAnUndoPutsAReturnedRowBackUnderToday() throws {
+        let harness = try MainWindowHarness(threads: 10, spacing: 86_400)
+        defer { harness.close() }
+        let store = harness.environment.store
+        let old = harness.list.conversations[8].id
+        let targets = try messages(old, harness).map(\.id)
+        try store.setSnoozes([Snooze.Change(conversationID: old, until: Date().addingTimeInterval(-60))],
+                             enqueueing: [PaperCore.Operation(accountID: old.accountID, change: .archive, targets: targets)],
+                             at: Date().addingTimeInterval(-600))
+        let now = Date()
+        try store.returnDueSnoozes(at: now, limit: 10) { id, messages in
+            [PaperCore.Operation(accountID: id.accountID, change: .moveToInbox, targets: messages.map(\.id), createdAt: now)]
+        }
+        harness.spin { harness.list.conversations.first?.id == old }
+        let mark = try XCTUnwrap(harness.list.conversations.first?.returnedAt)
+        // Selected without opening, as a drop would act, so the row stays as it came back.
+        harness.list.selectedConversationID = old
+
+        XCTAssertTrue(harness.controller.perform(.markSpam))
+        harness.spin { harness.list.conversations.first?.id != old }
+        XCTAssertTrue(harness.controller.perform(.undo))
+        harness.spin { harness.list.conversations.first?.id == old }
+        XCTAssertEqual(harness.list.conversations.first?.id, old, "back first")
+        XCTAssertEqual(harness.list.conversations.first?.returnedAt, mark, "with its mark")
+    }
+}

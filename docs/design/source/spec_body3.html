@@ -16,7 +16,7 @@
       </div></div>
       <div><span class="lbl">Starred · attachment · count · queued · failed · account tile · Drafts · Send Later in Drafts · Sent · back from Later · in Later</span><div class="listbox">
         {{PY: row('Linda Morgan', 'Sunday dinner', 'Ha, noted. I will bring the plum cake.', '19:02', 'rose', 'LM', acct='G', star=True, clip=True, count=4, pending=True)}}
-        {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented: one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', failed=True)}}
+        {{PY: row('Forge', '[paper-sync] PR #2657', 'maya-c commented: one nit about the retry budget.', '21:48', 'stone', 'F', acct='F', failed=True)}}
         {{PY: row('Northwind Weekly', 'Issue #182: Quiet software', 'This week: the case for fewer notifications.', '08:15', 'slate', 'NW', acct='G')}}
         {{PY: row('Calendar', 'Accepted: Design review @ Thu 15:30', 'Room: Juniper (4th floor)', '13:05', 'wheat', 'C', acct='C', initial_tile=True)}}
         {{PY: row('', 'Re: Contoso rollout', 'Thanks for running the checks. I have forwarded…', '23:51', 'slate', 'BC', sender_html='<span class="me">Draft to</span> Ben Carter')}}
@@ -29,7 +29,7 @@
         <span class="lbl">Compact density · square account mark · with faces on, the tile replaces the square</span><div class="listbox" style="width:100%">
           {{PY: row_compact('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', acct='G', unread=True, star=True, count=3)}}
           {{PY: row_compact('Ben Carter, Alex Morgan', 'Contoso rollout: go-live checklist', 'Tested with three accounts.', '23:39', acct='C', state='sel', count=4, clip=True)}}
-          {{PY: row_compact('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', acct='F', initial_tile=True)}}
+          {{PY: row_compact('Forge', '[paper-sync] PR #2657', 'maya-c commented.', '21:48', acct='F', initial_tile=True)}}
           <div class="rhead cmp"><span>Last week</span><i></i></div>
           <div class="skrow"><i style="left:{{layout.rowCompact.skeletonSenderBar.0}}px;top:{{layout.rowCompact.skeletonSenderBar.1}}px;width:{{layout.rowCompact.skeletonSenderBar.2}}px"></i><i style="right:16px;top:{{layout.rowCompact.skeletonSenderBar.1}}px;width:{{layout.rowCompact.skeletonTimeBar.0}}px"></i><i style="left:{{layout.rowCompact.skeletonLine2Bar.0}}px;top:{{layout.rowCompact.skeletonLine2Bar.1}}px;width:{{layout.rowCompact.skeletonLine2Bar.2}}px"></i></div>
           <div class="lfoot"><span class="spin" style="--sz:12px;color:var(--q-ink3)"></span>Loading older mail…</div>
@@ -63,7 +63,7 @@
       <div><span class="rt2 hov prs">{{PY: face(3)}}</span><b>Pressed (face only)</b></div>
       <div><span class="rt2" title="Finish signing in in your browser…"><span class="pface"><span class="spin" style="--sz:{{layout.rail.pendingSpinner}}px;color:var(--q-ink3)"></span></span></span><b>Signing in</b></div>
       <div><span class="rt2"><span class="face two" style="--a:var(--q-acct-5)"><span>Ga</span></span></span><b>Collision: Ga</b></div>
-      <div><span class="rt2 sel2"><i class="mr2"></i>{{PY: g('ss.quire', 18)}}</span><b>All Inboxes</b></div>
+      <div><span class="rt2 sel2"><i class="mr2"></i>{{PY: g('paper.quire', 18)}}</span><b>All Inboxes</b></div>
       <div><span class="rt2 sel2" title="Inbox  G I">{{PY: s('tray', 16)}}<span class="badge">21</span></span><b>Inbox, selected</b></div>
       <div><span class="rt2 hov" title="Starred  G S">{{PY: s('star', 16)}}</span><b>Folder, hover</b></div>
       <div><span class="rt2 hov">{{PY: s('plus', 15)}}</span><b>Add, hover</b></div>
@@ -186,17 +186,17 @@
   </div>
 
   <div class="c3 card sheetbg">
-    <h3>Quoted text <code>ss.elide</code></h3>
+    <h3>Quoted text <code>paper.elide</code></h3>
     <p class="cap">The editor’s mark for omitted text sits at the fold. The label carries the state.</p>
     <div style="display:grid;gap:10px;justify-items:start">
-      <span class="qt">{{PY: g('ss.elide', 14)}}Show quoted text</span>
-      <span class="qt hov">{{PY: g('ss.elide', 14)}}Show quoted text</span>
-      <span class="qt prs">{{PY: g('ss.elide', 14)}}Show quoted text</span>
-      <span class="qt on">{{PY: g('ss.elide', 14)}}Hide quoted text</span>
-      <span class="qt on hov">{{PY: g('ss.elide', 14)}}Hide quoted text</span>
-      <span class="qt on prs">{{PY: g('ss.elide', 14)}}Hide quoted text</span>
-      <span class="qt foc">{{PY: g('ss.elide', 14)}}Show quoted text</span>
-      <span class="rowline"><span class="qt" style="padding:0 5px;height:22px">{{PY: g('ss.elide', 14)}}</span><span style="font:var(--q-font-snippet);color:var(--q-ink3)">On 1 Nov 2026 at 23:39, Ben Carter wrote:</span></span>
+      <span class="qt">{{PY: g('paper.elide', 14)}}Show quoted text</span>
+      <span class="qt hov">{{PY: g('paper.elide', 14)}}Show quoted text</span>
+      <span class="qt prs">{{PY: g('paper.elide', 14)}}Show quoted text</span>
+      <span class="qt on">{{PY: g('paper.elide', 14)}}Hide quoted text</span>
+      <span class="qt on hov">{{PY: g('paper.elide', 14)}}Hide quoted text</span>
+      <span class="qt on prs">{{PY: g('paper.elide', 14)}}Hide quoted text</span>
+      <span class="qt foc">{{PY: g('paper.elide', 14)}}Show quoted text</span>
+      <span class="rowline"><span class="qt" style="padding:0 5px;height:22px">{{PY: g('paper.elide', 14)}}</span><span style="font:var(--q-font-snippet);color:var(--q-ink3)">On 1 Nov 2026 at 23:39, Ben Carter wrote:</span></span>
     </div>
     <span class="lbl" style="margin-top:12px">folded rest · hover · pressed · unfolded rest · hover · pressed · focused · composer chip</span>
   </div>
@@ -325,7 +325,7 @@
   <div class="c4 card">
     <h3>Empty states <code>layout.emptyState</code></h3>
     <p class="cap">One serif sentence and one hint. Only inbox zero shows the brand mark, in the system's secondary label grey.</p>
-    <div class="empty"><span style="color:var(--system-grey2);color:-apple-system-secondary-label">{{PY: g('ss.paperPlane', 40)}}</span><b>Nothing left to read.</b><i>New mail will land here.</i></div>
+    <div class="empty"><span style="color:var(--system-grey2);color:-apple-system-secondary-label">{{PY: g('paper.paperPlane', 40)}}</span><b>Nothing left to read.</b><i>New mail will land here.</i></div>
     <div class="empty" style="margin-top:14px"><b>No results for “lisbon flat”</b><i>Not on this Mac? <span style="color:var(--q-accent)">Search Gmail</span></i></div>
     <div class="empty" style="margin-top:14px"><b>No starred conversations</b><i>Press S to star one.</i></div>
     <div class="empty" style="margin-top:14px;background:var(--q-canvas);border-radius:8px;padding:14px"><b>No conversation selected</b><i><span class="kbd">J</span> <span class="kbd">K</span> to move · <span class="kbd">↩</span> to open</i></div>
@@ -406,11 +406,11 @@
       <div class="listbox" style="box-shadow:0 0 0 1px var(--q-ruleStrong)">
         {{PY: row('Ben Carter, Alex Morgan, Tom Hughes', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel', count=4, clip=True)}}
         {{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True, star=True, count=3)}}
-        {{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F', pending=True)}}
+        {{PY: row('Forge', '[paper-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F', pending=True)}}
       </div>
       <div style="display:grid;gap:12px;align-content:start">
         <div class="rowline"><span class="btn primary">Send</span><span class="btn secondary">Reconnect</span><span class="btn ghost">Cancel</span><span class="btn destructive">Discard</span><span class="btn secondary foc ichc">Focused</span><span class="tok sel">Selected</span><span class="tok bad">{{PY: s('exclamationmark.triangle.fill', 10)}}it-desk@contoso</span></div>
-        <div class="rowline"><span class="slip" style="box-shadow:inset 0 0 0 1px var(--q-ruleStrong),var(--q-e2)">{{PY: s('archivebox', 14)}}Archived<i class="dv"></i><span class="ua">Undo <span class="kbd os">Z</span></span><i class="contrail" style="width:62%"></i></span><span class="qt">{{PY: g('ss.elide', 14)}}Show quoted text</span><span class="ach" style="min-width:0;box-shadow:inset 0 0 0 1px var(--q-ruleStrong)">{{PY: fm('pdf', 'PDF')}}<div><div class="nm">checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></span></div>
+        <div class="rowline"><span class="slip" style="box-shadow:inset 0 0 0 1px var(--q-ruleStrong),var(--q-e2)">{{PY: s('archivebox', 14)}}Archived<i class="dv"></i><span class="ua">Undo <span class="kbd os">Z</span></span><i class="contrail" style="width:62%"></i></span><span class="qt">{{PY: g('paper.elide', 14)}}Show quoted text</span><span class="ach" style="min-width:0;box-shadow:inset 0 0 0 1px var(--q-ruleStrong)">{{PY: fm('pdf', 'PDF')}}<div><div class="nm">checklist.pdf</div><div class="mt">PDF · 240 KB</div></div></span></div>
       </div>
     </div>
   </div>

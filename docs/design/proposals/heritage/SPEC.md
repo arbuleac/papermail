@@ -1,6 +1,6 @@
 # Wingbar
 
-**SuperSparrow design language · direction “Heritage, rebuilt” · v1.0 · 2026-11-02**
+**Paper design language · direction “Heritage, rebuilt” · v1.0 · 2026-11-02**
 
 Wingbar keeps Sparrow’s 2011 shape — a dark slate account rail, a crisp bright list, one confident blue, compact avatar-forward rows — and rebuilds it with 2026 craft: device-pixel hairlines, a two-tier type hierarchy (compact list, comfortable reading), rounded-square tinted avatars and a dark mode tuned value by value. The account rail is the *wing*; in the unified inbox every row carries its account’s *wingbar*, a 3 pt ribbon on the leading edge that visually continues the rail into the list.
 
@@ -113,8 +113,8 @@ All metrics are in points (pt). In CSS 1 pt = 1 px. “L / D / L·IC / D·IC” 
 | `kbd-border` | Keyboard hint edge | `#16191D` @ 18% | `#FFFFFF` @ 14% | `#16191D` @ 60% | `#FFFFFF` @ 60% |
 | `kbd-text` | Keyboard hint glyph | `#4A525B` | `#B0B7C0` | `#30363D` | `#D5DAE0` |
 
-**Implementation from one source.** The token table lives in one JSON file (proposed `Sources/SSCore/Design/wingbar-tokens.json`, no AppKit import so tests can read it). A Swift script in `scripts/tools/` (no Node) generates:
-- `Sources/SuperSparrowApp/Design/Wingbar+Color.swift`: `NSColor(name: "wb.bg-list") { appearance in … }` with the four-way `bestMatch` switch; SwiftUI uses `Color(nsColor:)`.
+**Implementation from one source.** The token table lives in one JSON file (proposed `Sources/PaperCore/Design/wingbar-tokens.json`, no AppKit import so tests can read it). A Swift script in `scripts/tools/` (no Node) generates:
+- `Sources/PaperApp/Design/Wingbar+Color.swift`: `NSColor(name: "wb.bg-list") { appearance in … }` with the four-way `bestMatch` switch; SwiftUI uses `Color(nsColor:)`.
 - the `:root` block of `ConversationShellAssets.css`, replacing today’s `--ss-*` variables, with `@media (prefers-color-scheme: dark)`, `@media (prefers-contrast: more)` and the combined query — exactly the block embedded at the top of `specimen.html`.
 
 ### 4.2 Accent, selection and focus rules
@@ -669,7 +669,7 @@ Counts above 99 read “99+” (rail, title menu) or the exact number (rows: mes
 
 ### 5.34 Menus
 
-- **Menu bar:** SuperSparrow · File (New Message ⌘N, Close ⌘W) · Edit · View (Inbox…All Mail with `g` hints, Focused/Other filter ⌘⌥1–3, Show/Hide Accounts ⌃⌘S, List Density ▸) · Message (Reply R, Reply All A, Forward F, Archive E, Move to Trash #, Star S, Mark as Unread U, Undo Z) · Mailbox (All Inboxes ⌘0, accounts ⌘1–⌘9, Check for Mail ⌘⇧N) · Window · Help. Single-key equivalents are displayed in menus but handled by `KeyboardRouter` so they never fire inside text fields.
+- **Menu bar:** Paper · File (New Message ⌘N, Close ⌘W) · Edit · View (Inbox…All Mail with `g` hints, Focused/Other filter ⌘⌥1–3, Show/Hide Accounts ⌃⌘S, List Density ▸) · Message (Reply R, Reply All A, Forward F, Archive E, Move to Trash #, Star S, Mark as Unread U, Undo Z) · Mailbox (All Inboxes ⌘0, accounts ⌘1–⌘9, Check for Mail ⌘⇧N) · Window · Help. Single-key equivalents are displayed in menus but handled by `KeyboardRouter` so they never fire inside text fields.
 - **Context menus** on rows and cards: Reply · Forward · — · Archive · Star · Mark as Unread · — · Move to Trash (glyph tinted `text-danger`), each with its glyph and key.
 - **App-drawn menus** (autocomplete only): e2, r 10, padding 5, items 24 pt (40 with two lines), r 5, highlight `fill-selected`.
 
@@ -687,7 +687,7 @@ Counts above 99 read “99+” (rail, title menu) or the exact number (rows: mes
 
 ### 5.37 Welcome screen
 
-- Inside the main window; the rail stays (empty, with only Add highlighted in its well) so the shape of the app is visible from the first second. Content on `bg-list`, centered, 28 pt above optical center: app tile 64 pt r 15 (slate gradient `#3D434B → #2B3036 → #22262B`, `wb.wing` 36 pt `#F5F7F9`) → 18 → “Welcome to SuperSparrow” `display` → 6 → “A fast, simple home for your Gmail and Microsoft mail.” 15/20 `text-secondary`, max 420 → 22 → large primary “Add Gmail account” (260 wide, `envelope` glyph, default ↩) → 8 → large secondary “Add Microsoft account” → 10 → ghost “Try the demo” (tooltip “Explore SuperSparrow with two made-up mailboxes. Nothing leaves this Mac.”). Footer 18 pt from the bottom: `lock` 12 pt + `caption` `text-tertiary` “Your mail stays on this Mac. Sign-in happens in your browser.”
+- Inside the main window; the rail stays (empty, with only Add highlighted in its well) so the shape of the app is visible from the first second. Content on `bg-list`, centered, 28 pt above optical center: app tile 64 pt r 15 (slate gradient `#3D434B → #2B3036 → #22262B`, `wb.wing` 36 pt `#F5F7F9`) → 18 → “Welcome to Paper” `display` → 6 → “A fast, simple home for your Gmail and Microsoft mail.” 15/20 `text-secondary`, max 420 → 22 → large primary “Add Gmail account” (260 wide, `envelope` glyph, default ↩) → 8 → large secondary “Add Microsoft account” → 10 → ghost “Try the demo” (tooltip “Explore Paper with two made-up mailboxes. Nothing leaves this Mac.”). Footer 18 pt from the bottom: `lock` 12 pt + `caption` `text-tertiary` “Your mail stays on this Mac. Sign-in happens in your browser.”
 - States: rest · waiting (buttons disabled; a status line below the buttons: 12 pt spinner + “Finish signing in in your browser…” + small secondary “Cancel”) · error (help line `text-danger` “Sign-in was cancelled in the browser. Try again.”; buttons re-enabled) · no OAuth client configured (secondary text “Add your OAuth client in Settings ▸ OAuth first.” + ghost “Open Settings”).
 
 ### 5.38 Settings window (SwiftUI)
@@ -703,7 +703,7 @@ Counts above 99 read “99+” (rail, title menu) or the exact number (rows: mes
 
 - `UNMutableNotificationContent`, one per new conversation (not per message), `threadIdentifier` = conversation id so macOS groups a thread, `targetContentIdentifier` = conversation id (click opens and selects it).
 - **Preview on:** title = sender display name (“Ben Carter”), subtitle = subject, body = snippet (≤ 140 chars, whitespace collapsed). `summaryArgument` = account label so grouped summaries read “3 more from Work”.
-- **Preview off** (Settings ▸ Show sender and subject off): title “SuperSparrow”, body “New message in Work”; grouped “3 new messages in All Inboxes”.
+- **Preview off** (Settings ▸ Show sender and subject off): title “Paper”, body “New message in Work”; grouped “3 new messages in All Inboxes”.
 - No sound by default (respect system settings), no images, no actions in v1 (Archive / Mark as Read are a later addition with category `message`). Never sent for mail that arrives while the conversation is open and the window is key.
 
 ### 5.40 App icon alignment

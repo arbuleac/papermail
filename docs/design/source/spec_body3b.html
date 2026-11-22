@@ -12,7 +12,7 @@
       <div class="list" style="width:auto;right:0">
         <div class="lh"><div class="mast">Inbox<span class="dtag hov">Demo {{PY: s('chevron.down', 7)}}</span></div>
           <div class="search" style="--sl:142px">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div>
-          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div></div>
+          <div class="ib compose">{{PY: g('paper.nib', 18)}}</div></div>
         {{PY: row('Northwind Traders', 'Your order has shipped', 'Track it any time from your account page.', '09:41', 'wheat', 'NT', acct='C', unread=True)}}
         {{PY: row('Wingtip Toys', 'Spring catalogue', 'Twelve new kites and a very serious frisbee.', '08:15', 'rose', 'WT', acct='G')}}
         <div class="sync">{{PY: s('info.circle', 11)}}<b>Demo</b> · made-up mail, nothing syncs</div>
@@ -23,7 +23,7 @@
         <div class="mi hi">{{PY: s('arrow.uturn.backward', 14)}}Leave Demo…</div>
       </div>
     </div>
-    <p class="ann" style="margin-top:10px">Demo mode (§5.43): a “Demo” tag after the masthead (hovered, its menu open), the window title “SuperSparrow — Demo”, a sync line that says nothing syncs, and a Settings banner. Leave Demo asks once, then returns to the welcome screen. At the {{layout.window.minHeight}} pt minimum height one account fits under the folders; the second scrolls in the account clip, whose clipped edge carries a hairline.</p>
+    <p class="ann" style="margin-top:10px">Demo mode (§5.43): a “Demo” tag after the masthead (hovered, its menu open), the window title “Paper — Demo”, a sync line that says nothing syncs, and a Settings banner. Leave Demo asks once, then returns to the welcome screen. At the {{layout.window.minHeight}} pt minimum height one account fits under the folders; the second scrolls in the account clip, whose clipped edge carries a hairline.</p>
   </div>
   <div class="c6">
     <div class="win" style="height:{{layout.window.minHeight}}px">
@@ -37,7 +37,7 @@
       <div class="list" style="width:auto;right:0">
         <div class="lh"><div class="mast">Inbox</div>
           <div class="search">{{PY: s('magnifyingglass', 12)}}<span class="ph">Search</span><span class="kbd">/</span></div>
-          <div class="ib compose">{{PY: g('ss.nib', 18)}}</div></div>
+          <div class="ib compose">{{PY: g('paper.nib', 18)}}</div></div>
         {{PY: row('Ben Carter', 'Contoso rollout: go-live checklist', 'Tested with three accounts this afternoon, all good.', '23:39', 'slate', 'BC', acct='C')}}
         {{PY: row('Rachel Kim', 'Q4 roadmap review', 'Great work. One comment on offline mode.', '17:20', 'sea', 'RK', acct='C', clip=True, count=2)}}
         <div class="sync"><span class="spin" style="--sz:11px;color:var(--q-ink3)"></span><b>Finish signing in in your browser</b> · Gmail<span class="act" style="border-radius:5px;box-shadow:0 0 0 2px var(--q-focus);padding:0 3px">Cancel</span></div>
@@ -73,7 +73,7 @@
       <div style="display:grid;gap:12px">
         <span class="lbl">No accounts · OAuth notice (info, multi-line) · add failed · seven accounts</span>
         <div class="sgroup"><div class="arow" style="justify-content:center;flex-direction:column;gap:0;padding:0"><b style="font:var(--q-font-body);color:var(--q-ink2)">No accounts yet</b><i style="font-style:normal;font:var(--q-font-snippet);color:var(--q-ink3)">Add one to start syncing.</i></div></div>
-        <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">To add a Gmail account, SuperSparrow needs your own Google OAuth client ID. Enter it below and click Save, then try again. <span style="color:var(--q-accent);font:var(--q-font-label)">How to create one…</span></span></div>
+        <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">To add a Gmail account, Paper needs your own Google OAuth client ID. Enter it below and click Save, then try again. <span style="color:var(--q-accent);font:var(--q-font-label)">How to create one…</span></span></div>
         <div class="banner bad ml">{{PY: s('exclamationmark.triangle.fill', 14)}}<span class="txt">Couldn’t add the account. Google refused the sign-in; check the client ID. <span style="color:var(--q-accent);font:var(--q-font-label)">Try again</span></span></div>
         <div class="banner info ml">{{PY: s('info.circle', 14)}}<span class="txt">Rows now show each account’s face. With seven or more accounts, colours alone can look alike. <span style="color:var(--q-accent);font:var(--q-font-label)">Change in General…</span></span><span class="bx">{{PY: s('xmark', 9)}}</span></div>
       </div>
@@ -119,13 +119,13 @@
     <h3>Drafts and Original colors <code>§5.16 · §5.19</code></h3>
     <p class="cap">A draft opens read-only, so j / k stays fast; ↩ continues editing. In dark appearances a message that declares its own colours is adapted (Quire inks, the sender's backgrounds removed) and gets a notice; Original colors shows it as sent on the white <code>originalPage</code> inset ({{layout.reader.originalInsetPad}} pt padding, radius {{layout.reader.originalInsetRadius}}). Light appearances show it as sent, with neither.</p>
     <div class="rhspec" style="padding:12px 16px">
-      <div style="display:flex;align-items:center;gap:8px"><span class="kick" style="position:static"><i class="dot" style="--a:var(--q-acct-1)"></i>Draft · Contoso</span><span class="acts" style="position:static;margin-left:auto"><span class="ib">{{PY: g('ss.nib', 15)}}</span><span class="ib">{{PY: s('trash', 15)}}</span></span></div>
+      <div style="display:flex;align-items:center;gap:8px"><span class="kick" style="position:static"><i class="dot" style="--a:var(--q-acct-1)"></i>Draft · Contoso</span><span class="acts" style="position:static;margin-left:auto"><span class="ib">{{PY: g('paper.nib', 15)}}</span><span class="ib">{{PY: s('trash', 15)}}</span></span></div>
       <div style="font:var(--q-font-headline);letter-spacing:var(--q-track-headline);margin-top:6px">Re: Contoso rollout</div>
     </div>
     <div class="sheet" style="margin-top:12px;padding:16px 20px 12px">
       <div style="display:flex;justify-content:space-between;font:var(--q-font-snippet)"><span style="color:var(--q-ink2)">To Ben Carter · cc Tom Hughes</span><span style="color:var(--q-ink3)">Edited 23:51</span></div>
       <p style="font:var(--q-font-writing);margin:10px 0 12px">Thanks for running the checks. I have forwarded the runbook to our IT desk.</p>
-      <div class="ft" style="gap:8px;align-items:center"><span class="btn secondary">{{PY: g('ss.nib', 14)}}Continue editing</span><span class="kbd">↩</span><span class="btn ghost">Discard draft…</span></div>
+      <div class="ft" style="gap:8px;align-items:center"><span class="btn secondary">{{PY: g('paper.nib', 14)}}Continue editing</span><span class="kbd">↩</span><span class="btn ghost">Discard draft…</span></div>
     </div>
     <div style="display:grid;gap:8px;margin-top:14px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -159,7 +159,7 @@
           <dl><dt>Where</dt><dd>Bay 4</dd><dt></dt><dd><span class="lk">https://teams.microsoft.com/l/meetup-join/…</span></dd><dt>Organizer</dt><dd>Rachel Kim</dd><dt>Guests</dt><dd>You, Marcus Bell, Aisha Patel</dd></dl>
           <div class="ia"><span class="ans">Accept</span><span class="ans foc">Tentative</span><span class="ans">Decline</span><span class="btn linkb">Open in Calendar</span></div>
         </div>
-        <div style="margin-top:calc({{layout.invitation.gapBelow}}px - 6px)"><span class="qt">{{PY: g('ss.elide', 14)}}Show message</span></div>
+        <div style="margin-top:calc({{layout.invitation.gapBelow}}px - 6px)"><span class="qt">{{PY: g('paper.elide', 14)}}Show message</span></div>
         <span class="ann">Tentative focused (Tab); no answer chosen yet. The message folded under the card; “Hide message” once unfolded.</span>
       </div>
       <div style="display:grid;gap:6px">
@@ -170,7 +170,7 @@
           <div class="iw">Sat 15 Nov · 19:30 – 22:00</div>
           <dl><dt>Where</dt><dd>Casa Lisboa, 24 Valencia Street</dd><dt>Organizer</dt><dd>Sam Okafor</dd><dt>Guests</dt><dd>You, Priya Raman, Jordan Lee, Diego Alvarez +2 more</dd></dl>
           <div class="ia"><span class="ans on">{{PY: s('checkmark', 12)}}Accept</span><span class="ans">Tentative</span><span class="ans">Decline</span><span class="btn linkb">Open in Calendar</span></div>
-          <div class="banner info">{{PY: s('info.circle', 14)}}<span class="txt">Answer invitations: SuperSparrow needs permission to update your calendar.</span><span class="btn linkb">Reconnect</span></div>
+          <div class="banner info">{{PY: s('info.circle', 14)}}<span class="txt">Answer invitations: Paper needs permission to update your calendar.</span><span class="btn linkb">Reconnect</span></div>
         </div>
         <span class="ann">Accept chosen: <code>accentWash</code>, the checkmark and Semibold carry it.</span>
       </div>
@@ -245,7 +245,7 @@
     <h3 style="color:var(--studio-ink)">Cheat sheet overlay <code>layout.cheatSheet · cheatSheetContent · scrim</code></h3>
     <p class="cap" style="color:var(--studio-ink2);max-width:none">An in-window overlay, not a system sheet: <code>scrim</code> over the window (<code>scrimSolid</code>, opaque, under Reduce Transparency), focus trapped in the panel, single keys swallowed. Esc, ?, ⌘/, ⌘W, the close button or a click on the scrim dismisses it. The content is the whole key map in two bands of three sections, sentence case, drawn from <code>cheatSheetContent</code>, with the search operators' line from <code>cheatSheetSearch</code> under the bands; {{layout.cheatSheet.width}} × {{PY: cheat_sheet_height()}} pt, so it fits the default window whole.</p>
     <div class="scrimbox" style="height:{{PY: cheat_sheet_height() + 48}}px;background:var(--q-paper)">
-      <div style="position:absolute;inset:0;width:364px">{{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True)}}{{PY: row('Ben Carter', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel')}}{{PY: row('Forge', '[sparrow-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F')}}{{PY: row('Maya Singh', 'Lunch on Thursday?', 'The new place on Rua da Rosa has a terrace.', 'Tue', 'clay', 'MS', acct='G')}}{{PY: row('Tom Hughes', 'Metadata for SSO', 'Attached the XML; the certificate rolls over in March.', 'Mon', 'fern', 'TH', acct='C')}}</div>
+      <div style="position:absolute;inset:0;width:364px">{{PY: row('Priya Raman', 'Lisbon in March?', 'Booked the flat near Príncipe Real.', '22:10', 'heather', 'PR', acct='G', unread=True)}}{{PY: row('Ben Carter', 'Contoso rollout: go-live checklist', 'Tested with three accounts, all good.', '23:39', 'slate', 'BC', acct='C', state='sel')}}{{PY: row('Forge', '[paper-sync] PR #2657', 'maya-c commented.', '21:48', 'stone', 'F', acct='F')}}{{PY: row('Maya Singh', 'Lunch on Thursday?', 'The new place on Rua da Rosa has a terrace.', 'Tue', 'clay', 'MS', acct='G')}}{{PY: row('Tom Hughes', 'Metadata for SSO', 'Attached the XML; the certificate rolls over in March.', 'Mon', 'fern', 'TH', acct='C')}}</div>
       <div class="scr"></div>
       <div style="position:absolute;left:50%;top:24px;transform:translateX(-50%)">{{PY: cheat_sheet()}}</div>
     </div>
