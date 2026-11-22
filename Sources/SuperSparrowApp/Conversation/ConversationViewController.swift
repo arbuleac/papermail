@@ -321,7 +321,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let on = appSettings.readerModeOn
         guard on != renderedReaderMode else { return }
         renderedReaderMode = on
-        pool.clearAll(except: pool.current)
+        // The slot the selected conversation renders into stays, though its render is still landing: the show is waiting
+        // for it, and it is set again once it lands (`present`, `refreshIfStale`).
+        let rendering = currentConversationID.flatMap(pool.slot(rendering:))
+        pool.clearAll(except: rendering ?? pool.current)
         refreshShownPage()
     }
 
@@ -637,6 +640,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             pool.render(prepared.payload, inputs: prepared.inputs, id: id, into: slot) { [weak self] rendered in
                 guard let self, rendered, self.currentConversationID == id else { return }
                 self.swap(in: slot)
+                // What changed while it landed (reader mode switched, a body arrived for a slot not yet on screen).
+                self.refreshIfStale(slot, messages: self.currentMessages, id: id)
             }
         }
     }

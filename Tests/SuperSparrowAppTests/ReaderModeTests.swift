@@ -285,6 +285,27 @@ final class ReaderModeTests: XCTestCase {
         XCTAssertNil(shown.renderedInputs?.readerMode)
     }
 
+    /// A switch while the selected conversation's render is still landing in another slot: that slot is kept, and once on
+    /// screen it is set again in the new state.
+    func testASwitchWhileARenderLandsEndsInTheNewState() throws {
+        let settings = try settings(offering: true)
+        settings.readerModeOn = false
+        let third = ConversationID(accountID: account.id, providerID: "thread-third")
+        let environment = try environment([(message("m1"), designed()), (message("o1", in: other), designed("other")),
+                                           (message("t1", in: third), designed("third"))])
+        let reader = reader(environment.engine, settings: settings, poolSize: 2, showing: other)
+        // The other slot holds a neighbour, so the selected conversation renders there out of sight before the swap.
+        reader.prerender([third])
+        XCTAssertTrue(ListTestSupport.spin(until: { reader.pool.slot(rendering: third).map { !$0.renderInFlight } ?? false }, timeout: 5))
+        reader.show(conversation)
+        let landing = try XCTUnwrap(reader.pool.slot(rendering: conversation))
+        XCTAssertTrue(landing.renderInFlight && reader.pool.current !== landing, "still landing, off screen")
+        settings.readerModeOn = true
+        XCTAssertTrue(landed(conversation, in: reader))
+        XCTAssertTrue(waitFor(lines, toBe: "Text version", in: reader), evaluate(lines, in: reader))
+        XCTAssertEqual(reader.pool.current?.renderedInputs?.readerMode, [])
+    }
+
     /// Show original shows that one message as sent, in this window, for the session; Show text takes it back. Another
     /// window's reader keeps the text version.
     func testShowOriginalAndShowTextActOnOneMessageInOneWindow() throws {

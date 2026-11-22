@@ -27,11 +27,14 @@ extension MainWindowController {
         guard Self.snapshotsReaderMode else { return }
         let toEnd = CommandLine.arguments.contains { $0.hasPrefix("--snapshot-state=") && $0.contains("end") }
         conversation.whenShownRenderLands(timeout: 10) { webView in
-            webView?.evaluateJavaScript("window.ss && window.ss.expandAll()")
-            guard toEnd else { return }
-            // Once the frames have measured themselves.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                webView?.evaluateJavaScript("window.scrollTo(0, document.documentElement.scrollHeight)")
+            // After the demo's first bodies have landed, which a fresh demo is still storing as the page first renders.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                webView?.evaluateJavaScript("window.ss && window.ss.expandAll()")
+                guard toEnd else { return }
+                // Once the frames have measured themselves.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    webView?.evaluateJavaScript("window.scrollTo(0, document.documentElement.scrollHeight)")
+                }
             }
         }
     }
