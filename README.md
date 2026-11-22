@@ -1,6 +1,6 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lockup-horizontal-white.svg">
-  <img src="docs/brand/lockup-horizontal.svg" alt="Paper" width="420">
+  <img src="docs/brand/lockup-horizontal.svg" alt="Paper" width="250">
 </picture>
 
 # Paper
