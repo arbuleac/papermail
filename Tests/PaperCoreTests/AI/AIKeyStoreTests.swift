@@ -10,6 +10,8 @@ final class AIKeyStoreTests: XCTestCase {
         private var items: [String: [String: Any]] = [:]
         private(set) var queries: [[String: Any]] = []
         var failure: OSStatus?
+        /// A failure for `add` alone: a write refused while reads still work.
+        var addFailure: OSStatus?
 
         func item(service: String, account: String) -> [String: Any]? {
             lock.lock(); defer { lock.unlock() }
@@ -28,7 +30,7 @@ final class AIKeyStoreTests: XCTestCase {
                 },
                 add: { [self] attributes in
                     lock.lock(); defer { lock.unlock() }
-                    if let failure { return failure }
+                    if let failure = failure ?? addFailure { return failure }
                     let key = Self.key(attributes)
                     guard items[key] == nil else { return errSecDuplicateItem }
                     items[key] = attributes
@@ -125,5 +127,112 @@ final class AIKeyStoreTests: XCTestCase {
         XCTAssertEqual(memory.reads(of: .claudeAPI), 1)
         try memory.setKey(nil, for: .claudeAPI)
         XCTAssertNil(try memory.key(for: .claudeAPI))
+    }
+
+    // MARK: Moving from the old service (docs/ARCHITECTURE.md, "Identity")
+
+    private var movingStore: AIKeyStore {
+        AIKeyStore(service: AIKeyStore.defaultService, legacyService: LegacyIdentity.aiKeysKeychainService, access: keychain.access)
+    }
+
+    /// An item as the old app wrote it.
+    private func setOldKey(_ key: String, for kind: AIProviderKind) throws {
+        try AIKeyStore(service: LegacyIdentity.aiKeysKeychainService, access: keychain.access).setKey(key, for: kind)
+    }
+
+    func testAKeyOnlyUnderTheOldServiceMovesOnItsFirstRead() throws {
+        try setOldKey("sk-ant-old", for: .claudeAPI)
+        XCTAssertEqual(try movingStore.key(for: .claudeAPI), "sk-ant-old")
+        let moved = try XCTUnwrap(keychain.item(service: "app.paperinbox.mac.ai", account: "claudeAPI"))
+        XCTAssertEqual(moved[kSecValueData as String] as? Data, Data("sk-ant-old".utf8))
+        XCTAssertEqual(moved[kSecAttrLabel as String] as? String, "Paper AI key")
+        XCTAssertEqual(moved[kSecAttrAccessible as String] as? String, kSecAttrAccessibleWhenUnlocked as String)
+        XCTAssertNil(keychain.item(service: "SuperSparrow AI", account: "claudeAPI"), "the old item is deleted")
+        XCTAssertEqual(try movingStore.key(for: .claudeAPI), "sk-ant-old")
+    }
+
+    func testAKeyUnderBothServicesReadsTheNewOne() throws {
+        try setOldKey("sk-old", for: .openAIAPI)
+        try store.setKey("sk-new", for: .openAIAPI)
+        XCTAssertEqual(try movingStore.key(for: .openAIAPI), "sk-new")
+        let services = keychain.queries.compactMap { $0[kSecReturnData as String] as? Bool == true ? $0[kSecAttrService as String] as? String : nil }
+        XCTAssertFalse(services.contains("SuperSparrow AI"), "the old key is not even read")
+    }
+
+    /// Settings › AI shows a key saved before the rename without reading it: no password prompt until a write needs it.
+    func testHasKeySeesAnOldKeyWithoutReadingIt() throws {
+        try setOldKey("sk-old", for: .claudeAPI)
+        XCTAssertTrue(try movingStore.hasKey(for: .claudeAPI))
+        XCTAssertFalse(try movingStore.hasKey(for: .openAIAPI))
+        XCTAssertFalse(try store.hasKey(for: .claudeAPI), "without the old service, there is none")
+        for query in keychain.queries where query[kSecAttrService as String] as? String == "SuperSparrow AI" {
+            XCTAssertNil(query[kSecReturnData as String])
+        }
+        XCTAssertNotNil(keychain.item(service: "SuperSparrow AI", account: "claudeAPI"), "only a read moves it")
+    }
+
+    func testClearingAKeyRemovesItUnderBothServices() throws {
+        try setOldKey("sk-old", for: .claudeAPI)
+        try store.setKey("sk-new", for: .claudeAPI)
+        try movingStore.setKey(nil, for: .claudeAPI)
+        XCTAssertNil(keychain.item(service: "app.paperinbox.mac.ai", account: "claudeAPI"))
+        XCTAssertNil(keychain.item(service: "SuperSparrow AI", account: "claudeAPI"))
+        XCTAssertFalse(try movingStore.hasKey(for: .claudeAPI))
+        XCTAssertNoThrow(try movingStore.setKey(nil, for: .claudeAPI))
+    }
+
+    /// A key the user replaces leaves no copy of the old one under the old service.
+    func testReplacingAKeyRemovesTheOldItem() throws {
+        try setOldKey("sk-old", for: .claudeAPI)
+        try movingStore.setKey("sk-new", for: .claudeAPI)
+        XCTAssertNil(keychain.item(service: "SuperSparrow AI", account: "claudeAPI"))
+        XCTAssertEqual(try movingStore.key(for: .claudeAPI), "sk-new")
+    }
+
+    /// Reads at the same time (Settings › AI and Help Me Write, say) all find the key, whichever of them moves it: none
+    /// finds it under neither service while another moves it.
+    func testConcurrentFirstReadsAllFindTheKey() throws {
+        for _ in 0..<20 {
+            let keychain = FakeKeychain()
+            try AIKeyStore(service: LegacyIdentity.aiKeysKeychainService, access: keychain.access).setKey("sk-old", for: .claudeAPI)
+            let store = AIKeyStore(service: AIKeyStore.defaultService, legacyService: LegacyIdentity.aiKeysKeychainService,
+                                   access: keychain.access)
+            let found = Found()
+            DispatchQueue.concurrentPerform(iterations: 16) { _ in
+                found.add((try? store.key(for: .claudeAPI)) ?? nil)
+            }
+            XCTAssertEqual(found.all, Array(repeating: "sk-old", count: 16))
+            XCTAssertNil(keychain.item(service: "SuperSparrow AI", account: "claudeAPI"))
+            XCTAssertNotNil(keychain.item(service: "app.paperinbox.mac.ai", account: "claudeAPI"))
+        }
+    }
+
+    private final class Found: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String?] = []
+        var all: [String?] { lock.lock(); defer { lock.unlock() }; return values }
+        func add(_ value: String?) { lock.lock(); values.append(value); lock.unlock() }
+    }
+
+    /// A move that cannot write the new item (the Keychain refuses while locked, say) keeps the old one and still answers
+    /// with the key; the next read tries again.
+    func testAFailedMoveKeepsTheOldItem() throws {
+        try setOldKey("sk-old", for: .openAIAPI)
+        keychain.addFailure = errSecInteractionNotAllowed
+        XCTAssertEqual(try movingStore.key(for: .openAIAPI), "sk-old")
+        XCTAssertNotNil(keychain.item(service: "SuperSparrow AI", account: "openAIAPI"), "the old item stays")
+        XCTAssertNil(keychain.item(service: "app.paperinbox.mac.ai", account: "openAIAPI"))
+        keychain.addFailure = nil
+        XCTAssertEqual(try movingStore.key(for: .openAIAPI), "sk-old")
+        XCTAssertNil(keychain.item(service: "SuperSparrow AI", account: "openAIAPI"))
+        XCTAssertNotNil(keychain.item(service: "app.paperinbox.mac.ai", account: "openAIAPI"))
+    }
+
+    /// The bare binary and the tests have no old service: an old key stays where it is.
+    func testWithoutAnOldServiceTheOldKeyIsNeverRead() throws {
+        try setOldKey("sk-old", for: .claudeAPI)
+        XCTAssertNil(try store.key(for: .claudeAPI))
+        try store.setKey(nil, for: .claudeAPI)
+        XCTAssertNotNil(keychain.item(service: "SuperSparrow AI", account: "claudeAPI"))
     }
 }
