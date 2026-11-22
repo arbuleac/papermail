@@ -1095,6 +1095,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard let newest = list.conversations.first?.id else { return nil }
         #if DEBUG
         var first = newest
+        let archived = applyDebugAlwaysArchive()
+        if !archived.isEmpty {
+            // The newest conversation the rule left in the Inbox: the rows it took are on their way out of the list.
+            first = list.conversations.first { !archived.contains($0.id) }?.id ?? newest
+        }
         if CommandLine.arguments.contains(where: { $0.hasPrefix("--snapshot-state=") && $0.contains("newsletter") }) {
             // The newest conversation whose sender offers Unsubscribe, so a render shows the link (§5.14).
             let store = environment.store
@@ -2258,12 +2263,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         return set
     }
 
-    /// Sets the rule in one store transaction with what the rule would have done to that sender's mail in the
-    /// conversation had it come after the rule (Block: theirs out of the Trash; Always Archive: theirs in the Inbox), so
-    /// the row leaves as it will for the next one, which the server's rule takes before this Mac sees it. The toast always
-    /// shows, since no row shows a rule, and names the server that runs it from now on; its Undo puts back the rule the
-    /// sender had (none, or the other one) and the mail it moved. The rule is listed and removed in Settings › Accounts ›
-    /// Senders…, and nowhere else. Reads the message again: after the alert it may have gone.
+    /// Sets the rule in one store transaction with what the rule would have done to that sender's mail had it come after
+    /// the rule (`SenderRuleSweep`): Always Archive takes their mail out of the Inbox of every account, since the user
+    /// wants no Inbox to hold it, and Block takes theirs in the conversation out of the Trash's way, so the rows leave as
+    /// they will for the next message, which the server's rule takes before this Mac sees it. The rule itself is the
+    /// message's account's alone. The toast always shows, since no row shows a rule, and names the server that runs it
+    /// from now on, counting the conversations Always Archive took when they go beyond this one; its Undo puts back the
+    /// rule the sender had (none, or the other one) and every message it moved, in its own account, in one transaction.
+    /// The rule is listed and removed in Settings › Accounts › Senders…, and nowhere else. Reads the message again: after
+    /// the alert it may have gone.
     @discardableResult
     private func setSenderRuleNow(_ action: SenderRule.Action, from messageID: MessageID) -> Bool {
         guard !showingWelcome, let account = accountsByID[messageID.accountID],
@@ -2275,29 +2283,45 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         let previous = senderRule(for: message)
         guard previous != action else { return true }
         let sender = SenderRule.normalizedAddress(address)
-        let theirs = ((try? environment.store.messages(in: message.conversationID)) ?? []).filter { other in
-            other.from.map { SenderRule.normalizedAddress($0.address) == sender } ?? false
-                && action.change(for: other) == action.change
+        let store = environment.store
+        var inbox: [MessageMetadata] = []
+        if action == .archive {
+            do {
+                inbox = try store.inboxMessages(from: sender)
+            } catch {
+                // The rule and the conversation's own mail still go; the other Inboxes keep theirs until the server's rule.
+                Self.log.error("reading the sender's Inbox mail failed: \(String(describing: error), privacy: .public)")
+            }
         }
-        let record = MailActionRecord.make(action.change, on: theirs, conversation: message.conversationID)
+        let sweep = SenderRuleSweep(action, address: sender, setFrom: message.conversationID,
+                                    conversationMessages: (try? store.messages(in: message.conversationID)) ?? [],
+                                    inboxMessages: inbox, ownAddresses: accountsByID.mapValues(\.email))
         let engine = environment.engine
         let accountID = messageID.accountID
         do {
-            try engine.setSenderRule(action, for: address, accountID: accountID,
-                                     performing: record.map { [MailActionRecord.Step(change: action.change, targets: $0.targets)] } ?? [])
+            try engine.setSenderRule(action, for: address, accountID: accountID, performing: sweep.steps)
         } catch {
             Self.log.error("setting a sender rule failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
             return false
         }
-        reportMailAction(action == .trash ? .blockSender : .alwaysArchiveSender, conversations: 1)
+        // Always Archive counts what it archived, none included; Block counts its one conversation, as before.
+        Analytics.send(.mailAction(action == .trash ? .blockSender : .alwaysArchiveSender, Analytics.trigger,
+                                   conversations: action == .trash ? 1 : sweep.conversations.count))
         let command = MailActionCopy.senderRuleCommand(action)
-        let inverse = record?.inverse ?? []
+        let inverse = sweep.inverse
         let conversationID = message.conversationID
+        let reselects = sweep.takesItsConversation
         let fromLater = actionView == .later
-        recordExternalUndo(command: command, accounts: [accountID], toast: SenderRuleCopy.toast(action, address: sender, kind: account.kind),
-                           symbol: action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender) { [weak self] in
+        let symbol = action == .trash ? Quire.Icon.blockSender : Quire.Icon.alwaysArchiveSender
+        let host = stepToastHost
+        let toast = SenderRuleCopy.toast(action, address: sender, kind: account.kind,
+                                         archived: sweep.reachesBeyondItsConversation ? sweep.conversations.count : nil) { [toasts] words in
+            toasts.fits(words, symbol: symbol, actionTitle: "Undo", keycap: "Z", in: host)
+        }
+        recordExternalUndo(command: command, accounts: sweep.accounts.union([accountID]), toast: toast, symbol: symbol) { [weak self] in
             // A rule not on the server yet just goes; one the server has is deleted there, or set back to the old action.
+            // Every message comes back in its own account: one operation per account, in the rule's transaction.
             do {
                 try engine.setSenderRule(previous, for: address, accountID: accountID, performing: self?.restorable(inverse) ?? inverse)
             } catch {
@@ -2307,7 +2331,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             }
             self?.confirmUndo(of: command)
             // The rule comes back whatever became of the mail; the conversation is selected only while it is still there.
-            if record != nil, self?.stillHeld([conversationID]).isEmpty == false { self?.reselect([conversationID], inLater: fromLater) }
+            if reselects, self?.stillHeld([conversationID]).isEmpty == false { self?.reselect([conversationID], inLater: fromLater) }
         }
         return true
     }
@@ -3765,6 +3789,35 @@ extension MainWindowController {
                 }
             }
         }
+    }
+
+    /// `--snapshot-state=always-archive` (debug builds): Always Archive Mail from This Sender (spec §5.52) set as the menus
+    /// set it, on the sender whose mail the Inbox holds in the most conversations, before the first selection, so a render
+    /// shows their rows gone from every account and the toast counting them, frozen part-way through its life as the
+    /// `toast` state draws it. Returns the conversations it took, which the selection then passes over.
+    fileprivate func applyDebugAlwaysArchive() -> Set<ConversationID> {
+        guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot-state=") }),
+              argument.dropFirst("--snapshot-state=".count).split(separator: ",").contains("always-archive") else { return [] }
+        let store = environment.store
+        let own = accountsByID.mapValues(\.email)
+        var best: (message: MessageMetadata, sweep: SenderRuleSweep)?
+        var asked: Set<String> = []
+        for row in list.conversations {
+            let messages = (try? store.messages(in: row.id)) ?? []
+            guard let message = messages.last(where: conversation.offersSenderRule), let address = message.from?.address,
+                  asked.insert(SenderRule.normalizedAddress(address)).inserted else { continue }
+            let sweep = SenderRuleSweep(.archive, address: address, setFrom: row.id, conversationMessages: messages,
+                                        inboxMessages: (try? store.inboxMessages(from: address)) ?? [], ownAddresses: own)
+            if sweep.conversations.count > (best?.sweep.conversations.count ?? 1) { best = (message, sweep) }
+        }
+        guard let best, setSenderRuleNow(.archive, from: best.message.id) else { return [] }
+        if let slip = listPane.toastView.slip {
+            // As if the pointer rested on it, so it outlives the render; its contrail drawn part-way, as the specimen has it.
+            slip.onPointerHover?(true)
+            slip.lifetimeContrail.mode = .countdown(duration: Quire.Motion.toastLife, remaining: Quire.Motion.toastLife * 0.6)
+            slip.lifetimeContrail.isPaused = true
+        }
+        return Set(best.sweep.conversations)
     }
 }
 #endif

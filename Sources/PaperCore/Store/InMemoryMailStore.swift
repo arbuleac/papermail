@@ -294,6 +294,15 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         return newest
     }
 
+    public func inboxMessages(from address: String) throws -> [MessageMetadata] {
+        let sender = SenderRule.normalizedAddress(address)
+        guard !sender.isEmpty else { return [] }
+        lock.lock(); defer { lock.unlock() }
+        return messagesByID.values
+            .filter { $0.isInInbox && $0.from.map { SenderRule.normalizedAddress($0.address) == sender } == true }
+            .sorted { ($1.date, $0.id.accountID.rawValue, $0.id.providerID) < ($0.date, $1.id.accountID.rawValue, $1.id.providerID) }
+    }
+
     private func messagesLocked(in conversation: ConversationID) -> [MessageMetadata] {
         messagesByID.values
             .filter { $0.conversationID == conversation }

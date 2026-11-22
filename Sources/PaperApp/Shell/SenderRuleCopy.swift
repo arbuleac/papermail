@@ -17,13 +17,31 @@ enum SenderRuleCopy {
 
     /// The toast a new rule leaves: “Gmail will archive mail from news@letter.example”, “Outlook will block
     /// deals@shop.example”. The server does it from now on, so it is said in the future and names the server; the
-    /// address goes last, so a long one loses its end to the slip's truncation and the verb stays.
-    static func toast(_ action: SenderRule.Action, address: String, kind: ProviderKind) -> String {
+    /// address goes last, so a long one loses its end to the slip's truncation and the verb stays. When Always Archive
+    /// took mail beyond the conversation it was set from (`archived`, the conversations it archived mail in, in every
+    /// Inbox), what it did now comes first, in the past, as a toast's action does: “Archived 12 conversations · Gmail will
+    /// archive mail from news@letter.example”. Conversations, not messages: a conversation is what leaves the Inbox and
+    /// what the list shows. Beside Undo and Z, a list of the default width has no room for both sentences and the start of
+    /// the address, so where `fits` says the words before the address would be cut, the count keeps the address beside
+    /// it and the rule's sentence goes: “Archived 12 conversations from news@letter.example”, as the snooze's toast keeps
+    /// its time (`MailActionCopy.snoozed(until:fits:)`).
+    static func toast(_ action: SenderRule.Action, address: String, kind: ProviderKind, archived conversations: Int? = nil,
+                      fits: (String) -> Bool = { _ in true }) -> String {
         switch action {
-        case .archive: return "\(service(kind)) will archive mail from \(address)"
+        case .archive:
+            let rule = "\(service(kind)) will archive mail from"
+            guard let conversations, conversations > 0 else { return "\(rule) \(address)" }
+            let n = conversations.formatted(.number.grouping(.automatic))
+            let counted = "Archived \(n) \(conversations == 1 ? "conversation" : "conversations")"
+            // The words before the address, and the address's first letters: the least the long form must show.
+            let start = String(address.prefix(addressStart))
+            return fits("\(counted) · \(rule) \(start)") ? "\(counted) · \(rule) \(address)" : "\(counted) from \(address)"
         case .trash: return "\(service(kind)) will block \(address)"
         }
     }
+
+    /// How much of the address the long form of a counting toast must leave room for.
+    private static let addressStart = 6
 
     /// What a rule does, beside its address in Senders.
     static func detail(_ action: SenderRule.Action) -> String {

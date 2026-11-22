@@ -468,8 +468,9 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                               performing steps: [MailActionRecord.Step]) throws {
         let now = Date()
-        // A rule never spans accounts; a step on another account's mail is not this rule's to take.
-        let operations = Self.operations(of: steps, at: now).filter { $0.accountID == accountID }
+        // The rule is the one account's, but its steps may take mail in every account: Always Archive empties every Inbox
+        // of the sender's mail, and its undo brings it all back. One operation per account, in the rule's transaction.
+        let operations = Self.operations(of: steps, at: now)
         try store.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
         wakeOutbox(for: operations)
         registry.context(for: accountID)?.syncer.sendRuleWrites()

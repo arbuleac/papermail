@@ -183,6 +183,88 @@ enum MessageTable {
             .map(metadata(from:))
     }
 
+    /// `MailStoring.inboxMessages(from:)`, in two steps that never walk the mailbox or the Inbox. The candidates come
+    /// from the full-text index's `sender` column (the From name and address, as `message_fts_content` builds it), as a
+    /// phrase (`senderMatch`), with the Inbox's roles tested in SQL; only their From is read and compared exactly here,
+    /// and then the messages that match are read whole, by rowid. The phrase only narrows: unicode61 folds case and
+    /// accents and splits at punctuation, so `a.b@c` also finds `x.a.b@c`, `á.b@c` and a name holding those words. Its
+    /// case folding is Unicode's simple one, which agrees with Foundation's lowercasing for every letter but a few that
+    /// lowercase to two (the Turkish dotted capital İ): only an address written with one of those in capitals could be
+    /// missed. An address with no word the index holds (nothing but punctuation) walks the Inbox instead
+    /// (`conversations_inbox`, then `messages_by_conversation`); walking it for every address outside ASCII, as a first
+    /// version did, took 1.6 s on the 300,000-message benchmark, whose Inbox holds 156,000 messages.
+    static func inboxMessages(from address: String, in db: Database) throws -> [MessageMetadata] {
+        let sender = SenderRule.normalizedAddress(address)
+        guard !sender.isEmpty else { return [] }
+        guard SearchGrammar.isIndexable(sender) else {
+            return try Row.fetchAll(db.cachedStatement(sql: inboxWalkSQL)).map(metadata(from:))
+                .filter { $0.from.map { SenderRule.normalizedAddress($0.address) == sender } == true }
+        }
+        var rowids: [Int64] = []
+        for row in try Row.fetchAll(db.cachedStatement(sql: candidatesSQL), arguments: [try senderMatch(sender, in: db)]) {
+            let json: String? = row[1]
+            guard let json, SenderRule.normalizedAddress(try MailStoreCodec.decode(EmailAddress.self, from: json).address) == sender
+            else { continue }
+            rowids.append(row[0])
+        }
+        guard !rowids.isEmpty else { return [] }
+        return try Row.fetchAll(db.cachedStatement(sql: matchesSQL), arguments: [try MailStoreCodec.json(rowids)]).map(metadata(from:))
+    }
+
+    /// The phrase the candidates come from: the address's local part alone while fewer than `localPartCandidates`
+    /// messages have it in their From (`olga.xu` of `olga.xu@studio.example.io`), since the domain's words are in nearly
+    /// every message (`example`, `com`, `gmail`) and looking them up cost most of the read, 7 ms of 14 on the
+    /// 300,000-message benchmark; otherwise the whole address (a local part that many senders share: `info`, `noreply`).
+    private static func senderMatch(_ sender: String, in db: Database) throws -> String {
+        func phrase(_ words: String) -> String { "sender : \"\(FullTextIndex.stringContent(words))\"" }
+        guard let at = sender.lastIndex(of: "@") else { return phrase(sender) }
+        let local = String(sender[..<at])
+        guard SearchGrammar.isIndexable(local) else { return phrase(sender) }
+        let count = try Int.fetchOne(db.cachedStatement(sql: localPartCountSQL), arguments: [phrase(local), localPartCandidates]) ?? 0
+        return count < localPartCandidates ? phrase(local) : phrase(sender)
+    }
+
+    /// Past this many candidates, comparing each one's From costs more than the whole address's phrase.
+    static let localPartCandidates = 2_000
+
+    private static let localPartCountSQL = "SELECT count(*) FROM (SELECT 1 FROM message_fts WHERE message_fts MATCH ? LIMIT ?)"
+
+    private static let candidatesSQL = """
+        SELECT rowid, from_json FROM messages
+        WHERE rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?) AND \(inInbox("roles"))
+        """
+
+    private static let matchesSQL = """
+        SELECT \(selectColumns) FROM messages WHERE rowid IN (SELECT value FROM json_each(?))
+        ORDER BY date_ms DESC, account_id, provider_id
+        """
+
+    /// CROSS JOIN keeps the Inbox's conversations the outer loop, read from `conversations_inbox`.
+    private static let inboxWalkSQL = """
+        SELECT \(selectColumns.split(separator: ",").map { "m." + $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: ", "))
+        FROM conversations c
+        CROSS JOIN messages m ON m.account_id = c.account_id AND m.conversation_provider_id = c.provider_id
+        WHERE c.in_inbox = 1 AND \(inInbox("m.roles"))
+        ORDER BY m.date_ms DESC, m.account_id, m.provider_id
+        """
+
+    /// SQLite's plans for `inboxMessages(from:in:)`, one line per step of each statement it runs for `address`.
+    static func explainInboxMessages(from address: String, in db: Database) throws -> [String] {
+        let sender = SenderRule.normalizedAddress(address)
+        func explain(_ sql: String, _ arguments: StatementArguments = []) throws -> [String] {
+            try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] }
+        }
+        guard SearchGrammar.isIndexable(sender) else { return try explain(inboxWalkSQL) }
+        let match = try senderMatch(sender, in: db)
+        return try explain(localPartCountSQL, [match, localPartCandidates]) + explain(candidatesSQL, [match])
+            + explain(matchesSQL, ["[1]"])
+    }
+
+    /// The Inbox's roles as `messages.roles` holds them in `column`: the inbox bit, and neither the trash's nor spam's.
+    private static func inInbox(_ column: String) -> String {
+        "(\(column) & \(MailStoreCodec.roleBits([.inbox, .trash, .spam]))) = \(MailStoreCodec.roleBits([.inbox]))"
+    }
+
     /// Inbox first, newest first, so hydration follows what the user will open. Two indexed scans that each stop
     /// at the limit beat one query that has to sort every body-less message of a fresh account. An evicted body keeps
     /// its row and `has_body`, so neither lane fetches it back.

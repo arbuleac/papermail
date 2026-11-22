@@ -47,12 +47,14 @@ public protocol MailClient: AnyObject {
                   returnMarks: [ConversationID: Date]) throws
 
     /// Sets the account's rule for mail from `address` (nil removes it) together with `steps`, in one store transaction:
-    /// the steps are applied and queued as `perform` queues them (the rule's change on that sender's mail in the
-    /// conversation it was set from, `SenderRule.Action.change(for:)`, since a server rule acts only on mail that arrives
-    /// after it exists; an undo passes the inverse and the rule the address had). The rule itself lives on the server (a
-    /// Gmail filter, an Outlook inbox rule): the store shows it at once as a change on its way there
-    /// (`SenderRule.sync`), and the engine creates, replaces or deletes it on the server, asking the account for
-    /// `AccountPermission.rules` on its next reconnect while it lacks it. Local state updates before this returns.
+    /// the steps are applied and queued as `perform` queues them, one operation per account they touch (the rule's
+    /// change on that sender's mail already stored, `SenderRule.Action.change(for:)`, since a server rule acts only on
+    /// mail that arrives after it exists: Always Archive's on their mail in every account's Inbox, Block's on their mail
+    /// in the conversation it was set from; an undo passes the inverse and the rule the address had). The rule itself is
+    /// `accountID`'s alone and lives on its server (a Gmail filter, an Outlook inbox rule): the store shows it at once as
+    /// a change on its way there (`SenderRule.sync`), and the engine creates, replaces or deletes it on the server,
+    /// asking the account for `AccountPermission.rules` on its next reconnect while it lacks it. Every account the steps
+    /// touch has its outbox woken. Local state updates before this returns.
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
                        performing steps: [MailActionRecord.Step]) throws
 

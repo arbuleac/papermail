@@ -174,6 +174,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         }
     }
 
+    public func inboxMessages(from address: String) throws -> [MessageMetadata] {
+        try read { try MessageTable.inboxMessages(from: address, in: $0) }
+    }
+
     /// Stores a body for a known message. A body for a message that no longer exists is dropped silently: the
     /// hydrator may have fetched it just before a poll deleted the message.
     public func saveBody(_ body: StoredBody, for id: MessageID) throws {
@@ -707,6 +711,11 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
     /// SQLite's plan for the calendar's range read, one line per step, so tests can pin it to the time index.
     func calendarQueryPlan(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [String] {
         try read { try CalendarEventTable.explainEvents(in: interval, accountIDs: accountIDs, in: $0) }
+    }
+
+    /// SQLite's plan for `inboxMessages(from:)`, so tests can pin it to the full-text index.
+    func inboxMessagesQueryPlan(from address: String) throws -> [String] {
+        try read { try MessageTable.explainInboxMessages(from: address, in: $0) }
     }
 
     /// SQLite's plan for the reader's read of a conversation's mail times.

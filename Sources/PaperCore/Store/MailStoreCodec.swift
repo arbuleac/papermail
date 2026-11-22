@@ -17,7 +17,10 @@ enum MailStoreCodec {
     }
 
     static func decode<T: Decodable>(_ type: T.Type, from json: String) throws -> T {
-        try decoder.decode(type, from: Data(json.utf8))
+        // Most of a message's list columns hold nothing (Cc, Bcc, Reply-To, references, a Microsoft message's labels),
+        // and a read of hundreds of messages decodes six lists a row: an empty one needs no parser.
+        if json == "[]", let empty = [Any]() as? T { return empty }
+        return try decoder.decode(type, from: Data(json.utf8))
     }
 
     // MARK: Dates

@@ -56,6 +56,7 @@ final class MailTimeRecordingStore: MailStoring, @unchecked Sendable {
     func deleteMessages(_ ids: [MessageID]) throws { try base.deleteMessages(ids) }
     func message(_ id: MessageID) throws -> MessageMetadata? { try base.message(id) }
     func messages(in conversation: ConversationID) throws -> [MessageMetadata] { try base.messages(in: conversation) }
+    func inboxMessages(from address: String) throws -> [MessageMetadata] { try base.inboxMessages(from: address) }
     func saveBody(_ body: StoredBody, for id: MessageID) throws { try base.saveBody(body, for: id) }
     func attachments(of id: MessageID) throws -> [AttachmentInfo]? { try base.attachments(of: id) }
     func messageIDsMissingBodies(accountID: AccountID, limit: Int) throws -> [MessageID] {
