@@ -273,9 +273,9 @@ final class ReaderModeTests: XCTestCase {
         XCTAssertEqual(evaluate(lines, in: reader), "Text version")
         XCTAssertEqual(evaluate("document.querySelector('.ss-card').dataset.typesetting", in: reader), "plain")
 
-        // A neighbour pre-rendered now is rendered in reader mode.
-        reader.prerender([other])
-        XCTAssertTrue(ListTestSupport.spin(until: { reader.pool.slot(rendering: self.other).map { !$0.renderInFlight } ?? false }, timeout: 5))
+        // The neighbour is pre-rendered again, now in reader mode, so the next J is a swap as before the switch.
+        XCTAssertTrue(ListTestSupport.spin(until: { reader.pool.slot(rendering: self.other).map { !$0.renderInFlight } ?? false }, timeout: 5),
+                      "the neighbours are asked for again")
         XCTAssertEqual(reader.pool.slot(rendering: other)?.renderedInputs?.readerMode, [])
 
         settings.readerModeOn = false
@@ -283,6 +283,42 @@ final class ReaderModeTests: XCTestCase {
         XCTAssertTrue(waitFor(frames, toBe: "\(Self.designOnly)  and the shared words", in: reader), evaluate(frames, in: reader))
         XCTAssertEqual(evaluate(lines, in: reader), "")
         XCTAssertNil(shown.renderedInputs?.readerMode)
+        XCTAssertTrue(ListTestSupport.spin(until: { reader.pool.slot(rendering: self.other).map { !$0.renderInFlight } ?? false }, timeout: 5))
+        XCTAssertNil(reader.pool.slot(rendering: other)?.renderedInputs?.readerMode, "and again in the design")
+    }
+
+    /// Turning reader mode on and off again gives each body back as the user left it: images loaded on one message stay
+    /// loaded, its quoted text stays shown.
+    func testASwitchThereAndBackKeepsWhatTheUserDidToTheDesign() throws {
+        let settings = try settings(offering: true)
+        settings.readerModeOn = false
+        let source = "<p style=\"color:#334455\">\(Self.designOnly)</p>"
+            + "<div class=\"gmail_quote\">On Mon, Ada wrote:<blockquote class=\"gmail_quote\">Earlier words</blockquote></div>"
+        let id = MessageID(accountID: account.id, providerID: "m1")
+        let sanitized = HTMLSanitizer().sanitize(MessageBody(html: source, text: nil), messageID: id)
+        XCTAssertTrue(sanitized.hasQuotedContent)
+        XCTAssertTrue(sanitized.html.hasSuffix("</div>"))
+        // A parked picture whose source is a data URL: Load images restores it without a request.
+        let pixel = "data:image/gif;base64,R0lGODlhAQABAAAAACw="
+        let rendered = String(sanitized.html.dropLast(6)) + "<img src=\"\(pixel)\" data-ss-src=\"\(pixel)\" width=\"30\" height=\"10\"></div>"
+        let body = StoredBody(body: MessageBody(html: source, text: "\(Self.textOnly)\n\nOn Mon, Ada wrote:\n> Earlier words"),
+                              renderedHTML: rendered, plainText: sanitized.plainText, hasQuotedContent: true,
+                              blockedRemoteImageCount: 1, typesetting: sanitized.typesetting, declaresColors: sanitized.declaresColors,
+                              coveredByNewYork: sanitized.coveredByNewYork)
+        let environment = try environment([(message("m1"), body)])
+        let reader = reader(environment.engine, settings: settings)
+        let state = "(function () { var s = window.ss.cardStates()[0]; return s.imagesLoaded + ' ' + s.quotesShown; })()"
+        XCTAssertEqual(evaluate(state, in: reader), "false false")
+        _ = evaluate("window.ss.loadImages()", in: reader)
+        _ = evaluate("window.ss.toggleQuotes()", in: reader)
+        XCTAssertEqual(evaluate(state, in: reader), "true true")
+
+        settings.readerModeOn = true
+        XCTAssertTrue(waitFor(lines, toBe: "Text version", in: reader), evaluate(lines, in: reader))
+        XCTAssertEqual(evaluate(state, in: reader), "false false", "the text version has its own: nothing done to it yet")
+        settings.readerModeOn = false
+        XCTAssertTrue(waitFor(lines, toBe: "", in: reader), evaluate(lines, in: reader))
+        XCTAssertEqual(evaluate(state, in: reader), "true true", "the design comes back as the user left it")
     }
 
     /// A switch while the selected conversation's render is still landing in another slot: that slot is kept, and once on
@@ -299,11 +335,23 @@ final class ReaderModeTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { reader.pool.slot(rendering: third).map { !$0.renderInFlight } ?? false }, timeout: 5))
         reader.show(conversation)
         let landing = try XCTUnwrap(reader.pool.slot(rendering: conversation))
-        XCTAssertTrue(landing.renderInFlight && reader.pool.current !== landing, "still landing, off screen")
+        let shown = try XCTUnwrap(reader.pool.current)
+        XCTAssertTrue(landing.renderInFlight && shown !== landing, "still landing, off screen")
         settings.readerModeOn = true
+        // The page on screen stays in sight until the new one lands: never a blank desk.
+        XCTAssertEqual(shown.renderedID, other, "the page on screen is not cleared")
+        XCTAssertTrue(reader.pool.current === shown)
+        // The landing page is rendered again in the new state before it is ever swapped in.
+        XCTAssertEqual(landing.renderedInputs?.readerMode, [], "what lands is the text version, never the design")
         XCTAssertTrue(landed(conversation, in: reader))
+        XCTAssertTrue(reader.pool.current === landing)
         XCTAssertTrue(waitFor(lines, toBe: "Text version", in: reader), evaluate(lines, in: reader))
         XCTAssertEqual(reader.pool.current?.renderedInputs?.readerMode, [])
+
+        // The page left in the design is never swapped back in: going back renders it afresh in reader mode.
+        show(other, in: reader)
+        XCTAssertEqual(reader.pool.current?.renderedInputs?.readerMode, [])
+        XCTAssertTrue(waitFor(lines, toBe: "Text version", in: reader), evaluate(lines, in: reader))
     }
 
     /// Show original shows that one message as sent, in this window, for the session; Show text takes it back. Another

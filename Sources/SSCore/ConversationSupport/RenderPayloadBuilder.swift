@@ -165,18 +165,29 @@ public struct RenderPayloadBuilder: Sendable {
     }
 
     /// What reader mode makes of one message (spec §5.59): nil when it shows nothing new (no words yet: the snippet stands in
-    /// as it always does); the HTML as it is, under the Original line, for a message the user asked to see as sent; else
-    /// its text version set as a plain body. Typeset `plain`, so it sits on the reading page in Quire's inks, never the
-    /// sender's colours; no image, so no banner offers to load one; inline pictures stay out of it and attachments keep
-    /// their chips.
+    /// as it always does); the HTML as it is, under the Original line, for a message the user asked to see as sent; a
+    /// text/plain message's stored page as it is, since its text is what that page holds; else its text version set as a
+    /// plain body. Typeset `plain`, so it sits on the reading page in Quire's inks, never the sender's colours; no image, so
+    /// no banner offers to load one; inline pictures stay out of it and attachments keep their chips.
     struct Reading {
         var view: RenderPayload.ReaderView
         /// An evicted body as kept, which stands in for the stored body.
         var kept: StoredBody? = nil
-        /// Nil for an original, which renders as without reader mode.
+        /// Nil where the stored page shows as it is: an original, which renders as without reader mode, and a text/plain
+        /// message, whose page is already its text.
         var html: String? = nil
         var hasQuotedContent: Bool? = nil
         var design: (typesetting: BodyTypesetting, declaresColors: Bool, coveredByNewYork: Bool)? = nil
+    }
+
+    /// Sets the text versions `build` would show for `messages` into `mode.cache`, without building a payload (spec §5.59):
+    /// pure and `Sendable` work, so a reader runs it off the main thread for the conversations it is about to pre-render,
+    /// and the pre-render finds every text already set.
+    public static func setReaderTexts(of messages: [MessageMetadata], bodies: [MessageID: StoredBody], in mode: ReaderModeRender) {
+        guard mode.cache != nil else { return }
+        for message in visibleMessages(messages) where !message.roles.contains(.drafts) {
+            _ = reading(message, body: bodies[message.id], in: mode)
+        }
     }
 
     static func reading(_ message: MessageMetadata, body: StoredBody?, in mode: ReaderModeRender) -> Reading? {
@@ -187,12 +198,27 @@ public struct RenderPayloadBuilder: Sendable {
             return body == nil ? nil : Reading(view: .original)
         }
         let choice = ReaderText.choose(source, snippet: message.snippet)
-        let set = mode.cache?.render(choice.text) ?? ReaderText.render(choice.text)
-        // The stored coverage was worked out over exactly the extracted text; any other text is scanned, not parsed.
-        let covered = choice.source == .extracted ? source.coveredByNewYork ?? NewYorkCoverage.covers(choice.text)
-            : NewYorkCoverage.covers(choice.text)
-        return Reading(view: choice.source == .text ? .text : .extracted, kept: kept,
-                       html: plainBodyPrefix + set.html + "</div>", hasQuotedContent: set.hasQuotedContent,
+        if choice.source == .plain, body != nil {
+            // Nothing to replace: the page the sanitizer set from this very text at sync time, as without reader mode, and
+            // no pass over its words however long it is.
+            return Reading(view: .text)
+        }
+        let folds = choice.source.foldsHistory
+        let set = mode.cache?.render(choice.text, foldsHistory: folds) ?? {
+            let set = ReaderText.render(choice.text, foldsHistory: folds)
+            return ReaderTextCache.Setting(html: set.html, hasQuotedContent: set.hasQuotedContent,
+                                           coveredByNewYork: NewYorkCoverage.covers(choice.text))
+        }()
+        // The stored coverage was worked out over exactly the extracted text, or an evicted text/plain body's kept text.
+        let covered = choice.source == .extracted || choice.source == .plain ? source.coveredByNewYork ?? set.coveredByNewYork
+            : set.coveredByNewYork
+        let view: RenderPayload.ReaderView
+        switch choice.source {
+        case .plain, .text: view = .text
+        case .extracted: view = .extracted
+        case .snippet: view = .snippet
+        }
+        return Reading(view: view, kept: kept, html: plainBodyPrefix + set.html + "</div>", hasQuotedContent: set.hasQuotedContent,
                        design: (.plain, false, covered))
     }
 

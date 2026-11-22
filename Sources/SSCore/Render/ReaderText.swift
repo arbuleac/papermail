@@ -10,16 +10,24 @@ import Foundation
 ///    Mac keeps when it evicts a body;
 /// 3. the snippet, as the reader shows while a body loads.
 ///
-/// A text/plain message has no HTML to replace: its text is its text part, evicted or not.
+/// A text/plain message has no HTML to replace: its text is its text part, evicted or not, set exactly as without reader
+/// mode.
 public enum ReaderText {
     /// Where the shown text comes from.
     public enum Source: String, Codable, Sendable {
-        /// The sender's text/plain part, a text/plain message's only part included.
+        /// A text/plain message's only part (or, evicted, its kept text): nothing to replace, so it is set as without
+        /// reader mode, its quoted history folded only where it is marked with “>”.
+        case plain
+        /// The sender's text/plain part beside the HTML.
         case text
         /// The text the sanitizer extracted from the HTML when the body was stored.
         case extracted
         /// Neither has any words: the provider's snippet.
         case snippet
+
+        /// Text standing in for an HTML message, whose design folded its quoted history: its history folds too, though
+        /// unmarked (`render(_:foldsHistory:)`).
+        public var foldsHistory: Bool { self == .text || self == .extracted }
     }
 
     public struct Choice: Hashable, Sendable {
@@ -78,7 +86,7 @@ public enum ReaderText {
         let hasHTML = !(body.body.html ?? "").allSatisfy(\.isWhitespace)
         if !hasHTML, !isBlank(part) {
             // A text/plain message: the part is the whole message.
-            return Choice(source: .text, text: part)
+            return Choice(source: .plain, text: part)
         }
         if hasHTML, !isPlaceholder(part, extracted: body.plainText) {
             return Choice(source: .text, text: part)
@@ -86,7 +94,7 @@ public enum ReaderText {
         if !isBlank(body.plainText) {
             // An evicted text/plain message kept its text as its plain text; nothing came from a design.
             let wasPlain = !hasHTML && body.typesetting == .plain
-            return Choice(source: wasPlain ? .text : .extracted, text: body.plainText)
+            return Choice(source: wasPlain ? .plain : .extracted, text: body.plainText)
         }
         return Choice(source: .snippet, text: snippet)
     }
@@ -127,12 +135,14 @@ public enum ReaderText {
     // MARK: Setting
 
     /// The inner HTML of the reading page's plain body for `text` (`PlainTextRenderer`'s paragraphs and links), and whether
-    /// it holds quoted text. ">" quotes fold as in any text/plain mail. Text without them (an HTML message's extracted
-    /// text, Outlook's own text part) folds its quoted history at the line `QuotedHistory.historyStart` finds, the
-    /// attribution above the quote as `PlainTextRenderer` sets it, so the reply's own words show and the history sits
-    /// behind the elision mark. Text whose every line is history shows whole: a fold with nothing above it would hide the
-    /// message.
-    public static func render(_ text: String) -> (html: String, hasQuotedContent: Bool) {
+    /// it holds quoted text. ">" quotes fold as in any text/plain mail. With `foldsHistory` (text standing in for an HTML
+    /// message, `Source.foldsHistory`), text without them (the extracted text, Outlook's own text part) folds its quoted
+    /// history at the line `QuotedHistory.historyStart` finds, the attribution above the quote as `PlainTextRenderer` sets
+    /// it, so the reply's own words show and the history sits behind the elision mark, as the design's own fold had it.
+    /// Text whose every line is history shows whole: a fold with nothing above it would hide the message. Without
+    /// `foldsHistory` (a text/plain message, the snippet) the text is set exactly as `PlainTextRenderer` sets it anywhere.
+    public static func render(_ text: String, foldsHistory: Bool = true) -> (html: String, hasQuotedContent: Bool) {
+        guard foldsHistory else { return PlainTextRenderer.render(text) }
         // Looked at before anything is set, so a long text is set once (200 KB is set inside the open budget).
         let lines = text
             .replacingOccurrences(of: "\r\n", with: "\n")

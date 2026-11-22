@@ -66,6 +66,45 @@ final class ReaderModePayloadTests: XCTestCase {
         XCTAssertTrue(card.coveredByNewYork, "the stored coverage describes exactly the extracted text")
     }
 
+    /// A text/plain message has nothing to replace: its stored page shows as without reader mode, set at sync time, so no
+    /// line of its own words folds and nothing is set again on open, however long it is.
+    func testATextPlainMessageShowsItsStoredPage() {
+        let message = F.message("m1")
+        let text = "Your booking is confirmed.\n\nFrom: London Kings Cross\nTo: Edinburgh\nDate: 12 December 2026\nSubject: Ticket\n\nSeat 42A"
+        let sanitized = HTMLSanitizer().sanitize(MessageBody(html: nil, text: text), messageID: message.id)
+        let body = StoredBody(body: MessageBody(html: nil, text: text), renderedHTML: sanitized.html, plainText: sanitized.plainText,
+                              hasQuotedContent: sanitized.hasQuotedContent, blockedRemoteImageCount: 0, typesetting: .plain,
+                              declaresColors: false, coveredByNewYork: sanitized.coveredByNewYork)
+        let cache = ReaderTextCache()
+        let card = build([message], bodies: [message.id: body], reader: ReaderModeRender(cache: cache)).messages[0]
+        let off = build([message], bodies: [message.id: body], reader: nil).messages[0]
+        XCTAssertEqual(card.reader, .text, "its line says it is the text version")
+        XCTAssertEqual(card.html, off.html, "the very page it shows without reader mode")
+        XCTAssertEqual(card.html, sanitized.html)
+        XCTAssertFalse(card.hasQuotedContent, "nothing folds that reader mode off would show")
+        XCTAssertEqual(card.typesetting, .plain)
+        XCTAssertEqual(cache.count, 0, "no pass over its words")
+
+        // Evicted, its kept text is set as the sanitizer set it: nothing folds there either.
+        var kept = body
+        kept.body.text = nil
+        kept.renderedHTML = ""
+        let evicted = build([message], bodies: [:], reader: ReaderModeRender(kept: [message.id: kept])).messages[0]
+        XCTAssertEqual(evicted.reader, .text)
+        XCTAssertEqual(evicted.html, RenderPayloadBuilder.plainBodyPrefix + PlainTextRenderer.render(sanitized.plainText).html + "</div>")
+        XCTAssertFalse(evicted.hasQuotedContent)
+    }
+
+    /// A design of pictures has no words in either version: the snippet shows, and its line says so.
+    func testADesignWithoutWordsShowsItsSnippetAsPreviewText() {
+        let message = F.message("m1", snippet: "Black Friday, inside")
+        let card = build([message], bodies: [message.id: styled(text: nil, plain: "")], reader: ReaderModeRender()).messages[0]
+        XCTAssertEqual(card.reader, .snippet)
+        XCTAssertEqual(card.html, plainHTML("Black Friday, inside"))
+        XCTAssertEqual(card.blockedRemoteImageCount, 0)
+        XCTAssertTrue(ConversationShellAssets.js.contains("snippet: ['Preview text', 'Show original', 'Show Original']"))
+    }
+
     /// Keep mail on this Mac evicted the body: its kept text and attachment list show at once, as a body.
     func testAnEvictedBodyShowsItsKeptText() {
         let message = F.message("m1", hasAttachments: true)
@@ -129,8 +168,8 @@ final class ReaderModePayloadTests: XCTestCase {
         }
         XCTAssertEqual(try card(on)["reader"] as? String, "text")
         XCTAssertNil(try card(off)["reader"], "absent while reader mode is off")
-        XCTAssertEqual([RenderPayload.ReaderView.text, .extracted, .original].map(\.rawValue), ["text", "extracted", "original"])
-        for view in ["text", "extracted", "original"] {
+        XCTAssertEqual([RenderPayload.ReaderView.text, .extracted, .snippet, .original].map(\.rawValue), ["text", "extracted", "snippet", "original"])
+        for view in ["text", "extracted", "snippet", "original"] {
             XCTAssertTrue(ConversationShellAssets.js.contains(view + ": ["), "the shell has a line for `\(view)`")
         }
         XCTAssertTrue(ConversationShellAssets.js.contains("m.reader"))

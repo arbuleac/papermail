@@ -74,6 +74,9 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     /// the eviction left it: no source, rendered HTML or invitation, but its plain text, attachment list and design facts.
     /// What reader mode shows of an evicted body while the download that brings the rest back runs (spec §5.59).
     func keptBody(for id: MessageID) throws -> StoredBody?
+    /// `keptBody(for:)` for each of `ids` that has a row, read at once: reader mode reads the kept bodies of every message
+    /// a render has no body for (spec §5.59).
+    func keptBodies(for ids: [MessageID]) throws -> [MessageID: StoredBody]
     /// The invitation the stored body carries (`StoredBody.invitation`), nil without one or when the body was evicted:
     /// what the calendar looks for on every selection, read without decompressing the body (the default reads it whole).
     func invitation(for id: MessageID) throws -> CalendarInvitation?
@@ -315,6 +318,14 @@ extension MailStoring {
     /// store); both stores override it with the evicted row.
     public func keptBody(for id: MessageID) throws -> StoredBody? {
         try body(for: id)
+    }
+
+    /// One `keptBody(for:)` per id, for a store with no read of many (the test doubles and `InMemoryMailStore`, where each
+    /// is a lookup); `SQLiteMailStore` overrides it with one query.
+    public func keptBodies(for ids: [MessageID]) throws -> [MessageID: StoredBody] {
+        var kept: [MessageID: StoredBody] = [:]
+        for id in ids { if let body = try keptBody(for: id) { kept[id] = body } }
+        return kept
     }
 
     /// The whole body's invitation, for a store that cannot read it alone (the test doubles that wrap a real store);

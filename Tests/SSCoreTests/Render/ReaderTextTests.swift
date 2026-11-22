@@ -35,7 +35,11 @@ final class ReaderTextTests: XCTestCase {
     func testAPlainTextMessageIsItsText() {
         let body = StoredBody(body: MessageBody(html: nil, text: "Short note.\n— Theo"), renderedHTML: "<div class=\"ss-body ss-plain\"><p>Short note.</p></div>",
                               plainText: "Short note.\n— Theo", typesetting: .plain)
-        XCTAssertEqual(ReaderText.choose(body, snippet: "Short"), ReaderText.Choice(source: .text, text: "Short note.\n— Theo"))
+        XCTAssertEqual(ReaderText.choose(body, snippet: "Short"), ReaderText.Choice(source: .plain, text: "Short note.\n— Theo"))
+        XCTAssertFalse(ReaderText.Source.plain.foldsHistory, "nothing to replace: set as without reader mode")
+        XCTAssertTrue(ReaderText.Source.text.foldsHistory)
+        XCTAssertTrue(ReaderText.Source.extracted.foldsHistory)
+        XCTAssertFalse(ReaderText.Source.snippet.foldsHistory)
     }
 
     /// Mailchimp's “View this email in your browser”, a common placeholder alternative: the extracted words show instead.
@@ -87,7 +91,7 @@ final class ReaderTextTests: XCTestCase {
     /// An evicted body has no source left: its kept plain text shows, the text part's own for a text/plain message.
     func testAnEvictedBodyShowsItsKeptText() {
         let plain = StoredBody(body: MessageBody(html: nil, text: nil), renderedHTML: "", plainText: "Kept words", typesetting: .plain)
-        XCTAssertEqual(ReaderText.choose(plain, snippet: "s"), ReaderText.Choice(source: .text, text: "Kept words"))
+        XCTAssertEqual(ReaderText.choose(plain, snippet: "s"), ReaderText.Choice(source: .plain, text: "Kept words"))
         let styled = StoredBody(body: MessageBody(html: nil, text: nil), renderedHTML: "", plainText: "Kept design words", typesetting: .styled)
         XCTAssertEqual(ReaderText.choose(styled, snippet: "s"), ReaderText.Choice(source: .extracted, text: "Kept design words"))
         let unknown = StoredBody(body: MessageBody(html: nil, text: nil), renderedHTML: "", plainText: "Old body")
@@ -153,30 +157,88 @@ final class ReaderTextTests: XCTestCase {
         XCTAssertTrue(set.html.contains("&lt;img src=x onerror=alert(2)&gt;"))
     }
 
+    /// A text/plain message shows as without reader mode: a timetable's From:/To:/Date: lines and a rule of underscores are
+    /// its own words, not history, so nothing of it folds that `PlainTextRenderer` would not fold.
+    func testATextPlainMessageIsSetAsWithoutReaderMode() {
+        let booking = "Your booking is confirmed.\n\nFrom: London Kings Cross\nTo: Edinburgh\nDate: 12 December 2026\nDeparts: 09:00\n\nSeat 42A"
+        let notes = "Release notes\n\n________________________________\nNew: dark mode\nFixed: crash"
+        let outlook = "Per account.\n\nFrom: Alex Morgan\nSent: Wednesday\nTo: Theo\nSubject: Re: Sync\n\nKeep them per device?"
+        for text in [booking, notes, outlook] {
+            XCTAssertTrue(ReaderText.render(text, foldsHistory: false) == PlainTextRenderer.render(text), text)
+        }
+        XCTAssertFalse(ReaderText.render(outlook, foldsHistory: false).hasQuotedContent, "unmarked history stays in sight")
+    }
+
+    /// Even where history folds, a fold hides what it holds, so only Outlook's whole header opens one: From with Sent or
+    /// Date, and its Subject. A timetable's lines, or a rule of underscores over anything else, show whole.
+    func testOnlyOutlooksWholeHeaderOpensAFold() {
+        let booking = "Your booking is confirmed.\n\nFrom: London Kings Cross\nTo: Edinburgh\nDate: 12 December 2026\nDeparts: 09:00\n\nSeat 42A"
+        XCTAssertTrue(ReaderText.render(booking) == PlainTextRenderer.render(booking), "no Subject: not a header")
+        let notes = "Release notes\n\n________________________________\nNew: dark mode\nFixed: crash"
+        XCTAssertTrue(ReaderText.render(notes) == PlainTextRenderer.render(notes), "a rule over no header is the sender's own")
+
+        let ruled = "Signed and attached.\n\n________________________________\nFrom: Ben Ito\nSent: Monday, 16 November 2026 10:02\n"
+            + "To: Alex Morgan\nSubject: Contract\n\nPlease sign."
+        let set = ReaderText.render(ruled)
+        XCTAssertTrue(set.hasQuotedContent)
+        XCTAssertTrue(set.html.hasPrefix("<p>Signed and attached.</p><div class=\"ss-quote\" data-ss-collapsed=\"true\"><blockquote><p>______"),
+                      "Outlook's rule opens the fold over its header")
+        let german = "Ja.\n\nVon: Jana Becker\nGesendet: Montag\nAn: Alex\nBetreff: Termin\n\nPasst Dienstag?"
+        XCTAssertTrue(ReaderText.render(german).hasQuotedContent)
+        let french = "Oui.\n\nDe: Élise Martin\nEnvoyé : lundi\nÀ : Alex\nObjet : Réunion\n\nMardi ?"
+        XCTAssertTrue(ReaderText.render(french).hasQuotedContent)
+        // Where Help me write and the calendar stop reading is unchanged: they only lose a little context to a false stop.
+        XCTAssertEqual(QuotedHistory.ownWords(of: booking, limit: 1_000), "Your booking is confirmed.\n")
+    }
+
     func testTheHistoryStartLeavesSignaturesAndQuoteMarksToOthers() {
         func start(_ text: String) -> Int? { QuotedHistory.historyStart(in: text.split(separator: "\n", omittingEmptySubsequences: false)) }
         XCTAssertNil(start("Hi\n--\nTheo"))
         XCTAssertNil(start("Hi\n> On Mon, 16 Nov 2026 at 10:00, Sam wrote:"))
         XCTAssertEqual(start("Hi\n\nFrom: Ada\nSent: Monday\nSubject: x"), 2)
-        XCTAssertEqual(start("Hi\n________________________________\nFrom: Ada"), 1)
+        XCTAssertEqual(start("Hi\n________________________________\nFrom: Ada\nSent: Monday\nSubject: x"), 1)
+        XCTAssertNil(start("Hi\n________________________________\nFrom: Ada"), "a rule over no whole header")
         XCTAssertEqual(QuotedHistory.ownWords(of: "Hi\n--\nTheo", limit: 100), "Hi", "own words still stop at the signature")
     }
 
     // MARK: Cache
 
-    /// The reader keeps what it set, by the text itself, within a byte limit, the oldest going first.
+    /// The reader keeps what it set, by the text itself and whether its history folds, within a byte limit, the oldest
+    /// going first; with the text's New York coverage, worked out once with it.
     func testTheCacheSetsATextOnceWithinItsLimit() {
-        let cache = ReaderTextCache(byteLimit: 400)
-        let first = "Per account.\n\nFrom: Ada\nSent: Monday\nOld words"
-        XCTAssertTrue(cache.render(first) == ReaderText.render(first))
-        XCTAssertTrue(cache.render(first) == ReaderText.render(first), "the same answer from the cache")
+        let cache = ReaderTextCache(byteLimit: 1_000)
+        let first = "Per account.\n\nFrom: Ada\nSent: Monday\nSubject: Plan\nOld words"
+        func same(_ setting: ReaderTextCache.Setting, _ text: String, folds: Bool = true) -> Bool {
+            let set = ReaderText.render(text, foldsHistory: folds)
+            return setting.html == set.html && setting.hasQuotedContent == set.hasQuotedContent
+                && setting.coveredByNewYork == NewYorkCoverage.covers(text)
+        }
+        XCTAssertTrue(same(cache.render(first), first))
+        XCTAssertTrue(cache.render(first).hasQuotedContent)
+        XCTAssertTrue(same(cache.render(first), first), "the same answer from the cache")
         XCTAssertEqual(cache.count, 1)
-        _ = cache.render("Another short note.")
+        XCTAssertTrue(same(cache.render(first, foldsHistory: false), first, folds: false), "set apart where nothing folds")
+        XCTAssertFalse(cache.render(first, foldsHistory: false).hasQuotedContent)
         XCTAssertEqual(cache.count, 2)
-        let long = String(repeating: "word ", count: 30)
+        XCTAssertFalse(cache.render("日本語のメール").coveredByNewYork)
+        XCTAssertEqual(cache.count, 3)
+        let long = String(repeating: "word ", count: 80)
         _ = cache.render(long)
-        XCTAssertLessThan(cache.count, 3, "past the limit the oldest go")
-        _ = cache.render(String(repeating: "x", count: 500))
-        XCTAssertLessThanOrEqual(cache.count, 2, "a text over the whole limit is set but not kept")
+        XCTAssertLessThan(cache.count, 4, "past the limit the oldest go")
+        XCTAssertFalse(cache.holdsLongText, "a text within the limit is kept with the rest")
+    }
+
+    /// A text too long for the limit (a text part of megabytes) is held alone beside it, so the conversation showing it
+    /// sets it once, until the next such text takes its place.
+    func testTheCacheHoldsTheLatestLongTextAlone() {
+        let cache = ReaderTextCache(byteLimit: 400)
+        _ = cache.render("A short note.")
+        let long = String(repeating: "x", count: 500)
+        XCTAssertTrue(cache.render(long) == cache.render(long))
+        XCTAssertTrue(cache.holdsLongText)
+        XCTAssertEqual(cache.count, 1, "the texts within the limit stay")
+        let longer = String(repeating: "y", count: 600)
+        XCTAssertTrue(cache.render(longer).html.contains("yyy"))
+        XCTAssertTrue(cache.render(long).html.contains("xxx"), "set again once another took its place")
     }
 }

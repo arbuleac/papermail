@@ -291,4 +291,34 @@ extension MailStoreContractTests {
         try store.saveBody(whole, for: oldID)
         XCTAssertEqual(try store.keptBody(for: oldID), whole, "fetched again, whole again")
     }
+
+    /// The kept bodies of many messages in one read: what `keptBody(for:)` answers for each, the ones without a row left
+    /// out, across accounts and past one statement's worth of ids.
+    func testKeptBodiesReadsManyAtOnce() throws {
+        let old = date(-540 * 86_400)
+        var ids: [MessageID] = []
+        var messages: [MessageMetadata] = []
+        for index in 0..<620 {
+            messages.append(message("m\(index)", in: "c\(index % 7)", date: old.addingTimeInterval(Double(index))))
+            ids.append(MessageID(accountID: accountA, providerID: "m\(index)"))
+        }
+        try store.upsertMessages(messages)
+        for (index, id) in ids.enumerated() where !index.isMultiple(of: 3) { try store.saveBody(body("words \(index)"), for: id) }
+        try store.evictBodies(receivedBefore: date(-90 * 86_400), excluding: [ids[1]], limit: 1_000)
+        try store.upsertMessages([message("m1", in: "cb", account: accountB, date: date(0))])
+        let otherAccount = MessageID(accountID: accountB, providerID: "m1")
+        try store.saveBody(body("other account"), for: otherAccount)
+        let unknown = MessageID(accountID: accountA, providerID: "unknown")
+
+        let kept = try store.keptBodies(for: ids + [otherAccount, unknown, ids[2]])
+        XCTAssertEqual(kept.count, ids.indices.filter { !$0.isMultiple(of: 3) }.count + 1, "a body for each row, none for the rest")
+        XCTAssertEqual(kept[otherAccount]?.plainText, "other account", "each account's own, though the provider ids are the same")
+        for (index, id) in ids.enumerated() {
+            XCTAssertEqual(kept[id], try store.keptBody(for: id), "as keptBody(for:) reads m\(index)")
+        }
+        XCTAssertEqual(kept[ids[2]]?.plainText, "words 2")
+        XCTAssertEqual(kept[ids[2]]?.renderedHTML, "", "evicted: as the eviction left it")
+        XCTAssertEqual(kept[ids[1]]?.renderedHTML.isEmpty, false, "kept whole: read whole")
+        XCTAssertEqual(try store.keptBodies(for: []), [:])
+    }
 }

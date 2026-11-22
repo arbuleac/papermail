@@ -169,6 +169,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         case text
         /// The text taken from the HTML when it was stored: “Text from the email's design”, with Show original.
         case extracted
+        /// Neither version has words (a design of pictures): the provider's snippet, “Preview text”, with Show original.
+        case snippet
         /// Shown as sent at the user's word for the session: “Original”, with Show text.
         case original
     }

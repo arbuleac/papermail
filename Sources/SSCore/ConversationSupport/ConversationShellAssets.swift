@@ -376,7 +376,9 @@ public enum ConversationShellAssets {
     .ss-banner.ss-bad > .ss-sym { color: var(--q-danger); }
     /* Reader mode's line (spec §5.59): a quiet line on the sheet at the body's edge, not a banner to act on. */
     .ss-banner.ss-reader { background: none; padding-left: 0; margin-bottom: 4px; color: var(--q-ink2); }
-    .ss-banner.ss-reader > .ss-sym { color: var(--q-ink3); }
+    /* doc.plaintext is rasterised centred on a square 1.3 em wide (ReaderSymbolSheet) and its ink starts 18 % in, about
+       0.23 em: the square steps back by that much, so the ink, not the square, meets the body's leading edge. */
+    .ss-banner.ss-reader > .ss-sym { color: var(--q-ink3); margin-left: -0.23em; }
     .ss-link {
       flex: none; height: 24px; padding: 0 4px; border: 0; border-radius: var(--q-r-sm); background: none;
       font: var(--q-font-label); color: var(--q-accent);
@@ -1204,8 +1206,13 @@ public enum ConversationShellAssets {
       // is another document than the HTML, measured apart too (spec §5.59).
       function heightKey(card) {
         var m = card.message;
-        var version = m.reader === 'text' || m.reader === 'extracted' ? ':text' : '';
+        var version = isTextVersion(m) ? ':text' : '';
         return m.id + ':' + Math.round(card.frameWrap.clientWidth) + ':' + prefs.textSize + version + (card.inset ? ':inset' : '');
+      }
+
+      // Reader mode's text version of a message (spec §5.59), as against its HTML.
+      function isTextVersion(m) {
+        return m.reader === 'text' || m.reader === 'extracted' || m.reader === 'snippet';
       }
 
       function measure(card) {
@@ -1414,6 +1421,7 @@ public enum ConversationShellAssets {
       var READER_LINES = {
         text: ['Text version', 'Show original', 'Show Original'],
         extracted: ['Text from the email’s design', 'Show original', 'Show Original'],
+        snippet: ['Preview text', 'Show original', 'Show Original'],
         original: ['Original', 'Show text', 'Show Text Version']
       };
       function readerLine(card) {
@@ -2621,11 +2629,22 @@ public enum ConversationShellAssets {
 
       // The body itself changed (hydration replaced the snippet fallback): the frame is rebuilt, and the
       // per-frame state goes with it because it described the old document.
-      function replaceBody(card) {
-        card.imagesLoaded = loadRemote;
+      function replaceBody(card, previous) {
+        // Reader mode trades a body's HTML for its text version and back (spec §5.59): what the user did to each version
+        // (its images loaded, its quoted text shown) waits with it while the other one shows, and comes back with it.
+        var m = card.message;
+        var held = null;
+        if (previous && previous.hasBody && m.hasBody && isTextVersion(previous) !== isTextVersion(m)) {
+          card.versions = card.versions || {};
+          card.versions[isTextVersion(previous) ? 'text' : 'html'] = {
+            imagesLoaded: card.imagesLoaded, quotesShown: card.quotesShown, messageShown: card.messageShown
+          };
+          held = card.versions[isTextVersion(m) ? 'text' : 'html'] || null;
+        }
+        card.imagesLoaded = loadRemote || !!(held && held.imagesLoaded);
         card.liveRemote = 0;
-        card.quotesShown = false;
-        card.messageShown = false;
+        card.quotesShown = !!(held && held.quotesShown);
+        card.messageShown = !!(held && held.messageShown);
         card.imageLoad = null;
         card.imageFailures = 0;
         markDesign(card);
@@ -2642,7 +2661,7 @@ public enum ConversationShellAssets {
         // An Outbox send that stops being held loses Continue editing (spec §5.53).
         if (JSON.stringify(previous.outbox || null) !== JSON.stringify(m.outbox || null)) { fillFooter(card); }
         if (previous.html !== m.html || previous.hasBody !== m.hasBody) {
-          replaceBody(card);
+          replaceBody(card, previous);
         } else {
           if (previous.bodyState !== m.bodyState) { applyBodyState(card, m.bodyState); }
           // The same text from another source (an evicted body's kept text, then its text part once it downloads).

@@ -290,6 +290,35 @@ enum MessageTable {
     static func body(for id: MessageID, evictedToo: Bool = false, in db: Database) throws -> StoredBody? {
         let statement = try db.cachedStatement(sql: evictedToo ? keptBodySQL : bodySQL)
         guard let row = try Row.fetchOne(statement, arguments: [id.accountID.rawValue, id.providerID]) else { return nil }
+        return try storedBody(from: row)
+    }
+
+    /// `keptBody(for:)` for every id at once (`MailStoring.keptBodies(for:)`): one query per account and few hundred ids,
+    /// through the primary key, so a long conversation whose bodies are not here costs a statement, not a read per message.
+    static func keptBodies(for ids: [MessageID], in db: Database) throws -> [MessageID: StoredBody] {
+        var kept: [MessageID: StoredBody] = [:]
+        for (accountID, group) in Dictionary(grouping: Set(ids), by: \.accountID) {
+            let providerIDs = group.map(\.providerID)
+            for start in stride(from: 0, to: providerIDs.count, by: keptBodiesChunk) {
+                let chunk = Array(providerIDs[start..<min(start + keptBodiesChunk, providerIDs.count)])
+                let rows = try Row.fetchCursor(db, sql: """
+                    SELECT html, text, rendered_html, plain_text, attachments_json, has_quoted, blocked_images,
+                           typesetting, declares_colors, covered_by_new_york, invitation_json, evicted, provider_id FROM bodies
+                    WHERE account_id = ? AND provider_id IN (\(databaseQuestionMarks(count: chunk.count)))
+                    """, arguments: StatementArguments([accountID.rawValue] + chunk))
+                while let row = try rows.next() {
+                    kept[MessageID(accountID: accountID, providerID: row[12])] = try storedBody(from: row)
+                }
+            }
+        }
+        return kept
+    }
+
+    /// Ids per statement, well under SQLite's bound on variables.
+    private static let keptBodiesChunk = 500
+
+    /// A row of `bodySQL`'s columns, in its order.
+    private static func storedBody(from row: Row) throws -> StoredBody {
         let html: Data? = row[0]
         let text: Data? = row[1]
         let rendered: Data = row[2]

@@ -208,6 +208,11 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try MessageTable.body(for: id, evictedToo: true, in: $0) }
     }
 
+    public func keptBodies(for ids: [MessageID]) throws -> [MessageID: StoredBody] {
+        guard !ids.isEmpty else { return [:] }
+        return try read { try MessageTable.keptBodies(for: ids, in: $0) }
+    }
+
     public func invitation(for id: MessageID) throws -> CalendarInvitation? {
         try read { try MessageTable.invitation(for: id, in: $0) }
     }

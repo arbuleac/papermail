@@ -7,8 +7,11 @@ import XCTest
 /// Reader mode on the open path (spec §5.59, docs/ARCHITECTURE.md "Performance budgets"): a conversation whose message
 /// carries a 200 KB text, opened in reader mode with its body stored, stays inside "Open conversation, body cached"
 /// (100 ms, click to the render landed). Its text part and its extracted text (with quoted history to fold) are both
-/// measured; the payload's share, the text chosen and set as a plain body, is reported apart. The page set from text is no
-/// slower than the design's. Runs only with `SS_PERF=1`:
+/// measured; the payload's share, the text chosen and set as a plain body, is reported apart, and the same bodies opened
+/// with their design are reported beside it (not held to it: setting the text is work the design's stored page never
+/// does). Pre-rendered, such a conversation opens inside "Open conversation, pre-rendered" (50 ms), and the longest the
+/// main thread is held while the neighbours pre-render, one per turn of the run loop, is reported. A text part of 4 MB is
+/// set once and then found in the reader's cache. Runs only with `SS_PERF=1`:
 ///
 ///     SS_PERF=1 swift test --filter ReaderModePerformanceTests
 @MainActor
@@ -106,9 +109,31 @@ final class ReaderModePerformanceTests: XCTestCase {
 
         var reading: [Double] = []
         for id in ids[0..<12] { reading.append(open(id)) }
+
+        // Pre-rendered: J onto a neighbour the reader rendered while the selection rested. Meanwhile a 1 ms timer measures
+        // the longest the main thread was held, which is what a J pressed during the pre-render would wait for.
+        var prerendered: [Double] = []
+        let hold = HoldProbe()
+        for pair in stride(from: 12, to: 20, by: 2) {
+            let neighbours = [ids[pair], ids[pair + 1]]
+            reader.prerender(neighbours)
+            hold.start()
+            XCTAssertTrue(ListTestSupport.spin(until: {
+                neighbours.allSatisfy { id in reader.pool.slot(rendering: id).map { !$0.renderInFlight } ?? false }
+            }, timeout: 5), "both neighbours pre-rendered")
+            hold.stop()
+            let start = DispatchTime.now()
+            reader.show(neighbours[0])
+            XCTAssertTrue(ListTestSupport.spin(until: {
+                guard let slot = reader.pool.current else { return false }
+                return slot.renderedID == neighbours[0] && !slot.renderInFlight
+            }, timeout: 5))
+            window.displayIfNeeded()
+            prerendered.append(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+        }
         settings.readerModeOn = false
         var design: [Double] = []
-        for id in ids[12..<22] { design.append(open(id)) }
+        for id in ids[20..<22] + ids[0..<8] { design.append(open(id)) }
 
         // The payload's share in reader mode: the text chosen and set as the plain body, for one 200 KB message.
         let builder = RenderPayloadBuilder()
@@ -124,10 +149,58 @@ final class ReaderModePerformanceTests: XCTestCase {
             XCTAssertEqual(payload.messages.first?.hasQuotedContent, true, "the history folds")
         }
 
+        // A text part of 4 MB beside the HTML (a digest, a log): set once, then found in the reader's cache, held beside
+        // its limit.
+        let line = "2026-11-22 09:14:03 build 4412 step 17 finished in 0.82 s, cache hit, see https://ci.contoso.test/4412\n"
+        let log = String(repeating: line, count: 4 * 1024 * 1024 / line.utf8.count)
+        let digest = StoredBody(body: MessageBody(html: "<p>source</p>", text: log), renderedHTML: "<div class=\"ss-body\"><p>Digest</p></div>",
+                                plainText: String(log.prefix(200 * 1024)), hasQuotedContent: false, blockedRemoteImageCount: 0,
+                                typesetting: .styled, declaresColors: true, coveredByNewYork: true)
+        let cache = ReaderTextCache()
+        var digestBuilds: [Double] = []
+        for _ in 0..<5 {
+            let start = DispatchTime.now()
+            let payload = builder.build(messages: [message], bodies: [message.id: digest], accounts: [account.id: account],
+                                        readerMode: ReaderModeRender(cache: cache))
+            digestBuilds.append(Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+            XCTAssertEqual(payload.messages.first?.reader, .text)
+        }
+        XCTAssertTrue(cache.holdsLongText)
+
         print("SS_PERF reader mode open, 200 KB text, median \(String(format: "%.1f", median(reading))) ms, max \(String(format: "%.1f", reading.max() ?? 0)) ms")
+        print("SS_PERF reader mode open pre-rendered, 200 KB text, median \(String(format: "%.1f", median(prerendered))) ms, max \(String(format: "%.1f", prerendered.max() ?? 0)) ms")
+        print("SS_PERF reader mode pre-render, longest main-thread hold \(String(format: "%.1f", hold.longest)) ms")
         print("SS_PERF design open, same bodies, median \(String(format: "%.1f", median(design))) ms")
         print("SS_PERF reader mode payload, 200 KB extracted text, median \(String(format: "%.1f", median(builds))) ms")
+        print("SS_PERF reader mode payload, 4 MB text part, first \(String(format: "%.1f", digestBuilds[0])) ms, then median \(String(format: "%.1f", median(Array(digestBuilds.dropFirst())))) ms")
         XCTAssertLessThan(median(reading), 100, "open conversation, body cached, in reader mode")
+        XCTAssertLessThan(median(prerendered), 50, "open conversation, pre-rendered, in reader mode")
+        XCTAssertLessThan(median(Array(digestBuilds.dropFirst())), digestBuilds[0] / 4, "a long text is set once, then looked up")
+    }
+
+    /// The longest gap between the ticks of a 1 ms timer on the main run loop: how long the main thread was held.
+    private final class HoldProbe {
+        private(set) var longest: Double = 0
+        private var last = DispatchTime.now()
+        private var timer: Timer?
+
+        func start() {
+            last = DispatchTime.now()
+            let timer = Timer(timeInterval: 0.001, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+            RunLoop.main.add(timer, forMode: .common)
+            self.timer = timer
+        }
+
+        func stop() {
+            timer?.invalidate()
+            timer = nil
+        }
+
+        @objc private func tick() {
+            let now = DispatchTime.now()
+            longest = max(longest, Double(now.uptimeNanoseconds - last.uptimeNanoseconds) / 1_000_000)
+            last = now
+        }
     }
 
     private func median(_ values: [Double]) -> Double {
