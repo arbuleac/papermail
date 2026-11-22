@@ -59,8 +59,9 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
     var blocksTrackers = false {
         didSet { if oldValue != blocksTrackers { applyTrackerBlocking() } }
     }
-    /// Where the content blocker comes from: the app's, or a test's.
-    var trackerRules = TrackerContentRules.shared
+    /// Where the content blocker comes from: the app's, or a test's. Lazy, so a pool made with the setting off never
+    /// touches it (and launch never writes the rules).
+    lazy var trackerRules = TrackerContentRules.shared
     /// The content blocker in the controller now, if any.
     private(set) var installedTrackerRules: WKContentRuleList?
 

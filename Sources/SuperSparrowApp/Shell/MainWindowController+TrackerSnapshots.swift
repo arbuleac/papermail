@@ -4,10 +4,11 @@ import SSCore
 
 /// `--snapshot-state=trackers` (debug builds, with `--demo`): Block trackers on and remote images loaded for the run, and
 /// the reader on the demo's tracker sample (spec §5.60), so a render shows its pictures loaded, its three trackers held
-/// back and the card's “3 trackers blocked”. `trackers-held` is the same with remote images held back, so the images
+/// back and the card saying “3 trackers blocked.” `trackers-held` is the same with remote images held back, so the images
 /// banner leaves the trackers out of its count. Both are held in memory for the run (`keepsExperimentsInMemory`, and the
-/// reader's own image preference), never saved or reported, and nothing reaches the network: the sample's pictures are
-/// made on this Mac (`DemoStandInSanitizer`) and its trackers never load.
+/// reader's own image preference), never saved or reported, and nothing reaches the network: every demo newsletter's
+/// pictures, the sample's and the hero of each one the pool renders beside it, are made on this Mac
+/// (`DemoStandInSanitizer`), and their trackers never load.
 extension MainWindowController {
     private static var trackerStates: Set<String> {
         guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--snapshot-state=") }) else { return [] }

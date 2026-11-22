@@ -37,6 +37,26 @@ final class DemoTrackerSampleTests: XCTestCase {
                        "parked like any remote image, so Load images brings them in")
     }
 
+    /// Every demo body, its images loaded and Block trackers on (`--snapshot-state=trackers` pre-renders the sample's
+    /// neighbours that way), asks the network for nothing: each newsletter's hero is a picture made here, and all that is
+    /// left remote is the trackers, parked and marked.
+    func testNoDemoBodyReachesTheNetworkOnceImagesLoad() {
+        let sanitizer = DemoStandInSanitizer(base: HTMLSanitizer(allowRemoteImages: true))
+        var heroes = 0
+        for profile in DemoProfile.all {
+            var builder = DemoMailboxBuilder(profile: profile, accountID: AccountID("demo-\(profile.kind)"), reference: now)
+            for record in builder.build() {
+                let body = sanitizer.sanitize(record.body, messageID: record.metadata.id)
+                XCTAssertEqual(body.html.components(separatedBy: " src=\"http").count - 1, 0, "no live remote source: \(record.metadata.subject)")
+                XCTAssertEqual(RenderPayloadBuilder.occurrences(of: "data-ss-src=\"http", in: body.html), body.trackerImageCount,
+                               "every remote source left is a tracker: \(record.metadata.subject)")
+                XCTAssertFalse(body.html.contains("background=\"http"), record.metadata.subject)
+                heroes += RenderPayloadBuilder.occurrences(of: "data:image/svg+xml;base64,", in: body.html)
+            }
+        }
+        XCTAssertGreaterThan(heroes, 4, "the newsletters' heroes are pictures made here too")
+    }
+
     func testOtherBodiesPassThroughUnchanged() {
         let body = MessageBody(html: "<p>Hi <img src=\"https://stand-in.demo.test/unknown.svg\"></p>", text: nil)
         let id = MessageID(accountID: account, providerID: "m1")

@@ -8,7 +8,9 @@ import WebKit
 /// outside an `<img>` (a stylesheet's `url()`), at the moment WebKit would fetch it. It only ever removes requests.
 ///
 /// Compiled once, and only once something asks for it (so never at launch with the setting off, and never in a
-/// conversation's open: a pool asks when it is made or when the setting turns on, and a render does not wait). WebKit
+/// conversation's open: a pool asks when it is made or when the setting turns on, and a render does not wait). Even the
+/// rules' JSON is written only then: the pools and the printer reach `shared` lazily, so with the setting off nothing
+/// here runs at all. WebKit
 /// compiles on a queue of its own and keeps the result on disk under an identifier carrying the rules' version and digest
 /// (`TrackerRules.contentRuleListIdentifier`), so a later launch looks it up instead. A compilation that fails is logged
 /// and given up for the run: the sanitizer's marks still hold every tracker in a body stored since v24.
@@ -18,8 +20,10 @@ final class TrackerContentRules {
     static let shared = TrackerContentRules(store: WKContentRuleListStore.default())
 
     private let store: WKContentRuleListStore?
-    private let identifier: String
-    private let json: String
+    private let scheme: String
+    /// The rules as WebKit reads them, and the identifier derived from that same text, written on the first ask.
+    private lazy var json = TrackerRules.contentRuleListJSON(scheme: scheme)
+    private lazy var identifier = TrackerRules.contentRuleListIdentifier(json: json)
     private var compiled: WKContentRuleList?
     private var gaveUp = false
     private var waiters: [(WKContentRuleList?) -> Void] = []
@@ -28,8 +32,7 @@ final class TrackerContentRules {
     /// of their own.
     init(store: WKContentRuleListStore?, scheme: String = "https?") {
         self.store = store
-        identifier = TrackerRules.contentRuleListIdentifier(scheme: scheme)
-        json = TrackerRules.contentRuleListJSON(scheme: scheme)
+        self.scheme = scheme
     }
 
     /// The list once it is known, else nil (before the first compilation ends, or after one failed).

@@ -42,8 +42,8 @@ final class ConversationPrinter: NSObject, WKNavigationDelegate, WKScriptMessage
     /// Block trackers (spec §5.60), set by the reader before each print: while on, the print view carries the content
     /// blocker, as the reader's views do, and its document holds marked trackers back itself.
     var blocksTrackers = false
-    /// Where the content blocker comes from: the app's, or a test's.
-    var trackerRules = TrackerContentRules.shared
+    /// Where the content blocker comes from: the app's, or a test's; reached only for a print while Block trackers is on.
+    lazy var trackerRules = TrackerContentRules.shared
     /// The content blocker in the configuration now, if any.
     private var installedTrackerRules: WKContentRuleList?
     /// Told when a print ends, whether it ran (false when it was cancelled, failed, or its window went away).

@@ -110,7 +110,9 @@ enum DemoHTML {
     }
 
     /// A classic 600px table-layout newsletter: header band, hero image (remote, so it is blocked by default),
-    /// stories with "Read more" links and a footer with the unsubscribe link and the open pixel senders put there.
+    /// stories with "Read more" links and a footer with the unsubscribe link and the open pixel senders put there. The
+    /// hero is a picture the demo answers on this Mac (`DemoStandInSanitizer`), so loading a demo newsletter's images
+    /// never reaches the network.
     ///
     /// `trackerSample` makes it the demo's tracker sample (spec §5.60, `DemoTrackerSample`): its hero and a row of
     /// product tiles are remote images the demo answers on this Mac (`DemoStandInSanitizer`), and it carries two trackers
@@ -140,7 +142,7 @@ enum DemoHTML {
         <div style="font-size:26px;font-weight:700;color:#ffffff;">\(escape(letter.title))</div>\
         <div style="font-size:14px;color:rgba(255,255,255,0.85);margin-top:4px;">\(escape(letter.tagline)) · Issue #\(issue) · \(escape(dateLine))</div>\
         </td></tr>\
-        <tr><td><img src="\(trackerSample ? DemoStandInSanitizer.address("trailhead-hero.svg") : "https://images.\(domain)/issues/\(issue)/hero.jpg")" \
+        <tr><td><img src="\(DemoStandInSanitizer.address(trackerSample ? "trailhead-hero.svg" : "newsletter-hero.svg"))" \
         width="600" height="240" alt="" style="display:block;width:100%;height:auto;"></td></tr>\
         \(trackerSample ? productRow(letter) : "")\
         \(rows)\
@@ -172,11 +174,11 @@ enum DemoHTML {
     }
 
     /// The tracker sample's two extra pixels: SendGrid's open endpoint on the sender's own link domain, which the rules
-    /// know by its path and parameter, and a pixel of ordinary size that its style hides.
+    /// know by its path and parameter, and a pixel with no size of its own that its style hides.
     private static func samplePixels(domain: String, issue: Int) -> String {
         "<img src=\"https://url4417.\(domain)/wf/open?upn=demo-\(issue)-a1b2c3\" alt=\"\" width=\"1\" height=\"1\" border=\"0\" "
             + "style=\"height:1px !important;width:1px !important\">"
-            + "<img src=\"https://px.\(domain)/v/\(issue)/open.png\" alt=\"\" width=\"600\" height=\"40\" style=\"display:none\">"
+            + "<img src=\"https://px.\(domain)/v/\(issue)/open.png\" alt=\"\" style=\"display:none\">"
     }
 
     /// A transactional notification card with a single call-to-action button.

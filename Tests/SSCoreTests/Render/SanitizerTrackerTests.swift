@@ -57,6 +57,25 @@ final class SanitizerTrackerTests: XCTestCase {
         }
     }
 
+    /// A responsive newsletter's mobile-only pictures are hidden inline and shown by its `@media` rules: left as the
+    /// setting says, while a pixel hidden beside them is still marked.
+    func testPicturesAStylesheetShowsAreLeftAlone() {
+        let html = """
+            <style>@media (max-width:600px){.m-show{display:block!important;max-height:none!important}#m-hero{display:block!important}}</style>\
+            <img class="m-show" src="https://cdn.shop.example/hero-mobile.jpg" width="320" height="200" style="display:none;max-height:0;overflow:hidden">\
+            <img id="m-hero" src="https://cdn.shop.example/hero-2.jpg" style="display:none">\
+            <img src="https://cdn.shop.example/hero-3.jpg" style="display:none;width:100%">\
+            <img src="https://px.shop.example/open.png" style="display:none">
+            """
+        let body = RenderTestSupport.sanitize(html, allowRemoteImages: true)
+        XCTAssertEqual(body.trackerImageCount, 1, "only the pixel")
+        XCTAssertEqual(trackers(in: body.html), ["hidden"])
+        for picture in ["hero-mobile.jpg", "hero-2.jpg", "hero-3.jpg"] {
+            assertContains(body.html, "src=\"https://cdn.shop.example/\(picture)\"")
+        }
+        assertContains(body.html, "data-ss-src=\"https://px.shop.example/open.png\"")
+    }
+
     func testContentImagesAreNeverMarked() {
         let html = """
             <img src="https://images.shop.example/a.jpg" width="300" height="200">\

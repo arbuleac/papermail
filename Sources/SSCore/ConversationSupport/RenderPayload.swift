@@ -191,7 +191,8 @@ public struct RenderPayload: Hashable, Codable, Sendable {
         public var blockedRemoteImageCount: Int
         /// The parked images the sanitizer marked as trackers (spec §5.60), part of `blockedRemoteImageCount`: while
         /// `RenderPayload.blocksTrackers` is on, Load images leaves them parked, the banner does not count them, and the
-        /// card says how many were blocked. Zero for a body stored before the marks.
+        /// card says how many were blocked. Zero for a body stored before the marks, whose known pixels the shell tells by
+        /// their address (`unmarkedTrackers`).
         public var trackerImageCount: Int
         public var attachments: [Attachment]
         /// The stored `BodyTypesetting` (encoded as its name): `plain` and `unstyled` bodies are set on the Quire

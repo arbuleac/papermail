@@ -30,22 +30,49 @@ final class ConversationShellTrackerTests: XCTestCase {
         func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
     }
 
-    /// Stands in for the network: counts what bodies fetch, answering with a one-pixel image.
+    /// Stands in for the network: counts what bodies fetch (path, and query when there is one), answering with a one-pixel
+    /// image. A path in `failing` is answered with an error, as the content blocker leaves a load it stops; one in `holding`
+    /// waits for `releaseHeld()`, so a Load images is still under way.
     @MainActor
     private final class Remote: NSObject, WKURLSchemeHandler {
         static let scheme = "ss-remote"
         private(set) var paths: [String] = []
+        var failing: Set<String> = []
+        var holding: Set<String> = []
+        private var held: [WKURLSchemeTask] = []
+        private var stopped: Set<ObjectIdentifier> = []
 
         func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-            guard let url = urlSchemeTask.request.url, let gif = Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
-            else { return }
-            paths.append(url.path)
+            guard let url = urlSchemeTask.request.url else { return }
+            paths.append(url.path + (url.query.map { "?" + $0 } ?? ""))
+            if failing.contains(url.path) {
+                urlSchemeTask.didFailWithError(URLError(.cannotConnectToHost))
+            } else if holding.contains(url.path) {
+                held.append(urlSchemeTask)
+            } else {
+                answer(urlSchemeTask)
+            }
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+            stopped.insert(ObjectIdentifier(urlSchemeTask as AnyObject))
+        }
+
+        /// Answers every held load whose frame is still there.
+        func releaseHeld() {
+            let tasks = held
+            held = []
+            holding = []
+            for task in tasks where !stopped.contains(ObjectIdentifier(task as AnyObject)) { answer(task) }
+        }
+
+        private func answer(_ urlSchemeTask: WKURLSchemeTask) {
+            guard let url = urlSchemeTask.request.url,
+                  let gif = Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7") else { return }
             urlSchemeTask.didReceive(URLResponse(url: url, mimeType: "image/gif", expectedContentLength: gif.count, textEncodingName: nil))
             urlSchemeTask.didReceive(gif)
             urlSchemeTask.didFinish()
         }
-
-        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
     }
 
     private typealias F = ConversationFixtures
@@ -83,7 +110,7 @@ final class ConversationShellTrackerTests: XCTestCase {
         try await Task.sleep(nanoseconds: 400_000_000)
         XCTAssertEqual(remote.paths, ["/hero.gif"], "the picture loads; the trackers never do")
         let value1 = try await text(".ss-trackers .ss-btxt", in: webView)
-        XCTAssertEqual(value1, "2 trackers blocked")
+        XCTAssertEqual(value1, "2 trackers blocked.")
         let value2 = try await count(".ss-load-images", in: webView)
         XCTAssertEqual(value2, 0)
         let value3 = try await frameCount("img[data-ss-tracker][data-ss-src]", in: webView)
@@ -110,7 +137,7 @@ final class ConversationShellTrackerTests: XCTestCase {
         let value5 = try await text(".ss-banner .ss-wide", in: webView)
         XCTAssertEqual(value5, "1 remote image hidden to protect your privacy.")
         let value6 = try await text(".ss-trackers .ss-btxt", in: webView)
-        XCTAssertEqual(value6, "2 trackers blocked")
+        XCTAssertEqual(value6, "2 trackers blocked.")
         let target = try await evaluate("JSON.stringify(window.ss.targetState())", in: webView) as? String ?? ""
         XCTAssertTrue(target.contains("\"imagesBlocked\":true"), target)
         XCTAssertEqual(remote.paths, [])
@@ -123,7 +150,7 @@ final class ConversationShellTrackerTests: XCTestCase {
         try await Task.sleep(nanoseconds: 400_000_000)
         XCTAssertEqual(remote.paths, ["/hero.gif"])
         let value7 = try await text(".ss-trackers .ss-btxt", in: webView)
-        XCTAssertEqual(value7, "2 trackers blocked", "still said once images load")
+        XCTAssertEqual(value7, "2 trackers blocked.", "still said once images load")
     }
 
     /// A message whose only remote images are trackers offers nothing to load while blocking is on.
@@ -133,7 +160,7 @@ final class ConversationShellTrackerTests: XCTestCase {
         let value8 = try await count(".ss-load-images", in: webView)
         XCTAssertEqual(value8, 0)
         let value9 = try await text(".ss-trackers .ss-btxt", in: webView)
-        XCTAssertEqual(value9, "2 trackers blocked")
+        XCTAssertEqual(value9, "2 trackers blocked.")
         let target = try await evaluate("JSON.stringify(window.ss.targetState())", in: webView) as? String ?? ""
         XCTAssertTrue(target.contains("\"imagesBlocked\":false"), "View › Load Images has nothing to do: \(target)")
 
@@ -155,7 +182,7 @@ final class ConversationShellTrackerTests: XCTestCase {
         _ = try await evaluate("window.ss.preferences({readingSans: false, textSize: 'default', colorsNoticeDismissed: false, "
                                + "adaptsColours: true, blocksTrackers: true})", in: webView)
         let value12 = try await text(".ss-trackers .ss-btxt", in: webView)
-        XCTAssertEqual(value12, "2 trackers blocked")
+        XCTAssertEqual(value12, "2 trackers blocked.")
         try await waitForFrame(in: webView)
         let value13 = try await frameCount("img[data-ss-tracker][data-ss-src]", in: webView)
         XCTAssertEqual(value13, 2, "the rebuilt frame holds them back")
@@ -177,6 +204,85 @@ final class ConversationShellTrackerTests: XCTestCase {
         XCTAssertEqual(restored, 2, "the rebuilt frame puts the trackers back")
         let parked = try await frameCount("img[data-ss-src]", in: webView)
         XCTAssertEqual(parked, 0)
+    }
+
+    /// A Load images still under way when Block trackers changes waits on the rebuilt frame's images, now only what it
+    /// brings in, and settles; it never says “Loading…” for good.
+    func testALoadUnderWayAcrossAChangeSettles() async throws {
+        remote.holding = ["/hero.gif"]
+        let webView = try await loadedShell()
+        let built = payload(loadRemoteImages: false, blocksTrackers: false)
+        try await render(built, in: webView)
+        let key = ConversationShellAssets.jsStringLiteral(built.messages[0].id)
+        _ = try await evaluate("window.ss.loadImages(\(key))", in: webView)
+        for _ in 0..<60 where !remote.paths.contains("/hero.gif") { try await Task.sleep(nanoseconds: 50_000_000) }
+        // Long enough for the first frame's poll to be waiting on the picture.
+        try await Task.sleep(nanoseconds: 600_000_000)
+        let loading = try await text(".ss-banner .ss-btxt", in: webView)
+        XCTAssertEqual(loading, "Loading 3 images\u{2026}")
+
+        _ = try await evaluate("window.ss.preferences({readingSans: false, textSize: 'default', colorsNoticeDismissed: false, "
+                               + "adaptsColours: true, blocksTrackers: true})", in: webView)
+        try await waitForFrame(in: webView)
+        let now = try await text(".ss-banner .ss-btxt", in: webView)
+        XCTAssertEqual(now, "Loading 1 image\u{2026}", "the trackers are no longer waited for")
+        try await Task.sleep(nanoseconds: 600_000_000)
+        remote.releaseHeld()
+        var spinning: Int?
+        for _ in 0..<100 {
+            spinning = try await count(".ss-spin", in: webView)
+            if spinning == 0 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(spinning, 0, "the load settles on the rebuilt frame")
+        let words = try await evaluate("Array.prototype.map.call(document.querySelectorAll('.ss-banner .ss-btxt'), "
+                                       + "function (n) { return n.textContent; }).join('|')", in: webView) as? String
+        XCTAssertEqual(words, "2 trackers blocked.", "no failure and no loading line, the note stays")
+    }
+
+    /// A body stored before the marks (v24) carries its known pixel unmarked. While blocking is on the shell tells it by
+    /// its address: parked, it is counted in the note and left out of the banner before the frame loads, and stays parked
+    /// when the picture loads; left live (stored while Load remote images was on), it is the content blocker's to stop,
+    /// which the stand-in does with an error, and is neither waited for nor reported as an image that couldn't load.
+    func testAKnownPixelInMailStoredBeforeTheMarksIsHeldAndNotAFailure() async throws {
+        remote.failing = ["/track/open.php"]
+        let webView = try await loadedShell()
+        // The app's expressions name http and https; these name the stand-in for the network.
+        _ = try await evaluate(ConversationShellAssets.trackerFiltersScript(scheme: Remote.scheme) + "true", in: webView)
+        let html = "<div class=\"ss-body\"><p>Fall gear</p>"
+            + "<img src=\"\(HTMLSanitizer.placeholderImage)\" data-ss-src=\"ss-remote://cdn/hero.gif\" width=\"20\" height=\"20\" alt=\"\">"
+            + "<img src=\"\(HTMLSanitizer.placeholderImage)\" data-ss-src=\"ss-remote://us21.list-manage.com/track/open.php?u=1&amp;id=2\" "
+            + "width=\"1\" height=\"1\" alt=\"\">"
+            + "<img src=\"ss-remote://us21.list-manage.com/track/open.php?u=3\" width=\"1\" height=\"1\" alt=\"\"></div>"
+        let message = F.message("m1")
+        var body = F.body(html: html)
+        body.blockedRemoteImageCount = 2
+        body.trackerImageCount = nil
+        let built = F.builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts, loadRemoteImages: false,
+                                    blocksTrackers: true)
+        XCTAssertEqual(built.messages[0].trackerImageCount, 0, "nothing marked, nothing counted in the payload")
+        try await render(built, in: webView)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let banner = try await text(".ss-banner .ss-wide", in: webView)
+        XCTAssertEqual(banner, "1 remote image hidden to protect your privacy.", "the picture alone")
+        let note = try await text(".ss-trackers .ss-btxt", in: webView)
+        XCTAssertEqual(note, "1 tracker blocked.", "the parked pixel the shell holds itself")
+
+        _ = try await evaluate("window.ss.loadImages(\(ConversationShellAssets.jsStringLiteral(built.messages[0].id)))", in: webView)
+        try await waitForPaths(2)
+        var spinning: Int?
+        for _ in 0..<100 {
+            spinning = try await count(".ss-spin", in: webView)
+            if spinning == 0 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(spinning, 0)
+        XCTAssertEqual(Set(remote.paths), ["/hero.gif", "/track/open.php?u=3"], "the parked pixel is never asked for")
+        let words = try await evaluate("Array.prototype.map.call(document.querySelectorAll('.ss-banner .ss-btxt'), "
+                                       + "function (n) { return n.textContent; }).join('|')", in: webView) as? String
+        XCTAssertEqual(words, "1 tracker blocked.", "no “couldn't load” for what was stopped on purpose")
+        let parked = try await frameCount("img[data-ss-src*='list-manage']", in: webView)
+        XCTAssertEqual(parked, 1, "still parked in the frame")
     }
 
     // MARK: Support

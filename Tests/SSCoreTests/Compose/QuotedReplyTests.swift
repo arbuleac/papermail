@@ -43,6 +43,29 @@ final class QuotedReplyTests: XCTestCase {
         XCTAssertFalse(rendering.html.contains("ss-cid://"))
     }
 
+    /// A marked tracker (spec §5.60) was addressed to the user: with Block trackers on as the reply starts it is left out
+    /// of the quote, so recipients' opens are never the user's, and the reader's copy of the kept draft has none to load;
+    /// with it off it goes as sent. The mark never travels.
+    func testTrackersAreLeftOutWhileBlockingAndNeverKeepTheirMark() {
+        var tracked = body
+        tracked.renderedHTML = "<div><p>Hi</p><img src=\"\(HTMLSanitizer.placeholderImage)\" data-ss-src=\"https://img.example.com/a.png\">"
+            + "<img src=\"\(HTMLSanitizer.placeholderImage)\" data-ss-src=\"https://us21.list-manage.com/track/open.php?u=1&amp;e=me\" "
+            + "\(HTMLSanitizer.trackerAttribute)=\"known\" width=\"1\" height=\"1\"></div>"
+        for forward in [false, true] {
+            let dropped = forward ? QuotedReply.forward(original: original, body: tracked, dropsTrackers: true)
+                : QuotedReply.reply(original: original, body: tracked, dropsTrackers: true)
+            XCTAssertTrue(dropped.html.contains("src=\"https://img.example.com/a.png\""), dropped.html)
+            XCTAssertFalse(dropped.html.contains("list-manage"), dropped.html)
+            XCTAssertFalse(dropped.html.contains(HTMLSanitizer.trackerAttribute), dropped.html)
+            let kept = forward ? QuotedReply.forward(original: original, body: tracked) : QuotedReply.reply(original: original, body: tracked)
+            XCTAssertTrue(kept.html.contains("src=\"https://us21.list-manage.com/track/open.php?u=1&amp;e=me\""), kept.html)
+            XCTAssertFalse(kept.html.contains(HTMLSanitizer.trackerAttribute), "the mark is the reader's alone: \(kept.html)")
+            XCTAssertFalse(kept.html.contains("data-ss-src"), kept.html)
+        }
+        let draft = LocalDraftConversation.body(text: "Sounds good", quoted: QuotedReply.reply(original: original, body: tracked, dropsTrackers: true))
+        XCTAssertFalse(draft.renderedHTML.contains("list-manage"), "the reader's copy of the kept draft loads no tracker")
+    }
+
     func testParkedBackgroundsAreMadeSendable() {
         let html = QuotedReply.sendableHTML("<table><tr><td data-ss-background=\"https://cdn.example/hero.jpg\">Hi</td></tr></table>")
         XCTAssertTrue(html.contains("background=\"https://cdn.example/hero.jpg\""), html)

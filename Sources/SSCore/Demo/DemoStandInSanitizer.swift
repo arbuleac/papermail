@@ -2,7 +2,8 @@ import Foundation
 
 /// The demo's sanitizer (spec §5.43): `base`, then the demo's remote images pointed at pictures made on this Mac, so a
 /// demo message can show remote images loading, and trackers held back beside them (spec §5.60), without a request
-/// leaving the Mac. A demo body names such an image at `host` (`https://stand-in.demo.test/hero.svg`); the sanitizer parks
+/// leaving the Mac. Every demo newsletter's hero is one, so loading images anywhere in the demo fetches nothing but its
+/// open pixels, which Block trackers holds back. A demo body names such an image at `host` (`https://stand-in.demo.test/hero.svg`); the sanitizer parks
 /// it like any remote image (or keeps it live while Load remote images is on), and this puts a `data:` picture where its
 /// address was, in either form. So Load images restores a picture that is already here, and the banner still counts it as
 /// a remote image. Nothing else in a body changes.
@@ -58,8 +59,15 @@ public struct DemoStandInSanitizer: BodySanitizing {
         return pictures
     }()
 
-    /// Trailhead Outfitters' issue (`DemoHTML.newsletter`, the tracker sample): a hero and three product tiles.
+    /// Every demo newsletter's hero (`DemoHTML.newsletter`), and Trailhead Outfitters' issue (the tracker sample): a hero
+    /// and three product tiles of its own.
     private static let svgs: [String: String] = [
+        "newsletter-hero.svg": """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 240" width="600" height="240">\
+            <rect width="600" height="240" fill="#E9EEF3"/><circle cx="120" cy="84" r="40" fill="#F2C46D"/>\
+            <path d="M0 180 C120 130 220 210 340 160 C440 120 520 150 600 130 L600 240 L0 240 Z" fill="#B9C9D8"/>\
+            <path d="M0 206 C140 178 260 230 400 196 C480 178 540 190 600 182 L600 240 L0 240 Z" fill="#8FA6BC"/></svg>
+            """,
         "trailhead-hero.svg": """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 240" width="600" height="240">\
             <defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F6C98B"/>\

@@ -400,6 +400,7 @@ public enum ConversationShellAssets {
     /* The trackers note (spec §5.60): the banner's box drawn in a hairline instead of a fill, its words and mark in ink2. */
     .ss-banner.ss-quiet { background: none; box-shadow: inset 0 0 0 var(--ss-hair) var(--q-rule); color: var(--q-ink2); }
     html.ss-ic .ss-banner.ss-quiet { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); }
+    @media (prefers-contrast: more) { .ss-banner.ss-quiet { box-shadow: inset 0 0 0 1px var(--q-ruleStrong); } }
     .ss-banner.ss-info { background: var(--q-infoWash); }
     .ss-banner.ss-info > .ss-sym { color: var(--q-info); }
     .ss-banner.ss-wrap { align-items: flex-start; }
@@ -761,7 +762,17 @@ public enum ConversationShellAssets {
     }
     """#
 
-    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + QuireCSS.fileMarkScript + "\n" + script
+    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + trackerFiltersScript() + QuireCSS.fileMarkScript
+        + "\n" + script
+
+    /// `SS_TRACKER_FILTERS`: the known open-tracking endpoints' expressions (`TrackerRules.endpoints`, the content blocker's
+    /// `url-filter`s), which read the same as JavaScript regular expressions. A body stored before the sanitizer marked
+    /// trackers carries its known pixel unmarked, so while Block trackers is on the shell tells it by its address (spec
+    /// §5.60). `scheme` is `https?` in the app; the tests give their stand-in scheme for the network.
+    public static func trackerFiltersScript(scheme: String = "https?") -> String {
+        "var SS_TRACKER_FILTERS = [" + TrackerRules.endpoints.map { jsStringLiteral($0.urlFilter(scheme: scheme)) }.joined(separator: ", ")
+            + "];\n"
+    }
 
     /// Message bodies are loaded with `srcdoc` into `sandbox="allow-same-origin"` iframes: no scripts run
     /// inside them, not even listeners the shell adds, so the shell measures each document from the parent
@@ -1083,6 +1094,67 @@ public enum ConversationShellAssets {
       function adapts(card) { return offersOriginal(card) && !effectiveOriginal(card); }
       function showsInset(card) { return offersOriginal(card) && effectiveOriginal(card); }
 
+      // A known open-tracking endpoint (`SS_TRACKER_FILTERS`), for a body stored before the sanitizer marked trackers
+      // (spec §5.60); compiled the first time one is asked about.
+      var knownTrackerPatterns = null;
+      function isKnownTracker(address) {
+        if (!address || /^(data|ss-cid):/i.test(address)) { return false; }
+        if (!knownTrackerPatterns) {
+          knownTrackerPatterns = [];
+          var filters = window.SS_TRACKER_FILTERS || [];
+          for (var i = 0; i < filters.length; i++) {
+            // One JavaScript cannot read is left to the content blocker, which compiled it.
+            try { knownTrackerPatterns.push(new RegExp(filters[i], 'i')); } catch (e) { /* skipped */ }
+          }
+        }
+        // The address as WebKit hands it to the content blocker: the host lowercased, a backslash read as a slash.
+        var href = address;
+        try { href = new URL(address).href; } catch (e) { /* not a URL: matched as written */ }
+        for (var j = 0; j < knownTrackerPatterns.length; j++) { if (knownTrackerPatterns[j].test(href)) { return true; } }
+        return false;
+      }
+
+      // The stored HTML's parked sources, as the sanitizer writes them (SwiftSoup: double quotes, `&` escaped).
+      var PARKED_SOURCE = /\sdata-ss-src="([^"]*)"/g;
+      function attributeText(value) {
+        if (value.indexOf('&') < 0) { return value; }
+        return value.replace(/&(amp|quot|lt|gt|#39|#x27);/g, function (all, name) {
+          return name === 'amp' ? '&' : name === 'quot' ? '"' : name === 'lt' ? '<' : name === 'gt' ? '>' : "'";
+        });
+      }
+
+      // The known pixels parked in a body that carries no marks (spec §5.60): a body stored before the sanitizer marked
+      // trackers holds its known pixel parked like any picture, so while Block trackers is on it is told by its address,
+      // read from the stored HTML before the frame loads, so the banner's first count is already right. A body with
+      // marks has every known pixel marked, so it is not read. Asked only while Block trackers is on, or as it changes;
+      // remembered for the card's HTML.
+      function unmarkedTrackers(card) {
+        var m = card.message;
+        if (!m.hasBody || (m.trackerImageCount || 0) > 0 || !((m.blockedRemoteImageCount || 0) > 0)) { return 0; }
+        if (card.unmarkedFor === m.html) { return card.unmarked; }
+        var html = m.html || '';
+        var count = 0;
+        var match;
+        PARKED_SOURCE.lastIndex = 0;
+        while ((match = PARKED_SOURCE.exec(html)) !== null) { if (isKnownTracker(attributeText(match[1]))) { count++; } }
+        card.unmarkedFor = m.html;
+        card.unmarked = count;
+        return count;
+      }
+
+      // The live remote sources a frame under the blocking policy holds back, which Load images would bring in: while
+      // Block trackers is on, less a known pixel left live in a body stored before the marks, which the content blocker
+      // stops (spec §5.60).
+      function liveRemoteCount(doc) {
+        var live = doc.querySelectorAll(LIVE_REMOTE);
+        if (!prefs.blocksTrackers) { return live.length; }
+        var count = 0;
+        for (var i = 0; i < live.length; i++) {
+          if (!(live[i].tagName === 'IMG' && isKnownTracker(live[i].getAttribute('src')))) { count++; }
+        }
+        return count;
+      }
+
       function syncDocumentClasses(card) {
         var doc = frameDocument(card);
         if (!doc || !doc.documentElement) { return; }
@@ -1096,12 +1168,15 @@ public enum ConversationShellAssets {
       }
 
       // Puts parked remote sources back. Runs only in a frame built without the blocking policy. While Block trackers is on
-      // the images the sanitizer marked as trackers stay parked (spec §5.60).
+      // the images the sanitizer marked as trackers stay parked, and so does a known pixel in a body stored before the
+      // marks, told by its address (spec §5.60).
       function restoreRemote(card, doc) {
         var images = doc.querySelectorAll(prefs.blocksTrackers ? 'img[data-ss-src]:not([data-ss-tracker])' : 'img[data-ss-src]');
         for (var i = 0; i < images.length; i++) {
           var img = images[i];
-          img.src = img.getAttribute('data-ss-src');
+          var source = img.getAttribute('data-ss-src');
+          if (prefs.blocksTrackers && isKnownTracker(source)) { continue; }
+          img.src = source;
           img.removeAttribute('data-ss-src');
         }
         var backgrounds = doc.querySelectorAll('[data-ss-background]');
@@ -1119,9 +1194,12 @@ public enum ConversationShellAssets {
         var failedAlready = 0;
         var images = doc.images;
         for (var i = 0; i < images.length; i++) {
-          // Remote means what the blocking policy holds back: anything not served from this Mac.
+          // Remote means what the blocking policy holds back: anything not served from this Mac. A known pixel left live in
+          // a body stored before the marks is the content blocker's to stop while Block trackers is on, so it is neither
+          // waited for nor counted as a picture that failed (spec §5.60).
           var src = images[i].getAttribute('src') || '';
           if (!src || /^(data|ss-cid):/i.test(src)) { continue; }
+          if (prefs.blocksTrackers && isKnownTracker(src)) { continue; }
           // Sources live in the stored HTML load with the document, before its load event: count those that broke.
           if (!images[i].complete) { remote.push(images[i]); } else if (images[i].naturalWidth === 0) { failedAlready++; }
         }
@@ -1256,7 +1334,7 @@ public enum ConversationShellAssets {
           restoreRemote(card, doc);
           trackImageLoad(card, doc);
         } else {
-          var live = doc.querySelectorAll(LIVE_REMOTE).length;
+          var live = liveRemoteCount(doc);
           if (live !== card.liveRemote) { card.liveRemote = live; renderBanners(card); }
         }
         syncDocumentClasses(card);
@@ -1286,6 +1364,14 @@ public enum ConversationShellAssets {
 
       function dropFrame(card) {
         releaseFrame(card);
+        // A Load images under way waited on this document's images; the next frame's are waited on afresh, or the banner
+        // would say “Loading…” for good (a frame rebuilt by Block trackers, or a card folded mid-load).
+        if (card.imageLoad) {
+          if (card.imageLoad.timer) { clearTimeout(card.imageLoad.timer); }
+          card.imageLoad.timer = null;
+          card.imageLoad.tracking = false;
+          card.imageLoad.failed = 0;
+        }
         if (card.iframe) { card.iframe.remove(); card.iframe = null; }
         if (card.page) { card.page.remove(); card.page = null; }
         card.inset = false;
@@ -1412,7 +1498,7 @@ public enum ConversationShellAssets {
       function heldBack(card) {
         var m = card.message;
         var count = (m.blockedRemoteImageCount || 0) + (card.liveRemote || 0);
-        if (prefs.blocksTrackers) { count -= m.trackerImageCount || 0; }
+        if (prefs.blocksTrackers) { count -= (m.trackerImageCount || 0) + unmarkedTrackers(card); }
         return Math.max(0, count);
       }
 
@@ -1420,7 +1506,7 @@ public enum ConversationShellAssets {
       // the sender meant to track either way.
       function blockedTrackers(card) {
         var m = card.message;
-        return prefs.blocksTrackers && m.hasBody ? (m.trackerImageCount || 0) : 0;
+        return prefs.blocksTrackers && m.hasBody ? (m.trackerImageCount || 0) + unmarkedTrackers(card) : 0;
       }
 
       function renderBanners(card) {
@@ -1448,9 +1534,10 @@ public enum ConversationShellAssets {
           var trackers = blockedTrackers(card);
           if (trackers > 0) {
             // A quiet line, never a question: there is nothing to decide (spec §5.60).
-            var note = bannerNode('ss-quiet', 'checkmark.shield', plural(trackers, 'tracker', 'trackers') + ' blocked');
+            var note = bannerNode('ss-quiet', 'checkmark.shield', plural(trackers, 'tracker', 'trackers') + ' blocked.');
             note.classList.add('ss-trackers');
-            note.title = 'Kept from loading, so the sender can’t tell when or where you opened this message.';
+            // What was held back, not a promise: the message's other remote images still load once images do.
+            note.title = 'These would have told the sender when and where you opened this message.';
             list.push(note);
           }
           // The notice shows while a message is not as the Dark Mode default chose, and on every adapted message: with the
@@ -3150,8 +3237,23 @@ public enum ConversationShellAssets {
         prefs.blocksTrackers = !!on;
         for (var i = 0; i < state.cards.length; i++) {
           var card = state.cards[i];
+          // A frame under the blocking policy counts its live sources again, a known pixel among them coming or going.
+          var held = !card.imagesLoaded && card.frameLoaded ? frameDocument(card) : null;
+          if (held && held.body) { card.liveRemote = liveRemoteCount(held); }
+          // A Load images under way now waits for what the new frame brings in, and is over if that is nothing.
+          if (card.imageLoad) {
+            var total = heldBack(card);
+            if (total > 0) {
+              card.imageLoad.total = total;
+            } else {
+              if (card.imageLoad.timer) { clearTimeout(card.imageLoad.timer); }
+              card.imageLoad = null;
+            }
+          }
           renderBanners(card);
-          if (card.imagesLoaded && card.iframe && (card.message.trackerImageCount || 0) > 0) { renderFrame(card); }
+          if (card.imagesLoaded && card.iframe && ((card.message.trackerImageCount || 0) > 0 || unmarkedTrackers(card) > 0)) {
+            renderFrame(card);
+          }
         }
       }
 

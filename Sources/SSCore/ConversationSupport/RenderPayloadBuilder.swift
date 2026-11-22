@@ -115,7 +115,8 @@ public struct RenderPayloadBuilder: Sendable {
                 html: html,
                 hasQuotedContent: stored?.hasQuotedContent ?? Self.hasQuotedContent(in: html),
                 blockedRemoteImageCount: stored?.blockedRemoteImageCount ?? Self.blockedRemoteImageCount(in: html),
-                // Unknown for a body stored before the marks, which carries none: nothing to scan for.
+                // Unknown for a body stored before the marks, which carries none: the shell tells its known pixels by
+                // their address while Block trackers is on, so nothing is scanned here, on every open.
                 trackerImageCount: stored?.trackerImageCount ?? 0,
                 attachments: attachments,
                 typesetting: design.typesetting,

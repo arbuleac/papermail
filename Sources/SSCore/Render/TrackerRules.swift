@@ -8,8 +8,10 @@ import Foundation
 ///
 /// False positives are kept low on purpose: a known endpoint is matched by host and path (and a parameter where the path
 /// alone is common), never by a word in the address, and the heuristics read only the image's own attributes and inline
-/// style. A spacer the heuristics take for a pixel loses nothing visible: a parked image keeps its size and shows the
-/// sanitizer's transparent 1×1 stand-in.
+/// style. A spacer the heuristics take for a pixel loses nothing visible, since it was drawn at a pixel or not at all and
+/// shows the sanitizer's transparent 1×1 stand-in. An image hidden inline that declares a real size, or carries a class
+/// or id, is left alone: a responsive email hides its mobile-only picture that way and shows it again from an `@media`
+/// rule, which these rules never read.
 public enum TrackerRules {
     /// Raised whenever `endpoints` changes, so the reader's compiled content blocker (cached by WebKit under an
     /// identifier carrying it) is compiled again.
@@ -21,7 +23,8 @@ public enum TrackerRules {
         case known
         /// Drawn at 3 × 3 px or less (both sides), or at zero on either side.
         case tiny
-        /// Its own style or the `hidden` attribute keeps it from being seen.
+        /// Its own style or the `hidden` attribute keeps it from being seen, and nothing about it says it is a picture
+        /// a stylesheet shows again (`ImageHints.styleable`, a size above `tinySide`).
         case hidden
     }
 
@@ -33,12 +36,16 @@ public enum TrackerRules {
         public var style: String?
         /// The element carries the `hidden` attribute.
         public var hidden: Bool
+        /// The element carries a class or an id, so a `<style>` rule can reach it: one hidden inline may be shown again by
+        /// an `@media` rule (a responsive email's mobile-only picture), so being hidden alone does not make it a tracker.
+        public var styleable: Bool
 
-        public init(width: String? = nil, height: String? = nil, style: String? = nil, hidden: Bool = false) {
+        public init(width: String? = nil, height: String? = nil, style: String? = nil, hidden: Bool = false, styleable: Bool = false) {
             self.width = width
             self.height = height
             self.style = style
             self.hidden = hidden
+            self.styleable = styleable
         }
     }
 
@@ -47,7 +54,7 @@ public enum TrackerRules {
     public static func reason(forImageAt address: String, hints: ImageHints) -> Reason? {
         if knownEndpoint(for: address) != nil { return .known }
         let style = hints.style.map(declarations) ?? [:]
-        if hints.hidden || isHidden(style) { return .hidden }
+        if hints.hidden || isHidden(style), !hints.styleable, !declaresVisibleSize(hints, style: style) { return .hidden }
         if isTiny(hints, style: style) { return .tiny }
         return nil
     }
@@ -151,8 +158,14 @@ public enum TrackerRules {
     /// The identifier the compiled rules are cached under: the version and a digest of the rules themselves, so a build
     /// whose rules differ never reuses another's compilation.
     public static func contentRuleListIdentifier(scheme: String = "https?") -> String {
+        contentRuleListIdentifier(json: contentRuleListJSON(scheme: scheme))
+    }
+
+    /// The identifier for rules already written out (`contentRuleListJSON`), so a caller that keeps the JSON to compile
+    /// writes it once.
+    public static func contentRuleListIdentifier(json: String) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in contentRuleListJSON(scheme: scheme).utf8 {
+        for byte in json.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x0000_0100_0000_01b3
         }
@@ -196,6 +209,19 @@ public enum TrackerRules {
         if width == 0 || height == 0 { return true }
         guard let width, let height else { return false }
         return width <= tinySide && height <= tinySide
+    }
+
+    /// Whether the image says it is drawn larger than a pixel on some side: a length above `tinySide`, or a percentage,
+    /// in its attributes or its inline style. A pixel never needs one; a picture hidden until an `@media` rule shows it
+    /// usually has one.
+    static func declaresVisibleSize(_ hints: ImageHints, style: [String: String]) -> Bool {
+        let values = [style["width"], style["height"], hints.width, hints.height].compactMap { $0 }
+        return values.contains { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasSuffix("%") { return (Double(trimmed.dropLast().trimmingCharacters(in: .whitespaces)) ?? 0) > 0 }
+            guard let length = cssLength(trimmed) ?? attributeLength(trimmed) else { return false }
+            return length > tinySide
+        }
     }
 
     /// A CSS length in pixels: unitless or `px`, or zero in any unit; nil for anything relative or unknown (`auto`, `50%`,

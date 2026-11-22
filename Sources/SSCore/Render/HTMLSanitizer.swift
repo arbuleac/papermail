@@ -349,6 +349,8 @@ private struct Pass {
                     hints.height = attribute.getValue()
                 } else if key == Pass.hiddenKey {
                     hints.hidden = true
+                } else if key == Pass.classKey || key == Pass.idKey, !Pass.isBlank(attribute.getValueUTF8()) {
+                    hints.styleable = true
                 }
             }
             if isTable, !styled, let hint = Pass.layoutTableAttributes[key] {
@@ -576,6 +578,8 @@ private struct Pass {
     private static let widthKey = Array("width".utf8)
     private static let heightKey = Array("height".utf8)
     private static let hiddenKey = Array("hidden".utf8)
+    private static let classKey = Array("class".utf8)
+    private static let idKey = Array("id".utf8)
     private static let placeholderBytes = Array(HTMLSanitizer.placeholderImage.utf8)
 
     private enum AttributeRole {

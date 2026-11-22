@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 import XCTest
 @testable import SSCore
 
@@ -139,7 +140,8 @@ final class TrackerRulesTests: XCTestCase {
 
     func testHiddenImagesAreTrackers() {
         let cases: [(TrackerRules.ImageHints, String)] = [
-            (.init(width: "600", height: "40", style: "display:none"), "display none"),
+            (.init(style: "display:none"), "display none"),
+            (.init(width: "1", height: "1", style: "display:none"), "a hidden pixel"),
             (.init(style: "display: none !important"), "display none, important"),
             (.init(style: "visibility:hidden"), "visibility hidden"),
             (.init(style: "visibility:collapse"), "visibility collapse"),
@@ -148,11 +150,34 @@ final class TrackerRulesTests: XCTestCase {
             (.init(style: "opacity:0%"), "opacity 0%"),
             (.init(style: "max-height:0px;overflow:hidden"), "max-height 0"),
             (.init(style: "max-width:0"), "max-width 0"),
-            (.init(width: "600", height: "300", hidden: true), "the hidden attribute"),
+            (.init(hidden: true), "the hidden attribute"),
+            (.init(width: "3", height: "3", style: "visibility:hidden"), "hidden at the tiny size"),
         ]
         for (hints, name) in cases {
             XCTAssertEqual(TrackerRules.reason(forImageAt: image, hints: hints), .hidden, name)
         }
+    }
+
+    /// A responsive email hides its mobile-only picture inline and shows it again from an `@media` rule, which the rules
+    /// never read: a picture that declares a real size, or that a stylesheet can reach by its class or id, is not taken for
+    /// a tracker because it is hidden. One that is tiny is a tracker all the same.
+    func testPicturesHiddenUntilAStylesheetShowsThemAreNotTrackers() {
+        let cases: [(TrackerRules.ImageHints, String)] = [
+            (.init(width: "320", height: "200", style: "display:none;max-height:0;overflow:hidden"), "a mobile hero with its size"),
+            (.init(style: "display:none;width:100%;height:auto"), "a percentage width"),
+            (.init(width: "100%", style: "max-height:0"), "a percentage in the attribute"),
+            (.init(style: "max-width:0;width:320px"), "an inline size"),
+            (.init(style: "display:none", styleable: true), "a class or id a stylesheet can reach"),
+            (.init(width: "600", height: "300", hidden: true), "the hidden attribute on a sized picture"),
+        ]
+        for (hints, name) in cases {
+            XCTAssertNil(TrackerRules.reason(forImageAt: image, hints: hints), name)
+        }
+        XCTAssertEqual(TrackerRules.reason(forImageAt: image, hints: .init(width: "1", height: "1", style: "display:none", styleable: true)),
+                       .tiny, "a classed pixel is still a pixel")
+        XCTAssertEqual(TrackerRules.reason(forImageAt: "https://us21.list-manage.com/track/open.php?u=1",
+                                           hints: .init(width: "320", height: "200", style: "display:none", styleable: true)),
+                       .known, "a known endpoint, whatever it declares")
     }
 
     /// Content keeps loading: a picture of any ordinary size, one with no size at all, a relative size, a thin rule or
@@ -195,6 +220,36 @@ final class TrackerRulesTests: XCTestCase {
         }
     }
 
+    /// The shell reads the same expressions as JavaScript regular expressions (`SS_TRACKER_FILTERS`), to tell a known
+    /// pixel in a body stored before the marks: each compiles in JavaScriptCore and says what the matcher says on every
+    /// sample, with the case-insensitive flag the shell gives it.
+    func testURLFiltersReadTheSameInJavaScript() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(ConversationShellAssets.trackerFiltersScript())
+        XCTAssertNil(context.exception)
+        XCTAssertTrue(ConversationShellAssets.js.contains(ConversationShellAssets.trackerFiltersScript()), "the shell carries them")
+        let addresses = pixels + content + [
+            "https://US21.LIST-MANAGE.COM/TRACK/OPEN.PHP?u=1", "https://us21.list-manage.com:8443/track/open.php",
+            "https://www.facebook.com/tr/extra", "https://www.facebook.com/tr#x",
+        ]
+        let list = String(decoding: try JSONSerialization.data(withJSONObject: addresses), as: UTF8.self)
+        let script = """
+            JSON.stringify(SS_TRACKER_FILTERS.map(function (filter) {
+              var pattern = new RegExp(filter, 'i');
+              return \(list).map(function (address) { return pattern.test(address); });
+            }))
+            """
+        let json = try XCTUnwrap(context.evaluateScript(script)?.toString())
+        XCTAssertNil(context.exception, "\(String(describing: context.exception))")
+        let matrix = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[Bool]])
+        XCTAssertEqual(matrix.count, TrackerRules.endpoints.count)
+        for (endpoint, row) in zip(TrackerRules.endpoints, matrix) {
+            for (address, matched) in zip(addresses, row) {
+                XCTAssertEqual(matched, endpoint.matches(address), "\(endpoint.service) \(endpoint.urlFilter()) on \(address)")
+            }
+        }
+    }
+
     /// Only constructs WebKit's content blocker compiles: no alternation and no counted repetition.
     func testURLFiltersStayInWebKitsSubset() {
         for endpoint in TrackerRules.endpoints {
@@ -226,6 +281,8 @@ final class TrackerRulesTests: XCTestCase {
 
     func testContentRuleListIdentifierCarriesTheVersionAndTheRules() {
         let identifier = TrackerRules.contentRuleListIdentifier()
+        XCTAssertEqual(identifier, TrackerRules.contentRuleListIdentifier(json: TrackerRules.contentRuleListJSON()),
+                       "the same digest from JSON already written")
         XCTAssertTrue(identifier.hasPrefix(TrackerRules.contentRuleListPrefix + "\(TrackerRules.version)-"), identifier)
         XCTAssertEqual(identifier, TrackerRules.contentRuleListIdentifier(), "stable from run to run")
         XCTAssertNotEqual(identifier, TrackerRules.contentRuleListIdentifier(scheme: "ss-remote"), "other rules, another compilation")

@@ -7,7 +7,10 @@ import Foundation
 /// ids) are listed, never one a page may need to work. The rest of the address is left exactly as written: the other
 /// parameters in their order and spelling, the path and the fragment. A link whose query carries another address is a
 /// redirect (a mailing service's click tracking, a safe-links wrapper), which may check its own parameters, so it is left
-/// whole: it reaches the browser as the sender wrote it.
+/// whole: it reaches the browser as the sender wrote it. So is a link to an unsubscribe, preferences or web-view page,
+/// where the same ids are how the sender knows who is asking (Marketo's `mkt_tok` on `UnsubscribePage.html` and
+/// `emailWebview`, HubSpot's `_hsenc` on its preference centre): stripped, the user would be asked who they are, or the
+/// request would not be applied.
 public enum TrackingParameters {
     /// Names compared without case. Any name starting with one of `prefixes` counts too.
     public static let names: Set<String> = [
@@ -22,7 +25,12 @@ public enum TrackingParameters {
     /// Google Analytics' campaign tags: `utm_source`, `utm_medium`, `utm_campaign` and the rest.
     public static let prefixes = ["utm_"]
 
-    /// `url` without its tracking parameters; `url` itself when it has none, is not http or https, or is a redirect.
+    /// Words in a path, compared without case, that make it a page about the subscription itself (an unsubscribe,
+    /// preferences or web-view page), whose links are left whole.
+    public static let subscriptionPathWords = ["unsubscribe", "optout", "opt-out", "opt_out", "preference", "subscription", "webview"]
+
+    /// `url` without its tracking parameters; `url` itself when it has none, is not http or https, is a redirect, or leads
+    /// to a page about the subscription.
     public static func stripped(_ url: URL) -> URL {
         let address = url.absoluteString
         let result = stripped(address)
@@ -38,6 +46,7 @@ public enum TrackingParameters {
         let fragment = address.firstIndex(of: "#")
         if let fragment, fragment < mark { return address }
         let queryEnd = fragment ?? address.endIndex
+        if isSubscriptionPage(address[..<mark]) { return address }
         let query = address[address.index(after: mark)..<queryEnd]
         var kept: [Substring] = []
         var removed = false
@@ -62,6 +71,16 @@ public enum TrackingParameters {
     public static func isTracking(_ name: String) -> Bool {
         let lowered = name.lowercased()
         return names.contains(lowered) || prefixes.contains { lowered.hasPrefix($0) && lowered.count > $0.count }
+    }
+
+    /// Whether the address up to its query (`https://host/path`) leads to a page about the subscription: only the path is
+    /// read, so a host's name never counts.
+    private static func isSubscriptionPage(_ head: Substring) -> Bool {
+        guard let separator = head.range(of: "://") else { return false }
+        let rest = head[separator.upperBound...]
+        guard let slash = rest.firstIndex(of: "/") else { return false }
+        let path = decoded(rest[slash...]).lowercased()
+        return subscriptionPathWords.contains { path.contains($0) }
     }
 
     private static func decoded(_ part: Substring) -> String {

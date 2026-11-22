@@ -54,7 +54,7 @@ final class ReaderTrackerTests: XCTestCase {
 
         settings.blocksTrackers = true
         XCTAssertTrue(reader.pool.blocksTrackers, "the pool follows at once")
-        XCTAssertTrue(waitFor("(document.querySelector('.ss-trackers .ss-btxt') || {}).textContent", toBe: "1 tracker blocked", in: reader))
+        XCTAssertTrue(waitFor("(document.querySelector('.ss-trackers .ss-btxt') || {}).textContent", toBe: "1 tracker blocked.", in: reader))
         XCTAssertTrue(waitFor(drawnImages, toBe: "Hero 40, Pixel 1", in: reader),
                       "on: the tracker shows its 1 px stand-in, the picture stays; got \(evaluate(drawnImages, in: reader))")
         XCTAssertTrue(ListTestSupport.spin(until: { reader.pool.installedTrackerRules != nil }, timeout: 20), "the content blocker lands")

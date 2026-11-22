@@ -191,7 +191,7 @@ public struct StoredBody: Hashable, Codable, Sendable {
     /// Remote images parked in `data-ss-src`, which the reader can load on request.
     public var blockedRemoteImageCount: Int?
     /// The parked images marked as trackers (spec §5.60), part of `blockedRemoteImageCount`; nil for bodies stored before
-    /// the sanitizer marked them (v24), which carry no marks, so the reader counts none.
+    /// the sanitizer marked them (v24), which carry no marks, so the reader tells their known pixels by address.
     public var trackerImageCount: Int?
     /// The design facts from `SanitizedBody`, nil for bodies stored before they were kept. Unlike the facts
     /// above they cannot be derived at render time without parsing, so nil renders as `.styled`, colours

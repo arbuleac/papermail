@@ -47,6 +47,26 @@ final class TrackingParametersTests: XCTestCase {
         XCTAssertEqual(strip(safelinks), safelinks)
     }
 
+    /// On an unsubscribe, preferences or web-view page the sender's ids say who is asking: stripped, Marketo would ask
+    /// for the address or drop the request. Only the path counts, never the host's name.
+    func testSubscriptionPagesAreLeftWhole() {
+        for address in [
+            "https://info.example.com/UnsubscribePage.html?mkt_unsubscribe=1&mkt_tok=XYZ",
+            "https://info.example.com/index.php/email/emailWebview?mkt_tok=XYZ&utm_source=x",
+            "https://hs.example.com/hs/manage-preferences/unsubscribe?d=1&_hsenc=p2ANqtz&_hsmi=2",
+            "https://news.example.com/preferences?id=1&utm_source=x",
+            "https://news.example.com/opt-out?e=1&mc_eid=2",
+            "https://shop.example/email-subscriptions?ck_subscriber_id=3",
+            "https://shop.example/%55nsubscribe?mkt_tok=1",
+        ] {
+            XCTAssertEqual(strip(address), address)
+        }
+        XCTAssertEqual(strip("https://unsubscribe.example.com/p/42?utm_source=x"), "https://unsubscribe.example.com/p/42",
+                       "a host's name is not a path")
+        XCTAssertEqual(strip("https://shop.example/p/42?mkt_tok=1&q=unsubscribe"), "https://shop.example/p/42?q=unsubscribe",
+                       "nor is a parameter's value")
+    }
+
     func testOtherSchemesAndCleanLinksAreUnchanged() {
         XCTAssertEqual(strip("mailto:ada@example.com?subject=Hi&utm_source=x"), "mailto:ada@example.com?subject=Hi&utm_source=x")
         XCTAssertEqual(strip("tel:+15551234"), "tel:+15551234")
