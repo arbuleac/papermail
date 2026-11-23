@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.20.0"
+VERSION = "1.21.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -371,21 +371,23 @@ LAYOUT = {
               "formatRow": 36, "formatToggle": 28, "formatGap": 2, "formatGroupGap": 12,
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
               "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8, "pictureSelectedWash": 0.45},
- # Help me write at the caret (§5.56, 1.13): every affordance is drawn in the reply's own text, at or after the caret,
- # the selection or the draft, never in a bar. The ghost (“⌘J to write a reply”, “⌘J to write from your notes”) starts
- # `ghostGap` after the caret (or the quick reply's placeholder) on the caret's baseline, in the field's writing font; its
- # quiet keycap (no fill, a hairline, `keycapHeight` tall, `keycapPadX` each side of its legend) sits `keycapGap` from its
- # words. The notes ghost waits `ghostPause` after the last key; a selection settles `selectionSettle` after the last
- # keyboard change. The selection pill hangs `pillGap` under the selection's last line: a capsule `pillHeight` tall,
- # `pillPadX` in, its glyph `pillGlyph`, `pillGlyphGap` before “Rewrite”. A reserved block (the prompt line, the
- # afterline) is a gap in the text's flow under its anchor line, `blockGapTop` above its content and `blockGapBottom`
- # below. The prompt line is a `promptHeight` capsule, at most `promptMaxWidth` wide, `promptPadX` in, its glyph
- # `promptGlyph` and `promptGlyphGap` before the field; `chipsGap` under it the preset chips, `chipHeight` tall, their
- # words `chipPadX` in, `chipGap` apart. The afterline is one row `afterlineHeight` tall, its glyph `afterGlyph` and
- # `afterGlyphGap` before its words, `afterGap` between its parts. While a reply streams, the pencil (`pencilGlyph`)
- # sits `pencilGap` after the last letter and bobs `pencilBob` pt each way once every `pencilBobPeriod`, its esc keycap
- # `keycapGap` on. Text streaming in is drawn in `pencilInk` (ink2) and turns to ink as the reply lands. The notes ghost
- # shows once the user's own text holds `hintMinWords` words.
+ # Help me write at the caret (§5.56, 1.13; in every composer since 1.21): every affordance is drawn in the text being
+ # written, at or after the caret, the selection or the draft, never in a bar. The ghost (“⌘J to write a reply”, “⌘J to
+ # say what to write”, “⌘J to write from your notes”) starts `ghostGap` after the caret (or the quick reply's
+ # placeholder) on the caret's baseline, in the field's writing font; its quiet keycap (no fill, a hairline,
+ # `keycapHeight` tall, `keycapPadX` each side of its legend) sits `keycapGap` from its words. The notes ghost waits
+ # `ghostPause` after the last key; a selection settles `selectionSettle` after the last keyboard change. The selection
+ # pill hangs `pillGap` under the selection's last line: a capsule `pillHeight` tall, `pillPadX` in, its glyph
+ # `pillGlyph`, `pillGlyphGap` before “Rewrite”. A reserved block (the prompt line, the afterline) is a gap in the
+ # text's flow under its anchor line, `blockGapTop` above its content and `blockGapBottom` below. The prompt line is a
+ # `promptHeight` capsule, at most `promptMaxWidth` wide, `promptPadX` in, its glyph `promptGlyph` and `promptGlyphGap`
+ # before the field; `chipsGap` under it the preset chips, `chipHeight` tall, their words `chipPadX` in, `chipGap` apart
+ # (where no chip could run, on an empty new message, the block is the capsule alone, shorter by `chipsGap` and
+ # `chipHeight`). The afterline is one row `afterlineHeight` tall, its glyph `afterGlyph` and `afterGlyphGap` before its
+ # words, `afterGap` between its parts. While a reply streams, the pencil (`pencilGlyph`) sits `pencilGap` after the
+ # last letter and bobs `pencilBob` pt each way once every `pencilBobPeriod`, its esc keycap `keycapGap` on. Text
+ # streaming in is drawn in `pencilInk` (ink2) and turns to ink as the reply lands. The notes ghost shows once the
+ # user's own text holds `hintMinWords` words.
  "writeCaret": {"ghostGap": 6, "keycapHeight": 16, "keycapPadX": 4, "keycapGap": 5,
                 "ghostPause": "motion.duration.writeGhostPause", "selectionSettle": "motion.duration.writeSelectionSettle",
                 "pillGap": 4, "pillHeight": 24, "pillPadX": 9, "pillGlyph": 12, "pillGlyphGap": 5,
