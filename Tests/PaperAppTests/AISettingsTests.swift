@@ -73,8 +73,8 @@ final class AISettingsTests: XCTestCase {
     /// Runs a write of `writing` through `center`'s writer to its end: how it stopped, or the error it ended with.
     private func ending(of writing: WriteKind, _ center: HelpMeWrite, _ configuration: AIProviderConfiguration) -> Result<AIStop, AIError>? {
         let request = AIWriteRequest(kind: writing, instructions: "Write it.", transcript: "", task: "Say yes")
-        let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "settings"),
-                                         action: AIUserAction(userPressed: .write))
+        let field = AIFieldID(name: "settings")
+        let stream = center.writer.write(request, using: configuration, in: field, action: AIUserAction(userPressed: .write))
         var ending: Result<AIStop, AIError>?
         var isOver = false
         Task { @MainActor in
@@ -87,7 +87,9 @@ final class AISettingsTests: XCTestCase {
             }
             isOver = true
         }
-        XCTAssertTrue(ListTestSupport.spin(until: { isOver }, timeout: 5), "\(writing): the write ends")
+        // The stream ends a turn before the writer lets go of the field: the next write here waits for both.
+        XCTAssertTrue(ListTestSupport.spin(until: { isOver && !center.writer.isWriting(in: field) }, timeout: 5),
+                      "\(writing): the write ends")
         return ending
     }
 

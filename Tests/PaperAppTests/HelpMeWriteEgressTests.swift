@@ -349,15 +349,17 @@ final class HelpMeWriteEgressTests: XCTestCase {
     /// Runs a write of `writing` through `center`'s writer to its end: the error it ended with, if any.
     private func failure(of writing: WriteKind, _ center: HelpMeWrite, _ configuration: AIProviderConfiguration) -> AIError? {
         let request = AIWriteRequest(kind: writing, instructions: "Write it.", transcript: "", task: "Say yes")
-        let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "egress"),
-                                         action: AIUserAction(userPressed: .write))
+        let field = AIFieldID(name: "egress")
+        let stream = center.writer.write(request, using: configuration, in: field, action: AIUserAction(userPressed: .write))
         var failure: AIError?
         var isOver = false
         Task { @MainActor in
             do { for try await _ in stream {} } catch { failure = AIError.from(error) }
             isOver = true
         }
-        XCTAssertTrue(ListTestSupport.spin(until: { isOver }, timeout: 10), "\(writing): the write ends")
+        // The stream ends a turn before the writer lets go of the field: the next write here waits for both.
+        XCTAssertTrue(ListTestSupport.spin(until: { isOver && !center.writer.isWriting(in: field) }, timeout: 10),
+                      "\(writing): the write ends")
         return failure
     }
 
