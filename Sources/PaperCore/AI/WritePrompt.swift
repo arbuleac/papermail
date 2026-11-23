@@ -142,26 +142,29 @@ public enum WritePrompt {
     public static func request(for context: ReplyContext, appendsSignature: Bool, configuration: AIProviderConfiguration,
                                fence: String = WritePrompt.newFence(), timeZone: TimeZone = .current) -> AIWriteRequest {
         AIWriteRequest(
+            kind: .reply,
             instructions: instructions(appendsSignature: appendsSignature),
             transcript: transcript(of: context, fence: fence, timeZone: timeZone),
             task: task(for: context, fence: fence),
-            model: configuration.resolvedModel
+            model: configuration.resolvedModel,
+            isRewrite: context.ask.isRewrite,
+            fence: fence
         )
     }
 
     // MARK: Fences
 
-    private static func fenced(_ name: String, _ text: String, fence: String) -> String {
+    static func fenced(_ name: String, _ text: String, fence: String) -> String {
         "<<<\(name) \(fence)>>>\n\(strip(text, fence: fence))\n<<<END \(name) \(fence)>>>"
     }
 
     /// Data never carries the fence code, so nothing inside can close a fence early.
-    private static func strip(_ text: String, fence: String) -> String {
+    static func strip(_ text: String, fence: String) -> String {
         guard !fence.isEmpty else { return text }
         return text.replacingOccurrences(of: fence, with: "", options: .caseInsensitive)
     }
 
-    private static func dateFormatter(_ timeZone: TimeZone, _ format: String) -> DateFormatter {
+    static func dateFormatter(_ timeZone: TimeZone, _ format: String) -> DateFormatter {
         let formatter = DateFormatter()
         // A fixed, unambiguous form whatever the Mac's language: the model reads it, the user never sees it.
         formatter.locale = Locale(identifier: "en_US_POSIX")

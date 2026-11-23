@@ -47,9 +47,11 @@ final class HelpMeWrite {
     }
 
     /// The service the reply writes through. Its permission check reads this object, so no path sends without a Turn On.
+    /// The Turn On people gave was asked for replies (its sheet names the conversation replied to and promises no other
+    /// mail is sent), so it stands for a reply and for nothing else the writer could be asked to write.
     private(set) lazy var writer = AIWriter(
         resolve: resolve,
-        hasConsent: { [weak self] kind in self?.hasConsent(for: kind) ?? false },
+        hasConsent: { [weak self] kind, writing in writing == .reply && (self?.hasConsent(for: kind) ?? false) },
         milestones: { [weak self] milestone, kind, field in
             // Names from the code only: what happened, and with which kind of provider.
             CrashReporting.breadcrumb(.ai, milestone.breadcrumbName)

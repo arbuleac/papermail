@@ -517,6 +517,10 @@ final class WriteSession {
                         self.flush()
                     case .usage:
                         break
+                    case .subject:
+                        // A new message's proposed subject. Only replies are written here, and the writer never makes
+                        // one for a reply.
+                        break
                     case .finished(.done), .finished(.maxTokens):
                         self.finish()
                         return

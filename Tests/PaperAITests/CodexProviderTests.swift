@@ -7,6 +7,7 @@ import PaperCore
 final class CodexProviderTests: XCTestCase {
     private var fake: CLIFakeTool!
     private let request = AIWriteRequest(
+        kind: .reply,
         instructions: "You write the reply body only.\nSay \"no\" to nothing \\ invent nothing.\tPlain text.",
         transcript: "<<<CONVERSATION 1a2b3c4d>>>\nDana: MAIL-MARKER-4711 Can we meet Thursday?\n<<<END CONVERSATION 1a2b3c4d>>>",
         task: "Instruction: TASK-MARKER-0815 say Thursday works", model: nil)

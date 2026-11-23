@@ -2,16 +2,17 @@ import Foundation
 import os
 
 /// The service the UI calls for Help Me Write; the UI never calls a provider. Owned by `AppEnvironment`, one per window
-/// graph. It resolves the configured provider, refuses without the permission given in Settings › AI, runs one write
-/// per field, enforces the deadline, turns Stop into a clean end, and maps every failure to an `AIError`.
+/// graph. It resolves the configured provider, refuses without the permission given in Settings › AI for what is being
+/// written, runs one write per field, enforces the deadline, takes a new message's subject line off its answer, turns
+/// Stop into a clean end, and maps every failure to an `AIError`.
 ///
 /// It reaches beyond this Mac only for an `AIUserAction` (spec §3b): `write` and `check` take one, `localHealth` needs
 /// none because it looks at this Mac alone.
 ///
-/// Reading the stream: zero or more `.text` / `.replaceAll` / `.usage`, then exactly one `.finished(.done | .maxTokens |
-/// .cancelled)`, or one thrown `AIError` (refusals, empty replies and timeouts included). `.finished(.cancelled)` comes
-/// only from `stop(_:)`, `stopAll()` and a write asked for after `shutDown()`. Cancelling the consuming task also ends the
-/// write, silently.
+/// Reading the stream: zero or more `.text` / `.replaceAll` / `.usage`, at most one `.subject` (a new message whose
+/// request asked for one), then exactly one `.finished(.done | .maxTokens | .cancelled)`, or one thrown `AIError`
+/// (refusals, empty replies and timeouts included). `.finished(.cancelled)` comes only from `stop(_:)`, `stopAll()` and a
+/// write asked for after `shutDown()`. Cancelling the consuming task also ends the write, silently.
 ///
 /// Nothing is sent before `write` is called and the stream is iterated. Content is never logged: the log carries the
 /// provider kind, the prompt version and character counts, at debug level.
@@ -20,8 +21,10 @@ public final class AIWriter {
     /// Builds the provider for a configuration: `AIProviderFactory.provider(for:)` in the app, the demo writer in demo
     /// mode and tests. Nil means it cannot be built here (`AIError.unavailable`).
     public typealias Resolve = @Sendable (AIProviderConfiguration) -> (any AIProvider)?
-    /// Whether the user allowed this provider (AppSettings). Checked again here so no path can send without it.
-    public typealias Consent = @MainActor (AIProviderKind) -> Bool
+    /// Whether the user allowed this provider to be sent what this kind of write sends (AppSettings): permission is by
+    /// what is written, since a new message and a forward send what the sheet people first agreed to never named.
+    /// Checked again here, with the request's own kind, so no path can send without it.
+    public typealias Consent = @MainActor (AIProviderKind, WriteKind) -> Bool
     /// Where milestones go: the app's crash-report breadcrumbs and analytics, with the field the write is in, so the app
     /// can tell its writes apart.
     public typealias Milestones = @MainActor (AIWriteMilestone, AIProviderKind, AIFieldID) -> Void
@@ -70,7 +73,7 @@ public final class AIWriter {
 
     /// Starts a write into `field` for the user's `action`. Errors arrive through the stream, never thrown here: `busy`
     /// when the field is already writing, `consentRequired` before the user turned `configuration.kind` on in Settings ›
-    /// AI, `unavailable` when no provider can be built.
+    /// AI for what `request` writes, `unavailable` when no provider can be built.
     public func write(_ request: AIWriteRequest, using configuration: AIProviderConfiguration, in field: AIFieldID,
                       action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AIWriteEvent.self, throwing: Error.self)
@@ -87,7 +90,7 @@ public final class AIWriter {
             return stream
         }
         // The demo writer sends nothing anywhere, so it needs no permission.
-        guard kind == .demo || hasConsent(kind) else {
+        guard kind == .demo || hasConsent(kind, request.kind) else {
             gate.close(.failed(.consentRequired))
             return stream
         }
@@ -108,7 +111,10 @@ public final class AIWriter {
         // The task keeps the writer until the write's bookkeeping is done (at most the deadline), so a writer the
         // caller let go of still reports how its last write ended.
         run.task = Task.detached(priority: .userInitiated) {
-            let ending = await Self.relay(provider.write(request, action: action), deadline: request.deadline, into: gate)
+            // Only a new message's full write may begin with a subject line; every other answer passes as it comes.
+            let subject = request.readsSubjectLine ? SubjectLine(isWanted: request.wantsSubject, fence: request.fence) : nil
+            let ending = await Self.relay(provider.write(request, action: action), deadline: request.deadline,
+                                          subject: subject, into: gate)
             let closedHere = gate.close(ending)
             await self.complete(run, field: field, ending: ending, closedHere: closedHere)
         }
@@ -169,32 +175,78 @@ public final class AIWriter {
 
     // MARK: Running
 
+    /// How a new message's answer is read for its first line (`WriteSubjectLine`).
+    private struct SubjectLine: Sendable {
+        /// The request asked for a subject: the line's words go on as `.subject`. Otherwise the line is only dropped.
+        var isWanted: Bool
+        var fence: String
+    }
+
     /// Copies the provider's events into `gate` until it finishes, fails, or the deadline passes, whichever is first.
     /// Losing the race cancels the provider's stream, which cancels its request.
+    ///
+    /// With `subject` (a new message's full write) the answer's first line is held back while it can still be a
+    /// `Subject:` line, and the reader gets the message alone: the raw text is kept, split again each time more of it
+    /// comes, and what changed in the body is passed on. Without it, every event passes exactly as the provider sent it.
     nonisolated private static func relay(_ events: AsyncThrowingStream<AIWriteEvent, Error>, deadline: Duration,
-                                          into gate: AIStreamGate) async -> AIStreamGate.Ending {
+                                          subject: SubjectLine?, into gate: AIStreamGate) async -> AIStreamGate.Ending {
         do {
             return try await withThrowingTaskGroup(of: AIStreamGate.Ending.self) { group in
                 group.addTask {
                     var wroteSomething = false
+                    /// The provider's whole answer so far, subject line included, and the body the reader has of it.
+                    var raw = ""
+                    var body = ""
+                    /// Reads the answer so far (`final`: all of it) and passes on what changed in its body.
+                    func read(final: Bool) -> WriteSubjectLine.Split {
+                        let split = WriteSubjectLine.split(raw, final: final)
+                        if let change = Self.change(from: body, to: split.body) { gate.yield(change) }
+                        body = split.body
+                        return split
+                    }
+                    /// The provider is done: a first line still held is settled, and the subject goes on just before
+                    /// the end, only with a message under it and only when it was asked for.
+                    func end(_ stop: AIStop) -> AIStreamGate.Ending {
+                        guard let subject else { return Self.ending(for: stop, wroteSomething: wroteSomething) }
+                        let split = read(final: true)
+                        let result = Self.ending(for: stop, wroteSomething: split.body.contains { !$0.isWhitespace })
+                        if case .finished = result, subject.isWanted,
+                           let line = split.subject.flatMap({ WriteSubjectLine.cleaned($0, fence: subject.fence) }) {
+                            gate.yield(.subject(line))
+                        }
+                        return result
+                    }
                     for try await event in events {
                         switch event {
                         case .text(let text):
                             guard !text.isEmpty else { continue }
-                            if !wroteSomething { wroteSomething = text.contains { !$0.isWhitespace } }
-                            gate.yield(event)
+                            if subject != nil {
+                                raw += text
+                                _ = read(final: false)
+                            } else {
+                                if !wroteSomething { wroteSomething = text.contains { !$0.isWhitespace } }
+                                gate.yield(event)
+                            }
                         case .replaceAll(let text):
-                            wroteSomething = text.contains { !$0.isWhitespace }
-                            gate.yield(event)
+                            if subject != nil {
+                                raw = text
+                                _ = read(final: false)
+                            } else {
+                                wroteSomething = text.contains { !$0.isWhitespace }
+                                gate.yield(event)
+                            }
                         case .usage:
                             gate.yield(event)
+                        case .subject:
+                            // Only this writer makes one, from the answer's first line: a provider's is not passed on.
+                            continue
                         case .finished(let stop):
-                            return ending(for: stop, wroteSomething: wroteSomething)
+                            return end(stop)
                         }
                     }
                     try Task.checkCancellation()
                     // A stream that ends without saying so ended normally.
-                    return ending(for: .done, wroteSomething: wroteSomething)
+                    return end(.done)
                 }
                 group.addTask {
                     try await Task.sleep(for: deadline)
@@ -207,6 +259,19 @@ public final class AIWriter {
         } catch {
             return .failed(AIError.from(error))
         }
+    }
+
+    /// What turns the body the reader has (`old`) into `new`: nothing when they are the same, the new end when the
+    /// body only grew, the whole body otherwise (a provider replaced its text, or the first line turned out to be a
+    /// subject after all).
+    nonisolated static func change(from old: String, to new: String) -> AIWriteEvent? {
+        guard new != old else { return nil }
+        // Compared as scalars: a combining mark arriving after its letter is a new end too, and `String.hasPrefix`
+        // would not take the letter alone for the start of the two together.
+        let had = old.unicodeScalars
+        let has = new.unicodeScalars
+        guard has.starts(with: had) else { return .replaceAll(new) }
+        return .text(String(has.dropFirst(had.count)))
     }
 
     nonisolated private static func ending(for stop: AIStop, wroteSomething: Bool) -> AIStreamGate.Ending {

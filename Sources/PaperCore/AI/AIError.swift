@@ -63,6 +63,9 @@ public enum AIError: Error, Sendable, Hashable {
     /// (`ReplyContextBuilder.Limits.maxAskCharacters`): nothing is sent, rather than a cut part that the reply would
     /// then replace whole.
     case tooLong(selection: Bool)
+    /// The instruction for a new message or a forward is longer than Help Me Write sends: nothing is sent, rather than
+    /// a brief cut short (`WriteKind.lengthRefusal`). A reply's instruction is cut instead, as it always was.
+    case instructionTooLong
 
     /// Maps whatever a provider threw. Its own description is never read, since it may quote the request.
     public static func from(_ error: any Error) -> AIError {
@@ -166,6 +169,8 @@ public enum AIError: Error, Sendable, Hashable {
         case .tooLong(let selection):
             return selection ? "The selection is too long to rewrite. Select less, then try again."
                 : "Your draft is too long to send as notes. Shorten it, or select a part to rewrite."
+        case .instructionTooLong:
+            return "Your instruction is too long. Shorten it."
         }
     }
 

@@ -292,7 +292,7 @@ public struct ReplyContextBuilder: Sendable {
     }
 
     /// A display name worth writing: not empty, not an address dressed as a name.
-    private static func usableName(_ name: String?) -> String? {
+    static func usableName(_ name: String?) -> String? {
         let trimmed = AIRedactor.removingInvisibleCharacters(name ?? "")
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'")))
         guard !trimmed.isEmpty, !trimmed.contains("@") else { return nil }
@@ -480,12 +480,12 @@ public struct ReplyContextBuilder: Sendable {
 
     // MARK: Text
 
-    private static func normalizedNewlines(_ text: String) -> String {
+    static func normalizedNewlines(_ text: String) -> String {
         text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 
     /// Trims the ends and folds runs of blank lines, which carry nothing a model needs and cost characters.
-    private static func tidied(_ text: String) -> String {
+    static func tidied(_ text: String) -> String {
         var lines: [Substring] = []
         var blank = 0
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -506,7 +506,7 @@ public struct ReplyContextBuilder: Sendable {
         AIRedactor.removingInvisibleCharacters(text).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func cleaned(_ ask: WriteAsk, limit: Int) -> WriteAsk {
+    static func cleaned(_ ask: WriteAsk, limit: Int) -> WriteAsk {
         func clean(_ text: String) -> String {
             String(askText(text).prefix(limit))
         }

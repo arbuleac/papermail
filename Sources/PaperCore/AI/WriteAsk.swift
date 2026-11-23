@@ -28,4 +28,11 @@ public struct WriteAsk: Sendable, Hashable {
         if case .selection = draft { return true }
         return false
     }
+
+    /// Whether the ask itself says what to write: notes, a selection, or an instruction. What a new message is written
+    /// from, having no conversation behind it (`WriteKind.hasNothingToWriteFrom`, which cleans the ask first).
+    var hasBrief: Bool {
+        if case .empty = draft { return !instruction.isEmpty }
+        return true
+    }
 }

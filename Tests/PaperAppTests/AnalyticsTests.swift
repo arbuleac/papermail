@@ -262,7 +262,8 @@ final class AnalyticsTests: XCTestCase {
     /// Starts a write with `configuration` through `center`'s writer, counted in `writesEnded` once its stream is over, a
     /// failure included (the test reads that from the signal instead).
     private func write(_ center: HelpMeWrite, _ configuration: AIProviderConfiguration) {
-        let request = AIWriteRequest(instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?", task: "Say yes")
+        let request = AIWriteRequest(kind: .reply, instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?",
+                                     task: "Say yes")
         let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "analytics"),
                                          action: AIUserAction(userPressed: .write))
         Task { @MainActor [weak self] in
