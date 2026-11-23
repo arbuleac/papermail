@@ -288,6 +288,32 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertTrue(sheets.isEmpty)
     }
 
+    /// Esc with the prompt line open on an empty new message closes the line and gives the keyboard back to the body,
+    /// the words said in it kept for the next time; a second Esc closes a window that holds nothing worth keeping. The
+    /// words were never part of the message: nothing is sent, and no draft is kept for them.
+    func testEscClosesTheLineThenTheEmptyWindow() throws {
+        let (harness, script) = try harness()
+        defer { harness.close() }
+        let composer = newMessage(harness)
+        let session = try session(composer)
+        let draftID = composer.draftID
+        commandJ(composer)
+        let prompt = composer.bodyWriteLayer.prompt
+        prompt.instruction = "ask Priya to lunch"
+        composer.escapeComposer(nil)
+        XCTAssertFalse(session.isPromptShown, "Esc closes the line")
+        XCTAssertTrue(composer.window?.firstResponder === composer.bodyEditor, "the keyboard is back in the body")
+        XCTAssertTrue(composer.window?.isVisible ?? false, "and the window stays")
+        commandJ(composer)
+        XCTAssertEqual(prompt.instruction, "ask Priya to lunch", "⌘J again finds the words still in the line")
+        composer.escapeComposer(nil)
+        composer.escapeComposer(nil)
+        XCTAssertFalse(composer.window?.isVisible ?? true, "a second Esc closes a window with nothing worth keeping")
+        ComposeDraftStore.shared.waitForWrites()
+        XCTAssertNil(ComposeDraftStore.shared.draft(id: draftID, accounts: harness.controller.accounts), "no draft is kept")
+        XCTAssertTrue(script.requests.isEmpty, "nothing was sent")
+    }
+
     /// Where Help me write cannot write (off, never turned on, turned on for replies only, needing setup), ⌘J on an
     /// empty new message says why under the caret's line, as on a reply, and opens no prompt line.
     func testWhereItCannotWriteCommandJSaysWhyAndOpensNoLine() throws {
@@ -951,6 +977,32 @@ final class HelpMeWriteComposeTests: XCTestCase {
         until({ replying.phase == .written })
         XCTAssertTrue(script.requests[5].task.hasSuffix("Write my reply from these notes."), "no instruction comes with new notes")
         XCTAssertTrue(script.requests[5].task.contains("maybe friday then"))
+
+        // A selection's rewrite that failed is asked again while that selection stands, its instruction with it.
+        script.failure = .keyRefused
+        reply.bodyEditor.setSelectedRange(NSRange(location: 0, length: 2))
+        reply.helpMeWriteWithInstructions(nil)
+        say("More formal", in: reply)
+        until({ replying.phase.isFailed })
+        XCTAssertEqual(reply.bodyEditor.selectedRange(), NSRange(location: 0, length: 2), "the selection is back as it was")
+        script.failure = nil
+        commandJ(reply)
+        until({ replying.phase == .written })
+        XCTAssertTrue(script.requests[7].isRewrite)
+        XCTAssertEqual(task(script.requests[7]), task(script.requests[6]), "the same selection and the same instruction")
+        XCTAssertTrue(script.requests[7].task.contains("More formal"))
+
+        // Let go of the selection after a failure, and ⌘J works on what the field holds now: never the selection that
+        // is no longer there.
+        script.failure = .keyRefused
+        reply.bodyEditor.setSelectedRange(NSRange(location: 0, length: 2))
+        commandJ(reply)
+        until({ replying.phase.isFailed })
+        script.failure = nil
+        reply.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        commandJ(reply)
+        until({ replying.phase == .written })
+        XCTAssertFalse(script.requests[9].isRewrite, "what failed was a rewrite; this is a draft from the notes")
     }
 
     /// For a new message and a forward an instruction longer than is sent is refused whole, in words, since it can be
