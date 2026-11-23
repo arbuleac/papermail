@@ -27,6 +27,10 @@ enum AccountScope: Hashable {
 /// The account group rises as accounts are added until All Inboxes would come within `groupGap` of All Mail;
 /// from then on the account tiles scroll inside their own clip, which ends 12 pt above Add, so tiles never
 /// overlap the folders or the utilities. While tiles are clipped a hairline marks the clipped edge.
+///
+/// The rail has two widths (§5.2): its tiles alone, centred under the traffic lights, or, with `showsNames`, each tile
+/// as a row with its name beside it. Rows keep the tiles' order, pitch, hairlines and vertical places, so nothing moves
+/// up or down between the two.
 @MainActor
 final class AccountStripViewController: NSViewController {
     var onSelect: ((AccountScope) -> Void)?
@@ -41,9 +45,15 @@ final class AccountStripViewController: NSViewController {
     /// The rows were dropped on that folder: act on them, true when the window took them.
     var onDrop: ((MailboxView, [ConversationID]) -> Bool)?
 
-    /// The rail's width, derived from the traffic lights by the window (76 on macOS 15, 84 from 26 on).
+    /// The rail's width, its trailing hairline included: the window derives it from the traffic lights (92 on macOS
+    /// 15, 98 from 26 on, §3.2), or gives the one width the rail has with its names.
     var railWidth: CGFloat = Quire.Layout.Rail.width {
         didSet { if oldValue != railWidth { view.needsLayout = true } }
+    }
+
+    /// The rail shows each tile's name beside it (§5.2). The window decides, with the width.
+    var showsNames = false {
+        didSet { if oldValue != showsNames { applyNames() } }
     }
 
     private(set) var accounts: [Account] = []
@@ -65,8 +75,8 @@ final class AccountStripViewController: NSViewController {
     private let stackView = NonDraggingView()
     private var accountTiles: [AccountID: AccountStripButton] = [:]
     private var pendingTile: AccountStripButton?
-    private let addButton = QuireIconButton(symbolName: Quire.Icon.addAccount, size: .large, accessibilityLabel: "Add Account")
-    private let settingsButton = QuireIconButton(symbolName: Quire.Icon.settings, size: .large, accessibilityLabel: "Settings")
+    private let addButton = RailUtilityButton(symbolName: Quire.Icon.addAccount, title: "Add Account")
+    private let settingsButton = RailUtilityButton(symbolName: Quire.Icon.settings, title: "Settings")
 
     private var unreadByAccount: [AccountID: Int] = [:]
     private var statusByAccount: [AccountID: AccountStripButton.Status] = [:]
@@ -89,6 +99,7 @@ final class AccountStripViewController: NSViewController {
         for entry in TitleMenu.entries {
             let tile = AccountStripButton(content: .folder(symbol: entry.symbol))
             tile.toolTip = "\(entry.title)  \(entry.sequence)"
+            tile.name = entry.title
             tile.setAccessibilityLabel(entry.title)
             tile.isSelected = entry.view == mailboxView
             tile.isHidden = !conditionalFolders.shows(entry.view)
@@ -101,6 +112,7 @@ final class AccountStripViewController: NSViewController {
         }
 
         unifiedTile.toolTip = "All Inboxes  ⌘0"
+        unifiedTile.name = "All Inboxes"
         unifiedTile.setAccessibilityLabel("All Inboxes")
         unifiedTile.isSelected = true
         unifiedTile.target = self
@@ -124,6 +136,16 @@ final class AccountStripViewController: NSViewController {
         railView.registerForDraggedTypes([MessageListViewController.conversationPasteboardType])
         railView.drops = self
         view = railView
+        applyNames()
+    }
+
+    /// Every tile and utility as a row with its name, or as a tile again; the layout follows.
+    private func applyNames() {
+        guard isViewLoaded else { return }
+        for tile in folderTiles + [unifiedTile] + orderedTiles { tile.showsName = showsNames }
+        addButton.showsName = showsNames
+        settingsButton.showsName = showsNames
+        view.needsLayout = true
     }
 
     // MARK: Layout
@@ -208,12 +230,14 @@ final class AccountStripViewController: NSViewController {
                                 height: AccountStripButton.height)
         }
 
+        // Add and Settings: 28 pt squares on the rail's centre, or rows of that height in the same places.
         let utility = r.utility
-        let utilityX = ((width - utility) / 2).rounded()
-        let addTop = height - r.addTopFromBottom
-        addButton.frame = addButton.frame(forVisualRect: NSRect(x: utilityX, y: addTop, width: utility, height: utility))
-        settingsButton.frame = settingsButton.frame(forVisualRect: NSRect(x: utilityX, y: height - r.settingsTopFromBottom,
-                                                                          width: utility, height: utility))
+        let utilityRect = { (top: CGFloat) -> NSRect in
+            self.showsNames ? RailRow.rect(width: width, top: top, height: utility)
+                : NSRect(x: ((width - utility) / 2).rounded(), y: top, width: utility, height: utility)
+        }
+        addButton.frame = addButton.frame(forVisualRect: utilityRect(height - r.addTopFromBottom))
+        settingsButton.frame = settingsButton.frame(forVisualRect: utilityRect(height - r.settingsTopFromBottom))
 
         let tiles = orderedTiles
         let group = Self.accountGroupLayout(railHeight: height, tileCount: tiles.count, showing: conditionalFolders)
@@ -225,9 +249,12 @@ final class AccountStripViewController: NSViewController {
             let top = r.stackInset + CGFloat(index) * r.accountPitch
             tile.frame = NSRect(x: 0, y: top - margin, width: width, height: AccountStripButton.height)
         }
-        let dividerX = ((width - r.dividerWidth) / 2).rounded()
-        railView.dividerRects = [NSRect(x: dividerX, y: r.folderDividerY + Self.folderShift(conditionalFolders), width: r.dividerWidth, height: 1),
-                                 NSRect(x: dividerX, y: group.dividerY, width: r.dividerWidth, height: 1)]
+        // The two hairlines: 20 pt on the rail's centre, or as wide as the rows.
+        let rows = RailRow.rect(width: width, top: 0, height: 0)
+        let dividerX = showsNames ? rows.minX : ((width - r.dividerWidth) / 2).rounded()
+        let dividerWidth = showsNames ? rows.width : r.dividerWidth
+        railView.dividerRects = [NSRect(x: dividerX, y: r.folderDividerY + Self.folderShift(conditionalFolders), width: dividerWidth, height: 1),
+                                 NSRect(x: dividerX, y: group.dividerY, width: dividerWidth, height: 1)]
         updateClipEdges()
     }
 
@@ -245,6 +272,16 @@ final class AccountStripViewController: NSViewController {
         view.layoutSubtreeIfNeeded()
         return railView.dividerRects.first ?? .zero
     }
+
+    /// Both hairlines in rail coordinates, the folders' and the one under All Inboxes (the app's tests check they keep
+    /// their places and take the rows' width with the names).
+    var dividerRects: [NSRect] {
+        view.layoutSubtreeIfNeeded()
+        return railView.dividerRects
+    }
+
+    /// How far the account tiles are scrolled inside their clip (the app's tests check a switch of width keeps it).
+    var accountScrollOffset: CGFloat { scrollView.contentView.bounds.minY }
 
     /// The account tiles' clip, in rail coordinates (the app's tests check what it shows).
     var accountClipFrame: NSRect { scrollView.frame }
@@ -308,6 +345,7 @@ final class AccountStripViewController: NSViewController {
 
     private func makeAccountTile(_ content: AccountStripButton.Content) -> AccountStripButton {
         let tile = AccountStripButton(content: content)
+        tile.showsName = showsNames
         tile.target = self
         tile.action = #selector(tileClicked(_:))
         stackView.addSubview(tile)
@@ -378,6 +416,8 @@ final class AccountStripViewController: NSViewController {
         if adding, pendingTile == nil {
             let tile = AccountStripButton(content: .pending)
             tile.toolTip = "Finish signing in in your browser…"
+            tile.name = "Signing in…"
+            tile.showsName = showsNames
             tile.setAccessibilityLabel("Finish signing in in your browser")
             stackView.addSubview(tile)
             pendingTile = tile
@@ -405,6 +445,8 @@ final class AccountStripViewController: NSViewController {
             } else {
                 tile.toolTip = "\(name) · \(account.email)\(shortcut)"
             }
+            // Beside the face, the account as the title menu lists it (§5.4).
+            tile.name = "\(name) · \(account.email)"
             tile.setAccessibilityLabel("\(name), \(account.email)")
         }
     }

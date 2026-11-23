@@ -108,6 +108,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The lights' geometry, measured once the window exists: the rail width and the minimal-mode masthead
     /// follow from it (§3.2).
     private var chrome = QuireWindowChrome.fallbackMetrics
+    /// The rail shows its names beside its tiles (§5.2, `AppSettings.showsRailNames`); a hidden rail keeps the choice.
+    private(set) var showsRailNames = false
 
     private(set) var accounts: [Account] = []
     private var statuses: [AccountSyncStatus] = []
@@ -256,6 +258,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         super.init(window: window)
         window.delegate = self
         chrome = QuireWindowChrome.metrics(of: window)
+        // A snapshot shows the rail of tiles unless its states ask for the names (`rail-names`), whatever was saved.
+        showsRailNames = !isSnapshot && settings.showsRailNames
 
         buildSplit()
         wireCallbacks()
@@ -283,8 +287,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         window.calendarKeyViews = { [weak self] in self?.calendarKeyViews ?? [] }
         // Otherwise AppKit picks the first key view, the search field, and single-key shortcuts start as text.
         window.initialFirstResponder = Self.firstDescendant(of: list.view, as: NSTableView.self)
-        // The split view's autosave can bring the rail back collapsed, and dragging the divider can collapse it
-        // too; either way the window is in minimal mode then.
+        // The split view's autosave can bring the rail back collapsed; the window is in minimal mode then. (A drag of
+        // the rail's edge no longer hides it: it switches the rail between its two widths, §5.2.)
         applyMinimalMode()
         stripCollapseObservation = stripItem.observe(\.isCollapsed, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
@@ -447,17 +451,65 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         splitController.splitViewItems = [stripItem, listItem, readerItem]
         applyColumnWidths()
         applyRailWidth()
-        (splitController.splitView as? HairlineSplitView)?.onThicknessChange = { [weak self] in self?.applyRailWidth() }
+        guard let split = splitController.splitView as? HairlineSplitView else { return }
+        split.onThicknessChange = { [weak self] in self?.applyRailWidth() }
+        // The rail's edge (§5.2): the split follows the drag and asks for the names, or the tiles alone, as the pointer
+        // passes halfway; the choice is kept, and counted, once, when the drag is let go.
+        split.railEdgeDrag = { [weak self] in self?.railEdgeDrag }
+        split.onRailEdgeDrag = { [weak self] showsNames in self?.setRailNames(showsNames, keeping: false) }
+        split.onRailEdgeDragEnd = { [weak self] in
+            guard let self else { return }
+            Analytics.from(.drag) { self.setRailNames(self.showsRailNames) }
+        }
     }
 
-    /// The rail is exactly as wide as the lights need (76 on macOS 15, 84 from 26 on), its trailing hairline
-    /// included (§3.2): the split's divider is that hairline, so the rail's own pane is one hairline narrower.
+    /// The rail's width now, its trailing hairline included (§3.2): what puts its tiles under the lights' centre (92 on
+    /// macOS 15, 98 from 26 on), or the one width it has with its names (§5.2).
+    var railWidth: CGFloat { showsRailNames ? Quire.Layout.Rail.namesWidth : chrome.railWidth }
+
+    /// The rail's pane is exactly `railWidth` less its hairline: the split's divider is that hairline, so the pane has
+    /// one width at a time and the split view cannot drag it.
     private func applyRailWidth() {
-        let width = chrome.railWidth
+        let width = railWidth
         strip.railWidth = width
+        strip.showsNames = showsRailNames
+        guard let stripItem else { return }
         let pane = width - splitController.splitView.dividerThickness
-        stripItem?.minimumThickness = pane
-        stripItem?.maximumThickness = pane
+        // Never a minimum above the maximum, even for a moment: the split controller would break a constraint over it.
+        if pane > stripItem.maximumThickness {
+            stripItem.maximumThickness = pane
+            stripItem.minimumThickness = pane
+        } else {
+            stripItem.minimumThickness = pane
+            stripItem.maximumThickness = pane
+        }
+    }
+
+    /// Shows each tile's name beside it, or the tiles alone again (§5.2): View › Show Names in Rail, or the rail's edge
+    /// dragged past halfway. The rail takes its other width in one frame, as it hides in one (§5.1): the list keeps its
+    /// width, the reader takes the change, and nothing is measured over frames. `keeping` false is a drag still held,
+    /// which may yet come back: the window follows it, and the choice is saved when the drag ends. A snapshot's window
+    /// saves nothing.
+    func setRailNames(_ shows: Bool, keeping: Bool = true) {
+        if shows != showsRailNames {
+            showsRailNames = shows
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                applyRailWidth()
+                splitController.splitView.layoutSubtreeIfNeeded()
+            }
+            // The edge moved, and its pointer turns to the way it can still go.
+            window?.invalidateCursorRects(for: splitController.splitView)
+        }
+        if keeping, !isSnapshot { settings.showsRailNames = shows }
+    }
+
+    /// What a press on the rail's edge starts from. Nil while the rail is hidden: there is no edge to drag, and the
+    /// divider at the window's edge stays AppKit's.
+    private var railEdgeDrag: RailEdgeDrag? {
+        guard !isMinimal else { return nil }
+        return RailEdgeDrag(showsNames: showsRailNames, compactWidth: chrome.railWidth, namesWidth: Quire.Layout.Rail.namesWidth)
     }
 
     /// While the day column is on, the reader's item keeps room for its strip beside a 400 pt reader, and the list's
@@ -489,11 +541,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         splitController.splitView.layoutSubtreeIfNeeded()
         // The list's 364 includes its own trailing hairline, as the rail's width includes the rail's.
         let split = splitController.splitView
-        split.setPosition(chrome.railWidth + ListPaneViewController.preferredWidth - split.dividerThickness, ofDividerAt: 1)
+        split.setPosition(railWidth + ListPaneViewController.preferredWidth - split.dividerThickness, ofDividerAt: 1)
     }
 
-    /// Minimal mode (§5.1): the masthead moves past the would-be rail and becomes the title menu (the views and
-    /// the accounts the rail held), and the new-mail dot may show. Search and compose keep the header line.
+    /// Minimal mode (§5.1): the masthead moves clear of the lights (`mastheadMinimalX`, which counts from the lights
+    /// and not from the rail's width, §3.2) and becomes the title menu (the views and the accounts the rail held), and
+    /// the new-mail dot may show. Search and compose keep the header line.
     private func applyMinimalMode() {
         listPane.setMinimalMode(isMinimal, mastheadX: isMinimal ? chrome.mastheadMinimalX : Quire.Layout.ListHeader.mastheadX)
         updateNewMailDot()
@@ -3444,6 +3497,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         applyMinimalMode()
     }
 
+    /// View › Show Names in Rail, or Hide Names in Rail (§5.2).
+    @objc func toggleRailNames(_ sender: Any?) {
+        setRailNames(!showsRailNames)
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let typing = KeyboardRouter.isTextInput(window?.firstResponder)
         if let action = menuItem.action, Self.readerCommands.contains(action) {
@@ -3495,6 +3553,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case #selector(toggleAccountStrip(_:)):
             menuItem.title = stripItem.isCollapsed ? "Show Account Rail" : "Hide Account Rail"
             return !showingWelcome
+        case #selector(toggleRailNames(_:)):
+            menuItem.title = showsRailNames ? "Hide Names in Rail" : "Show Names in Rail"
+            // The shown rail's own choice: a hidden rail keeps what it had and has nothing to show it on.
+            return !showingWelcome && !isMinimal
         case #selector(focusSearchField(_:)):
             return !showingWelcome
         case #selector(makeReaderTextBigger(_:)):
@@ -3559,7 +3621,7 @@ enum PendingSignIn: Equatable {
 #if DEBUG
 extension MainWindowController {
     /// `--snapshot-state=key,notkey,minimal,narrowed,adding,reconnect,signin,toast,search,focus-rail,focus-folder,
-    /// focus-action,hover-demo,hover-masthead,many-accounts,compact,faces,monogram-face,title-menu,ic,graphite,snoozed,later,back,later-menu,later-sheet,
+    /// focus-action,hover-demo,hover-masthead,many-accounts,rail-names,compact,faces,monogram-face,title-menu,ic,graphite,snoozed,later,back,later-menu,later-sheet,
     /// server-offer,server-searching,server-found,server-nothing,server-failed,server-empty` (debug builds; `several` and
     /// `find`, the find bar over the first conversation, are applied where the first selection is made):
     /// puts the window in the named states before `--snapshot` captures it, so every state of the chrome can be
@@ -3598,6 +3660,10 @@ extension MainWindowController {
             strip.select(.account(first.id), notify: true)
             // Another account has mail since the scope was chosen.
             unreadAtScopeChange = unreadByAccount.mapValues { max(0, $0 - 1) }
+        }
+        if states.contains("rail-names") {
+            // The rail with each tile's name beside it (§5.2), in this window only: a snapshot saves nothing.
+            setRailNames(true)
         }
         if states.contains("minimal") {
             stripItem.isCollapsed = true

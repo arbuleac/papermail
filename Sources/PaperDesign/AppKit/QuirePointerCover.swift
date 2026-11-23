@@ -48,6 +48,34 @@ enum PointerCoverRegistry {
     }
 }
 
+extension NSSplitView {
+    /// Where a press takes the divider after pane `index`, in the split view's coordinates: the drawn divider as AppKit
+    /// proposes it to the delegate and as the delegate grows it. Nil while a pane beside it is hidden, or there is none.
+    ///
+    /// AppKit says nothing of the rect it proposes. For a thin divider it is the drawn one grown by `thinDividerSlop`
+    /// either side, as measured at 1×, 2× and 3×. The panes may run either way: in a right-to-left layout the first is
+    /// on the right.
+    public func dividerGrabRect(after index: Int) -> NSRect? {
+        let panes = arrangedSubviews
+        guard index >= 0, index + 1 < panes.count else { return nil }
+        let before = panes[index].frame, after = panes[index + 1].frame
+        guard !panes[index].isHidden, !panes[index + 1].isHidden else { return nil }
+        let drawn: NSRect
+        if isVertical {
+            let start = min(before.maxX, after.maxX), end = max(before.minX, after.minX)
+            drawn = NSRect(x: start, y: bounds.minY, width: end - start, height: bounds.height)
+        } else {
+            let start = min(before.maxY, after.maxY), end = max(before.minY, after.minY)
+            drawn = NSRect(x: bounds.minX, y: start, width: bounds.width, height: end - start)
+        }
+        let slop = dividerStyle == .thin ? NSSplitView.thinDividerSlop : 0
+        let proposed = isVertical ? drawn.insetBy(dx: -slop, dy: 0) : drawn.insetBy(dx: 0, dy: -slop)
+        return delegate?.splitView?(self, effectiveRect: proposed, forDrawnRect: drawn, ofDividerAt: index) ?? proposed
+    }
+
+    private static let thinDividerSlop: CGFloat = 2.5
+}
+
 extension NSView {
     /// The frames of the visible covers drawn above this view in its window, the dividers of the split views it lies in
     /// and the overlay scrollers showing over it, in its coordinates: what its cursor rects leave out. A cover around this
@@ -68,9 +96,8 @@ extension NSView {
     /// system's resize pointer there stays (§4.17), while a pane's rows or lines reach right up to the divider's hairline.
     /// A view laid over the panes (the cheat sheet over the window's split view) covers the dividers too.
     ///
-    /// AppKit says nothing of the rect it proposes to the delegate. For a thin divider it is the drawn one grown by
-    /// `thinDividerSlop` either side, as measured at 1×, 2× and 3×; rounded out to whole points, the area holds the rect
-    /// AppKit adds, which it rounds too.
+    /// Each is `NSSplitView.dividerGrabRect(after:)`; rounded out to whole points, the area holds the rect AppKit adds,
+    /// which it rounds too.
     private func splitDividerAreas() -> [NSRect] {
         var areas: [NSRect] = []
         var child: NSView = self
@@ -80,22 +107,13 @@ extension NSView {
             let panes = split.arrangedSubviews
             guard panes.contains(where: { $0 === child }) else { continue }
             for index in panes.indices.dropLast() {
-                let before = panes[index], after = panes[index + 1]
-                guard !before.isHidden, !after.isHidden else { continue }
-                let drawn = split.isVertical
-                    ? NSRect(x: before.frame.maxX, y: split.bounds.minY, width: after.frame.minX - before.frame.maxX, height: split.bounds.height)
-                    : NSRect(x: split.bounds.minX, y: before.frame.maxY, width: split.bounds.width, height: after.frame.minY - before.frame.maxY)
-                let slop = split.dividerStyle == .thin ? NSView.thinDividerSlop : 0
-                let proposed = split.isVertical ? drawn.insetBy(dx: -slop, dy: 0) : drawn.insetBy(dx: 0, dy: -slop)
-                let effective = split.delegate?.splitView?(split, effectiveRect: proposed, forDrawnRect: drawn, ofDividerAt: index) ?? proposed
+                guard let effective = split.dividerGrabRect(after: index) else { continue }
                 let area = convert(NSIntegralRect(effective), from: split)
                 if !area.isEmpty { areas.append(area) }
             }
         }
         return areas
     }
-
-    private static let thinDividerSlop: CGFloat = 2.5
 
     /// The overlay scrollers of the scroll views this view lies in, while they show: a click there drags the knob, and
     /// AppKit adds no pointer for a scroller, so a row's hand or a page's I-beam would lie over it. At rest an overlay

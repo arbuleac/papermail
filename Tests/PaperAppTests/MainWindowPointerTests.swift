@@ -40,7 +40,7 @@ final class MainWindowPointerTests: XCTestCase {
         rail.setSignIn(active: true, adding: true, reconnecting: nil)
         window.layoutIfNeeded()
         let pending = try XCTUnwrap(CursorRectRecorder.descendants(of: rail.view, as: AccountStripButton.self).first { $0.content == .pending })
-        let add = try XCTUnwrap(CursorRectRecorder.descendants(of: rail.view, as: QuireIconButton.self).first { $0.accessibilityLabel() == "Add Account" })
+        let add = try XCTUnwrap(CursorRectRecorder.descendants(of: rail.view, as: RailUtilityButton.self).first { $0.accessibilityLabel() == "Add Account" })
         recorder = CursorRectRecorder(window)
         XCTAssertEqual(recorder.cursors(atCentreOf: pending.hitRect, in: pending), [.arrow], "the pending tile does nothing")
         XCTAssertEqual(recorder.cursors(atCentreOf: add.hitRect, in: add), [.arrow], "Add waits while a sign-in runs")

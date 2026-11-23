@@ -225,6 +225,8 @@ Operators combine (`from:ben is:unread after:2026-01-01 -invoice`), ignore case,
 
 Single-letter shortcuts only apply when you are not typing in a text field.
 
+The strip at the window's left edge shows icons; **View → Show Names in Rail**, or dragging its right edge towards the list, shows each one's name beside it (Inbox, Starred, your accounts…), and **View → Hide Names in Rail** or dragging the edge back brings the icons alone again. Paper remembers which you chose.
+
 On a trackpad, swipe a conversation in the list with two fingers: left shows **Archive**, right **Mark as Read** or **Mark as Unread**. Click the button, or swipe all the way across to do it at once. It acts on that conversation alone, as `e` and `u` would, so **Undo** and `z` bring it back, and a conversation `e` would leave as it is (in the Trash, say) shows no Archive. VoiceOver offers the same actions on each conversation.
 
 ## Design

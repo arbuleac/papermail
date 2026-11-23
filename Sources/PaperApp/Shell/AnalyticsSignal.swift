@@ -110,7 +110,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// A button in the reader's header or the page's own (Reply, Archive, Star…).
         case toolbar
         case swipe
-        /// Rows dragged onto a rail folder or the calendar; files or a message's attachments dropped on the quick reply.
+        /// Rows dragged onto a rail folder or the calendar; files or a message's attachments dropped on the quick reply;
+        /// the rail's edge dragged to show or hide its names.
         case drag
         /// A double-click on a row.
         case click
@@ -320,8 +321,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         var typeface: QuireFont.Typeface
     }
 
-    /// A setting changed, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows), with its
-    /// new value.
+    /// A setting changed, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows, the rail's
+    /// names), with its new value.
     enum SettingChange: Equatable, Sendable {
         case listDensity(AppSettings.ListDensity)
         case accountFaces(Bool)
@@ -349,6 +350,9 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// Settings › Accounts' Face for an account (§5.10): chosen automatically, the letters, or a paper face (never
         /// which, nor whose).
         case accountFace(AccountFace)
+        /// The rail shows its names beside its icons, or the icons alone again (§5.2), and how it was asked: View › Show
+        /// Names in Rail, or a drag of the rail's edge.
+        case railNames(Bool, Trigger)
 
         /// An account's face, by kind.
         enum FaceKind: String, CaseIterable, Sendable {
@@ -366,7 +370,7 @@ enum AnalyticsSignal: Equatable, Sendable {
         enum Setting: String, CaseIterable, Sendable {
             case listDensity, accountFaces, undoSend, remoteImages, notifications, notificationPreviews, keepMail, theme
             case appearance, font, textSize, adaptMailColours, sendAction, launchAtLogin, defaultMailApp
-            case offerReaderMode, blockTrackers, aiProvider, accountFace
+            case offerReaderMode, blockTrackers, aiProvider, accountFace, railNames
         }
 
         var setting: Setting {
@@ -390,7 +394,14 @@ enum AnalyticsSignal: Equatable, Sendable {
             case .blockTrackers: return .blockTrackers
             case .aiProvider: return .aiProvider
             case .accountFace: return .accountFace
+            case .railNames: return .railNames
             }
+        }
+
+        /// Where the change came from, for the one setting with two ways in outside Settings: the rail's names.
+        var trigger: Trigger? {
+            if case .railNames(_, let trigger) = self { return trigger }
+            return nil
         }
 
         /// The new value, as one of `values(of:)`.
@@ -398,7 +409,8 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch self {
             case .listDensity(let density): return density.rawValue
             case .accountFaces(let on), .remoteImages(let on), .notifications(let on), .notificationPreviews(let on),
-                 .adaptMailColours(let on), .launchAtLogin(let on), .offerReaderMode(let on), .blockTrackers(let on):
+                 .adaptMailColours(let on), .launchAtLogin(let on), .offerReaderMode(let on), .blockTrackers(let on),
+                 .railNames(let on, _):
                 return Toggle(on).rawValue
             case .defaultMailApp: return Toggle.on.rawValue
             case .undoSend(let seconds): return Self.undoSendValue(seconds)
@@ -423,7 +435,7 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch setting {
             case .listDensity: return AppSettings.ListDensity.allCases.map(\.rawValue)
             case .accountFaces, .remoteImages, .notifications, .notificationPreviews, .adaptMailColours, .launchAtLogin,
-                 .offerReaderMode, .blockTrackers:
+                 .offerReaderMode, .blockTrackers, .railNames:
                 return Toggle.allCases.map(\.rawValue)
             case .aiProvider: return Writer.allCases.map(\.rawValue) + [Toggle.off.rawValue]
             case .accountFace: return FaceKind.allCases.map(\.rawValue)
@@ -603,7 +615,9 @@ enum AnalyticsSignal: Equatable, Sendable {
         case .settingsOpened:
             return [:]
         case .settingChanged(let change):
-            return ["setting": change.setting.rawValue, "value": change.value]
+            var parameters = ["setting": change.setting.rawValue, "value": change.value]
+            if let trigger = change.trigger { parameters["trigger"] = trigger.rawValue }
+            return parameters
         case .mailAction(let action, let trigger, let count):
             return ["action": action.rawValue, "trigger": trigger.rawValue, "conversations": CountBuckets.conversations.label(count)]
         case .composeStarted(let kind, let origin, let trigger):

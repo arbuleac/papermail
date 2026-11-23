@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.19.1"
+VERSION = "1.20.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -250,13 +250,20 @@ MOTION = {
 }
 LAYOUT = {
  # defaultWidth = rail.width26 + list.defaultWidth + window.readerKeycapsMin + calendarPane.columnWidth (build.py checks it):
- # a new window's reader keeps its keycaps beside the day column (spec §3.2, §5.1, §5.54).
- "window": {"dividerHit": 6, "defaultWidth": 1304, "defaultHeight": 800, "minWidth": 960, "minHeight": 600, "titlebarZone": 52, "composerTitlebar": 28, "composerTitlebar26": 32,
+ # a new window's reader keeps its keycaps beside the day column (spec §3.2, §5.1, §5.54). minWidth holds the rail with
+ # its names, the narrowest list and the narrowest reader beside the day column's strip (build.py checks that too).
+ "window": {"dividerHit": 6, "defaultWidth": 1318, "defaultHeight": 800, "minWidth": 960, "minHeight": 600, "titlebarZone": 52, "composerTitlebar": 28, "composerTitlebar26": 32,
             "readerMinWidth": 400, "readerNarrow": 560, "readerKeycapsMin": 616},
  "readerWindow": {"defaultWidth": 840, "defaultHeight": 800, "minWidth": 520, "minHeight": 420},
- "trafficLights": {"mechanism": "emptyUnifiedToolbar", "centerY": 26, "originX": 20, "size": 12, "gap": 8, "endX": 72,
-                   "originX26": 19, "size26": 14, "gap26": 9, "endX26": 79, "toolbarContainer26": 66, "tolerance": 0.5},
- "rail": {"width": 76, "lightsClearance": 4, "width26": 84, "tile": 38, "tileHit": 44, "tileRadius": 11, "tileCenterX": 38,
+ # clearX: the first x clear of the lights, the larger of 76 and the smallest even number at least endX + rail.lightsClearance
+ # (the rail's width until 1.20); the minimal-mode masthead and a reader window's kicker count from it (§3.2).
+ "trafficLights": {"mechanism": "emptyUnifiedToolbar", "centerY": 26, "originX": 20, "size": 12, "gap": 8, "endX": 72, "clearX": 76,
+                   "originX26": 19, "size26": 14, "gap26": 9, "endX26": 79, "clearX26": 84, "toolbarContainer26": 66, "tolerance": 0.5},
+ # width = trafficLights.originX + endX, the lights' leading inset mirrored past their end, so the tiles sit under the
+ # lights' centre (§3.2): rounded up to an even number, never under minWidth; width26 from originX26 and endX26; tileCenterX
+ # is half of width (build.py checks all three). namesWidth is the rail with its names (§5.2), whatever the lights.
+ "rail": {"width": 92, "minWidth": 76, "lightsClearance": 4, "width26": 98, "namesWidth": 220, "rowInset": 12, "nameGap": 6, "rowTrailing": 11,
+          "nameCountGap": 8, "tile": 38, "tileHit": 44, "tileRadius": 11, "tileCenterX": 46,
           "folderTop": 62, "folderPitch": 44, "folderGlyph": 16, "folderDividerY": 285, "allMailTop": 294, "dividerWidth": 20, "groupGap": 20,
           "dividerGap": 16, "accountGap": 14, "accountPitch": 50, "face": 30, "faceAlpha": 0.14, "monogram": 14, "monogramTwoLetter": 12,
           "utility": 28, "utilityGlyph": 15, "addTopFromBottom": 92, "settingsTopFromBottom": 52, "marginRuleHeight": 24,
@@ -482,7 +489,7 @@ ICON = {
  "failed": "exclamationmark.triangle.fill", "upToDate": "checkmark", "offline": "wifi.slash", "retrying": "clock",
  "error": "exclamationmark.triangle.fill", "signIn": "exclamationmark.triangle.fill", "retry": "arrow.clockwise", "remove": "xmark",
  "more": "ellipsis", "accountsTab": "person.crop.circle", "oauthTab": "key", "generalTab": "gearshape", "appearanceTab": "paintpalette",
- "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
+ "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "tray.2",
  "viewLater": "clock", "viewOutbox": "tray.and.arrow.up", "later": "clock", "spam": "xmark.bin",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
  "brand": "paper.paperPlane", "keyboard": "keyboard", "dismiss": "xmark",

@@ -131,6 +131,7 @@ final class AnalyticsTests: XCTestCase {
             + SendAction.allCases.map(S.SettingChange.sendAction)
             + (S.Writer.allCases.map(Optional.some) + [nil]).map(S.SettingChange.aiProvider)
             + [AccountFace.automatic, .monogram, .paper("fox")].map(S.SettingChange.accountFace)
+            + S.Trigger.allCases.flatMap { [S.SettingChange.railNames(true, $0), .railNames(false, $0)] }
         signals += changes.map(S.settingChanged)
         for action in S.MailAction.allCases {
             for trigger in S.Trigger.allCases {
@@ -682,6 +683,43 @@ final class AnalyticsTests: XCTestCase {
         held.readerModeOn = false
         held.blocksTrackers = true
         XCTAssertEqual(recorder.sent.count, 5, "a snapshot's held values are never sent")
+    }
+
+    /// The rail's names (§5.2) are the one setting changed outside Settings in two ways, View › Show Names in Rail and a
+    /// drag of the rail's edge, so its change says which. A drag counts once, as it ends, and only if it left the rail
+    /// another way than it found it; no other setting carries a trigger.
+    func testTheRailsNamesAreSentWithTheWayTheyWereAsked() throws {
+        try startAnalytics()
+        let harness = try MainWindowHarness()
+        defer {
+            harness.close()
+            // The rail changed width: the split's autosave is the test process's own, and forgotten.
+            UserDefaults.standard.removeObject(forKey: "NSSplitView Subview Frames MainSplit")
+        }
+        let controller = harness.controller
+        let split = try XCTUnwrap(controller.splitView as? HairlineSplitView)
+        controller.toggleRailNames(nil)
+        XCTAssertTrue(controller.showsRailNames)
+        // The edge dragged past halfway, back, and let go where it began: the rail followed, and nothing changed.
+        split.onRailEdgeDrag?(false)
+        XCTAssertFalse(controller.showsRailNames)
+        split.onRailEdgeDrag?(true)
+        split.onRailEdgeDragEnd?()
+        XCTAssertEqual(recorder.sent.count, 1, "a drag that ends where it began is no change")
+        split.onRailEdgeDrag?(false)
+        XCTAssertEqual(recorder.sent.count, 1, "a drag still held is not a choice yet")
+        split.onRailEdgeDragEnd?()
+        Analytics.keyIsBeingHandled = { true }
+        controller.toggleRailNames(nil)
+        Analytics.keyIsBeingHandled = { false }
+        XCTAssertEqual(recorder.sent.map(\.name), ["Settings.changed", "Settings.changed", "Settings.changed"])
+        XCTAssertEqual(recorder.sent.map(\.parameters).map { [$0["setting"], $0["value"], $0["trigger"]] },
+                       [["railNames", "on", "menu"], ["railNames", "off", "drag"], ["railNames", "on", "key"]])
+        XCTAssertEqual(recorder.sent.last?.parameters.keys.sorted(), ["mode", "setting", "trigger", "value"])
+        harness.settings.listDensity = .compact
+        XCTAssertNil(recorder.sent.last?.parameters["trigger"], "the other settings say only their new value")
+        XCTAssertEqual(AnalyticsSignal.SettingChange.values(of: .railNames), ["on", "off"])
+        assertNothingOfTheMail(in: harness)
     }
 
     func testTheLaunchSaysHowTheAppLooksAndHowManyAccountsOfEachKind() throws {

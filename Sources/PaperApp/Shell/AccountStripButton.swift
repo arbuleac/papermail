@@ -7,6 +7,11 @@ import PaperDesign
 /// The view spans the rail's full width so it can draw the selection's margin rule at x = 0 and the badge's
 /// overhang; clicks count only in the 44 pt hit square around the 38 pt tile. Everything is drawn in
 /// `draw(_:)` from tokens, so appearance, Increase Contrast and Graphite changes need only a redraw.
+///
+/// While the rail shows its names (`showsName`) the tile is a row instead (`RailRow`): the rail's width less the side
+/// inset and as tall as the tile, in the tile's place, with the glyph or the face in a tile-sized box at its leading
+/// end, the name after it and the count at its trailing end. A selected folder's raised ground, the washes, the focus
+/// ring and the clicks all take the row.
 @MainActor
 final class AccountStripButton: QuireControl {
     enum Content: Equatable {
@@ -36,6 +41,20 @@ final class AccountStripButton: QuireControl {
     var isSelected = false { didSet { if oldValue != isSelected { needsDisplay = true } } }
     var unreadCount = 0 { didSet { if oldValue != unreadCount { needsDisplay = true } } }
     var status: Status = .normal { didSet { if oldValue != status { contentDidChange() } } }
+
+    /// The rail shows its names (§5.2): the tile is a row, with `name` beside its glyph or face.
+    var showsName = false {
+        didSet {
+            guard oldValue != showsName else { return }
+            // The hit rect is the row's now, or the square's again: hover and the pointer follow it.
+            updateTrackingAreas()
+            contentDidChange()
+        }
+    }
+
+    /// The words beside the tile while the rail shows its names: the view's, All Inboxes, or the account as the title
+    /// menu lists it.
+    var name = "" { didSet { if oldValue != name { needsDisplay = true } } }
 
     /// What the unread badge reads, nil while the tile shows none: the words the Dock badge uses for the same
     /// count (§5.28), so the Inbox tile, All Inboxes, the accounts and the Dock agree. Sign-in and first sync
@@ -69,8 +88,18 @@ final class AccountStripButton: QuireControl {
     /// The frame is laid out by hand; the focus ring and badge live in the vertical margin.
     override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets() }
 
-    /// The 38 pt tile, centred in the rail.
+    private var isRightToLeft: Bool { userInterfaceLayoutDirection == .rightToLeft }
+
+    /// The row the tile becomes while the rail shows its names: the rail's width less the side inset, in the tile's
+    /// place and of its height.
+    var rowRect: NSRect {
+        RailRow.rect(width: bounds.width, top: Self.verticalMargin, height: Quire.Layout.Rail.tile)
+    }
+
+    /// The 38 pt tile, centred in the rail; with names, the box of that size at the row's leading end, which holds the
+    /// glyph or the face as the tile did.
     var tileRect: NSRect {
+        if showsName { return RailRow.glyphBox(in: rowRect, rightToLeft: isRightToLeft) }
         let side = Quire.Layout.Rail.tile
         return NSRect(x: ((bounds.width - side) / 2).rounded(), y: Self.verticalMargin, width: side, height: side)
     }
@@ -82,22 +111,43 @@ final class AccountStripButton: QuireControl {
         return NSRect(x: tile.midX - face / 2, y: tile.midY - face / 2, width: face, height: face)
     }
 
-    override var faceRect: NSRect { tileRect }
+    /// What the selection raises, the ring goes around and VoiceOver points at: the tile, or the row.
+    override var faceRect: NSRect { showsName ? rowRect : tileRect }
 
-    /// The 44 pt hit square (§4.14: rail tiles 44 pt).
+    /// The 44 pt hit square (§4.14: rail tiles 44 pt); with names the row, grown as the square is, so the folders'
+    /// rows abut as their squares do.
     override var hitRect: NSRect {
         let grow = (Quire.Layout.Rail.tileHit - Quire.Layout.Rail.tile) / 2
-        return tileRect.insetBy(dx: -grow, dy: -grow)
+        return faceRect.insetBy(dx: -grow, dy: -grow)
     }
 
     private var washRect: NSRect { hitRect }
 
-    /// The unread badge's rect: top −5, trailing −8 relative to the tile.
+    /// The unread badge's rect: top −5, trailing −8 relative to the tile; with names, the row's trailing end, centred
+    /// on the row.
     private func badgeRect(for kind: QuireBadge.Kind) -> NSRect {
         let size = QuireBadge.size(for: kind)
+        if showsName { return RailRow.accessoryRect(size, in: rowRect, rightToLeft: isRightToLeft) }
         let tile = tileRect
         return NSRect(x: tile.maxX - Quire.Layout.Rail.badgeTrailing - size.width, y: tile.minY + Quire.Layout.Rail.badgeTop,
                       width: size.width, height: size.height)
+    }
+
+    /// The count, the attention mark or the first-sync spinner as the tile shows it now: over the tile's corner, or with
+    /// names at the row's trailing end, where the name stops short of it. Nil while it shows none.
+    var markRect: NSRect? {
+        guard content != .pending else { return nil }
+        switch status {
+        case .needsSignIn: return badgeRect(for: .attention)
+        case .firstSync: return spinner?.frame
+        case .normal: return unreadBadgeText == nil ? nil : badgeRect(for: .unread(unreadCount))
+        }
+    }
+
+    /// The name's line box while the rail shows its names: from the glyph's box to the mark, or to the row's trailing
+    /// inset.
+    var nameRect: NSRect {
+        RailRow.nameRect(in: rowRect, accessory: markRect, rightToLeft: isRightToLeft)
     }
 
     /// Frames are set by hand; a new size lays the contents out again.
@@ -113,6 +163,11 @@ final class AccountStripButton: QuireControl {
         if content == .pending {
             let d = QuireSpinnerView.Size.medium.diameter
             spinner.frame = NSRect(x: (tile.midX - d / 2).rounded(), y: (tile.midY - d / 2).rounded(), width: d, height: d)
+        } else if showsName {
+            // Where the count would be: centred on the smallest badge's place at the row's trailing end.
+            let d = QuireSpinnerView.Size.small.diameter
+            let badge = RailRow.accessoryRect(QuireBadge.size(for: .attention), in: rowRect, rightToLeft: isRightToLeft)
+            spinner.frame = NSRect(x: (badge.midX - d / 2).rounded(), y: (badge.midY - d / 2).rounded(), width: d, height: d)
         } else {
             // The first-sync spinner sits where the badge would: 12 pt, top −4, trailing −6 (the specimen's rail).
             let d = QuireSpinnerView.Size.small.diameter
@@ -186,7 +241,8 @@ final class AccountStripButton: QuireControl {
             } else if state == .hover {
                 QuireDraw.fill(washRect, radius: wash, .qHover)
             }
-            if isSelected { drawRaisedTile(tile) }
+            // With names the raised ground is the tile's stretched to the row, same radius.
+            if isSelected { drawRaisedTile(faceRect) }
             let glyph: NSColor = isSelected || state != .rest ? .qInk : .qInk2
             if case .folder(let symbol) = content {
                 QuireSymbol.draw(symbol, size: .custom(Quire.Layout.Rail.folderGlyph), color: glyph, centredIn: tile)
@@ -209,6 +265,13 @@ final class AccountStripButton: QuireControl {
             ring.stroke()
         }
 
+        if showsName {
+            // The name takes its glyph's ink: `ink2` at rest, `ink` on the selected row and under the pointer or a
+            // drop; the pending account's is `ink3`, as its spinner.
+            let ink: NSColor = content == .pending ? .qInk3 : isSelected || state != .rest ? .qInk : .qInk2
+            RailRow.draw(RailRow.name(name, selected: isSelected, color: ink), in: nameRect)
+        }
+
         if isSelected, drawsMarginRule {
             let height = Quire.Layout.Rail.marginRuleHeight
             let rtl = userInterfaceLayoutDirection == .rightToLeft
@@ -220,7 +283,9 @@ final class AccountStripButton: QuireControl {
         // The ring goes under the badge, whose cut-out keeps the count legible over it.
         if showsFocusRing {
             let gap = Quire.Border.FocusRing.gapAroundSheets
-            if isSquircle {
+            if showsName {
+                QuireFocusRing.draw(around: rowRect, cornerRadius: Quire.Layout.Rail.tileRadius, gap: gap)
+            } else if isSquircle {
                 QuireFocusRing.draw(around: tile, cornerRadius: Quire.Layout.Rail.tileRadius, gap: gap)
             } else {
                 QuireFocusRing.draw(around: tile, cornerRadius: tile.width / 2, gap: gap)

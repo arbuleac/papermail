@@ -64,6 +64,8 @@ final class AppSettings: ObservableObject {
         static let showsDayColumn = "showsDayColumn"
         /// Some account had granted the calendar permission when the engine last said (spec §5.54, the calendar toggle).
         static let hasCalendarAccess = "hasCalendarAccess"
+        /// The main window's rail shows its names beside its icons (spec §5.2): off by default.
+        static let showsRailNames = "showsRailNames"
         /// Settings › General › Analytics and reports (`CrashReporting` and `Analytics` read it at launch, before the app
         /// delegate exists). Named for crash reports, which it governed first, so a choice made then still holds.
         static let sendsAnalyticsAndReports = CrashReporting.enabledDefaultsKey
@@ -317,6 +319,17 @@ final class AppSettings: ObservableObject {
     /// setting in Settings: D, View › Hide Day and the calendar toggle at the window's trailing edge change it.
     @Published var showsDayColumn: Bool {
         didSet { defaults.set(showsDayColumn, forKey: Key.showsDayColumn) }
+    }
+
+    /// The main window's rail shows each tile's name beside it (spec §5.2): off by default, the rail of icons. Not a
+    /// setting in Settings: View › Show Names in Rail and a drag of the rail's edge change it, and the window keeps it
+    /// across launches whether the rail is shown or hidden. A snapshot's window never writes it.
+    @Published var showsRailNames: Bool {
+        didSet {
+            guard oldValue != showsRailNames else { return }
+            defaults.set(showsRailNames, forKey: Key.showsRailNames)
+            report(.railNames(showsRailNames, Analytics.trigger))
+        }
     }
 
     /// Settings › General › Analytics and reports: crash reports (Sentry) and analytics (TelemetryDeck) together, on
@@ -584,6 +597,7 @@ final class AppSettings: ObservableObject {
             Key.appearance: AppAppearance.automatic.rawValue,
             Key.adaptsMailColours: true,
             Key.showsDayColumn: true,
+            Key.showsRailNames: false,
             Key.sendsAnalyticsAndReports: true,
             Key.offersReaderMode: false,
             Key.readerModeOn: false,
@@ -615,6 +629,7 @@ final class AppSettings: ObservableObject {
         sevenAccountsNoticePending = defaults.bool(forKey: Key.sevenAccountsNoticePending)
         sendsAnalyticsAndReports = defaults.bool(forKey: Key.sendsAnalyticsAndReports)
         showsDayColumn = defaults.bool(forKey: Key.showsDayColumn)
+        showsRailNames = defaults.bool(forKey: Key.showsRailNames)
         hasCalendarAccess = defaults.bool(forKey: Key.hasCalendarAccess)
         // A raw value this version does not know (a provider from a later one) is Off: nothing is sent to a guess.
         aiProvider = Self.storedProvider(defaults, Key.aiProvider)
