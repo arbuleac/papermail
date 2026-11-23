@@ -34,7 +34,8 @@ final class RunningHeadRowView: NSTableRowView {
         super.init(frame: frameRect)
         identifier = RunningHeadRowView.identifier
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // As the rows: the label and its rule are redrawn at a new width, not scaled to it.
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     required init?(coder: NSCoder) {

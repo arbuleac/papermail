@@ -55,7 +55,9 @@ final class ConversationCellView: NSView {
         super.init(frame: frameRect)
         identifier = ConversationCellView.identifier
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // Drawn when asked and when its size changes: with `.onSetNeedsDisplay` a list made narrower, or wider within a
+        // width it had before, kept the old drawing, scaled to the new width (squashed words, oval faces).
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     required init?(coder: NSCoder) {

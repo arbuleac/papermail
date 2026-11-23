@@ -39,7 +39,8 @@ final class ListFooterRowView: NSTableRowView {
         super.init(frame: frameRect)
         identifier = ListFooterRowView.identifier
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // As the rows: redrawn at a new width, not scaled to it.
+        layerContentsRedrawPolicy = .duringViewResize
         spinner.onReveal = { [weak self] in
             self?.showsLoadingText = true
             self?.needsLayout = true

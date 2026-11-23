@@ -40,7 +40,8 @@ final class ServerSearchRowView: NSTableRowView {
         super.init(frame: frameRect)
         identifier = ServerSearchRowView.identifier
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // As the rows: redrawn at a new width, not scaled to it.
+        layerContentsRedrawPolicy = .duringViewResize
         spinner.onReveal = { [weak self] in self?.needsDisplay = true }
         addSubview(spinner)
         link.target = self
