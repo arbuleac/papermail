@@ -519,6 +519,22 @@ final class AISettingsTests: XCTestCase {
         XCTAssertTrue(sheets.isEmpty, "no sheet, at the tab's opening or after")
     }
 
+    /// A render of “On for replies only” runs in the demo, which never has that state: its caption reads as the app's
+    /// does for a provider that sends. Every other state the demo is shown in keeps the demo's caption.
+    func testARenderOfOnForRepliesOnlySaysWhatIsSent() throws {
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        let demo = HelpMeWrite.demo(isDemo: true)
+        demo.settings = settings
+        let model = AISettingsModel(settings: settings, center: demo)
+        model.showForSnapshot(provider: .claudeAPI, status: .ready("Ready \u{00b7} Claude Opus 5.5"), hasKey: true)
+        XCTAssertEqual(model.caption, AISettingsModel.demoCaption)
+        model.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.repliesOnlyWords), hasKey: true, repliesOnly: true)
+        XCTAssertEqual(model.caption, "Only when you press Write, the message you\u{2019}re writing and the mail it answers or forwards "
+            + "go to Anthropic. Choose Off to stop.")
+        model.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.notTurnedOnWords), hasKey: true, hasConsent: false)
+        XCTAssertEqual(model.caption, AISettingsModel.demoCaption, "the next state is the demo's again")
+    }
+
     /// “On for replies only” has the shape “Not turned on yet” has: its words with Turn On… beside them on one row, so the
     /// tab is laid out exactly as it is for a provider never turned on, within its cap and its width.
     func testOnForRepliesOnlyHasTheShapeOfNotTurnedOnYet() throws {

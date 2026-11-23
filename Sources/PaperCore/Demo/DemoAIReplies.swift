@@ -59,8 +59,8 @@ public enum DemoAIReplies {
         "Hi,\n\nSharing the message below for context. Tell me what you think when you've had a look.",
         "Hi,\n\nPassing this along, since it touches what you're working on. Nothing needed from you yet.",
         "Hi all,\n\nSee the message below. I'd like to talk it through when we next meet.",
-        "Hi,\n\nThis came in today and I thought you should see it.",
-        "Hi,\n\nForwarding the message below with its attachments, for your records.",
+        "Hi,\n\nI thought you should see this.",
+        "Hi,\n\nForwarding the message below for your records.",
     ]
 
     /// The draft for `request`, the same on every run for the same request (a snapshot must not change), different

@@ -71,6 +71,10 @@ final class DemoAIRepliesTests: XCTestCase {
         for message in DemoAIReplies.forwardMessages {
             XCTAssertEqual(message, message.trimmingCharacters(in: .whitespacesAndNewlines))
             XCTAssertFalse(message.lowercased().hasPrefix("subject:"))
+            // The same draft goes above any forward: it says nothing of files the message below it may not carry, nor
+            // of when that message came.
+            XCTAssertFalse(message.lowercased().contains("attach"), message)
+            XCTAssertFalse(message.lowercased().contains("today"), message)
         }
     }
 }

@@ -808,6 +808,15 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
         applyHeaders(from: original)
 
+        #if DEBUG
+        // `--snapshot-state=…,forward,loading`: a render of a forward whose forwarded message is still on its way
+        // (§5.56). The headers are in, as when a body is being fetched; the body never comes while the render runs.
+        if WriteSnapshotStates.holdsForwardLoading {
+            try? await Task.sleep(for: .seconds(3_600))
+            return
+        }
+        #endif
+
         let body: StoredBody
         do {
             body = try await client.ensureBody(for: originalID)

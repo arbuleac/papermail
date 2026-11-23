@@ -27,8 +27,10 @@ import PaperDesign
 /// the reply as long as a real one. With `--snapshot-compose`, `new`: the composer is a new message to a named
 /// recipient, whose `write-ghost-empty` reads “⌘J to say what to write” and whose `write-writing`, `write-written` and
 /// `write-failed` are written from a brief said in the prompt line, the body left empty (a written one has its
-/// subject); `forward`: a forward of the selected conversation, staged once its forwarded message is in, written from
-/// that message alone.
+/// subject), or with `notes` too from notes typed in the body, as a reply's are; `forward`: a forward of the selected
+/// conversation, staged once its forwarded message is in (its `write-ask` is written from that message alone, its
+/// other states from notes typed above it), or with `loading` too staged while that message is still on its way and
+/// never arrives, so ⌘J says it is still loading.
 @MainActor
 enum WriteSnapshotStates {
     static let states = ["write-ghost-empty", "write-ghost-notes", "write-pill", "write-pill-start", "write-prompt", "write-writing", "write-written",
@@ -81,6 +83,10 @@ enum WriteSnapshotStates {
     /// `forward` with a write state: `--snapshot-compose` forwards the selected conversation instead of replying.
     static var opensForward: Bool { !opensNewMessage && requested?.all.contains("forward") ?? false }
 
+    /// `loading` with `forward`: the forward's forwarded message never arrives during the run, so the render shows a
+    /// forward that is still loading it. Read once: a composer asks as its prefill starts.
+    static let holdsForwardLoading: Bool = opensForward && requested?.all.contains("loading") ?? false
+
     /// Holds Claude chosen and turned on (for `write-unavailable`, not turned on; for `write-replies-only`, turned on
     /// before the sheet named anything but replies) for this run, and scripts the demo writer for `state`.
     static func prepare(_ center: HelpMeWrite, for state: String, all: Set<String> = []) {
@@ -119,7 +125,7 @@ enum WriteSnapshotStates {
 
     /// Types the notes for what `session`'s field writes into `textView` and stages `state`. Where there is nothing to
     /// write from without them (a new message), the states that write leave the body empty and say a brief in the
-    /// prompt line instead, which ⌘J opens there.
+    /// prompt line instead, which ⌘J opens there; with `notes` they type the notes there too and write from those.
     static func stage(_ state: String, session: WriteSession, textView: NSTextView, all: Set<String>) {
         textView.window?.makeFirstResponder(textView)
         session.assumesKeyWindow = true
@@ -127,7 +133,8 @@ enum WriteSnapshotStates {
         let kind = session.field.writeKind
         let asksWhat = kind.hasNothingToWriteFrom(WriteAsk())
         let writes = ["write-writing", "write-written", "write-failed"].contains(state)
-        if state != "write-ghost-empty", state != "write-ask", !(asksWhat && writes) {
+        let saysABrief = asksWhat && writes && !all.contains("notes")
+        if state != "write-ghost-empty", state != "write-ask", !saysABrief {
             textView.insertText(notes(for: kind), replacementRange: session.field.ownTextRange)
         }
         session.refresh()
@@ -206,12 +213,13 @@ extension ComposeWindowController {
     }
 
     /// Stages after a reply's prefill has placed the signature and the folded original; a forward's once its forwarded
-    /// message is in (or will not come), since that is what it is written from.
+    /// message is in (or will not come), since that is what it is written from. With `loading` it never comes while
+    /// the render runs, and the state is staged on the forward as it waits.
     private func stageDebugWriteState(_ state: String, all: Set<String>, on session: WriteSession, tries: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if self.isLoadingForwardedMessage, tries > 0 {
+                if self.isLoadingForwardedMessage, tries > 0, !WriteSnapshotStates.holdsForwardLoading {
                     self.stageDebugWriteState(state, all: all, on: session, tries: tries - 1)
                     return
                 }

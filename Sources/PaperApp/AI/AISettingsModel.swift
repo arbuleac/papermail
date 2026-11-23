@@ -74,6 +74,9 @@ final class AISettingsModel: ObservableObject {
     /// Bumped by every check, so a slow answer for an earlier provider is dropped.
     private var generation = 0
     private var isSnapshot = false
+    /// A snapshot shows a state the demo never has (on for replies only: the demo is never asked again), so its
+    /// caption reads as the app's does for a provider that sends, though the render runs in the demo.
+    private var snapshotShowsWhatIsSent = false
 
     /// The window the privacy sheet goes on: Settings'. The Settings window sets it.
     var window: () -> NSWindow? = { nil }
@@ -111,7 +114,7 @@ final class AISettingsModel: ObservableObject {
     /// whose writer makes drafts up on the Mac, it says nothing goes anywhere.
     var caption: String? {
         guard let provider else { return nil }
-        if center.makesUpReplies(for: provider) { return Self.demoCaption }
+        if center.makesUpReplies(for: provider), !snapshotShowsWhatIsSent { return Self.demoCaption }
         return "Only when you press Write, the message you\u{2019}re writing and the mail it answers or forwards go to "
             + "\(provider.destination.displayName). Choose Off to stop."
     }
@@ -345,6 +348,7 @@ final class AISettingsModel: ObservableObject {
         self.hasKey = hasKey
         self.hasConsent = hasConsent
         hasConsentForEveryKind = hasConsent && !repliesOnly
+        snapshotShowsWhatIsSent = repliesOnly
         self.cliPath = cliPath
         keyText = ""
         keyFailure = nil

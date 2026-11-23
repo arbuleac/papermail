@@ -71,10 +71,20 @@ enum AppSnapshots {
     }
 
 
-    /// The Accounts, OAuth, General, AI and Experimental states of §5.40 and §5.58 that demo mode can show. The OAuth fields
-    /// are put back before the window closes; nothing here saves (Experimental's toggles are held on in memory), Mail links
-    /// neither asks nor changes which app opens mail links, At login neither asks nor changes the Mac's login items, and
-    /// Notifications' line neither asks nor opens System Settings.
+    /// `--snapshot-state=ai` beside `--snapshot-settings-states`: the AI tab's states alone. A render made to look at
+    /// Help me write's settings then never holds Settings › OAuth, which shows the configured client ID.
+    private static var rendersAIStatesAlone: Bool {
+        CommandLine.arguments.contains { argument in
+            argument.hasPrefix("--snapshot-state=")
+                && argument.dropFirst("--snapshot-state=".count).split(separator: ",").contains("ai")
+        }
+    }
+
+    /// The Accounts, OAuth, General, AI and Experimental states of §5.40 and §5.58 that demo mode can show (with
+    /// `--snapshot-state=ai`, AI's alone). The OAuth fields are put back before the window closes; nothing here saves
+    /// (Experimental's toggles are held on in memory), Mail links neither asks nor changes which app opens mail links, At
+    /// login neither asks nor changes the Mac's login items, and Notifications' line neither asks nor opens System
+    /// Settings.
     static func renderSettingsStates(_ controller: SettingsWindowController, completion: @escaping (NSBitmapImageRep?) -> Void) {
         let model = controller.model
         let defaultMailApp = controller.defaultMailApp
@@ -85,7 +95,7 @@ enum AppSnapshots {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let accounts = model.accounts
         let original = model.oauth
-        let steps: [() -> Void] = [
+        let before: [() -> Void] = [
             { model.tab = .accounts; model.pendingSignIn = .gmail },
             { model.pendingSignIn = nil; model.accountsNotice = .addFailed(kind: .gmail, reason: "Google refused the sign-in. Check the client ID.") },
             { model.accountsNotice = nil; model.reconnecting = accounts.last?.id },
@@ -117,6 +127,8 @@ enum AppSnapshots {
             // Notifications: off for Paper in System Settings, then only the Dock badge off there.
             { launchAtLogin.showForSnapshot(.off); notificationPermission.showForSnapshot(.denied) },
             { notificationPermission.showForSnapshot(.allowedWithoutBadge) },
+        ]
+        let aiStates: [() -> Void] = [
             // AI (§5.56), held for the render: Off; Claude Code as the tab opens (found, from this Mac) and after Check;
             // Codex not found; OpenAI without a key; Claude checking; Claude chosen before 1.12 and never turned on; Claude
             // turned on before its sheet named new messages and forwards.
@@ -131,6 +143,8 @@ enum AppSnapshots {
                                  hasConsent: false) },
             { ai.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.repliesOnlyWords), hasKey: true,
                                  repliesOnly: true) },
+        ]
+        let after: [() -> Void] = [
             // Experimental (§5.58) with both experiments on, held for the run: never saved, never reported.
             {
                 settings.keepsExperimentsInMemory = true
@@ -139,7 +153,7 @@ enum AppSnapshots {
                 model.tab = .experimental
             },
         ]
-        render(controller, steps: steps) { bitmap in
+        render(controller, steps: rendersAIStatesAlone ? aiStates : before + aiStates + after) { bitmap in
             model.oauth = original
             completion(bitmap)
         }
