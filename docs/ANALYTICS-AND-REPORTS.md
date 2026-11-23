@@ -139,7 +139,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
 | `Account.added` | An account is added (the demo replaced included). | `provider` |
 | `Account.removed` | An account is removed. | `provider` |
-| `HelpMeWrite.used` | A Help me write write ends: its reply is in, it was stopped (Stop, Esc, the reply going away) or it failed. One per write (⌘J, Write, a chip, Try again), never as the field is focused, and none for a reply the demo makes up on this Mac (its sheet says nothing is sent). With it, what the write worked from and how it was asked for, by kind, and where. | `aiProvider`, `ending`, `draft`, `instruction`, `retry`, `source` |
+| `HelpMeWrite.used` | A Help me write write ends: its draft is in, it was stopped (Stop, Esc, the field it writes in going away) or it failed. One per write (⌘J, Write, a chip, Try again), never as the field is focused or the prompt line opens, none for a write refused before it starts (nothing to write from, a provider not turned on for it), and none for a draft the demo makes up on this Mac (its sheet says nothing is sent). With it, by kind only: what was being written, what the write worked from and how it was asked for, where, and whether a subject was asked for. | `aiProvider`, `ending`, `draft`, `instruction`, `retry`, `source`, `kind`, `subject` |
 | `ReaderMode.switched` | Reader mode is switched on or off from the reader: the header's switch, ⇧⌘R, View › Reader Mode (a reader window's too). Never when Settings › Experimental's Offer reader mode moves it. | `value`, `trigger` |
 | `ReaderMode.versionSwitched` | Show original or Show text on one message in reader mode. | `readerLine` |
 | `Reader.quotedText` | A message's quoted text is shown or hidden: its Show quoted text mark, or “.”. Find opening it to show a match is none. | `state`, `trigger` |
@@ -169,7 +169,7 @@ Every value a parameter can take:
 | `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
 | `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar, the reader header's Reader switch, a message's own controls: an attachment's chip and Download, Show quoted text), `swipe`, `drag` (rows dropped on a rail folder or the calendar, files or a message's attachments dropped on the quick reply, an attachment dragged out of the reader, the rail's edge dragged to show or hide its names), `click` (a double-click: a row, an attachment's chip), `rail` (a click on the account rail), `toast`, `notification` |
 | `conversations` | `0` (Always Archive only: the rule set for a sender whose mail took no row out of any Inbox; every other action that takes nothing sends nothing), `1`, `2-5`, `6-20`, `21+` |
-| `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` (a kept draft opened again) |
+| `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` (a kept draft opened again). Help me write: what was being written, `new`, `reply`, `replyAll` or `forward`, the quick reply's included; never `draft` (a kept draft is written in as what it is) |
 | `origin` | `app`, `mailLink`, `service` |
 | `archives` | `on`, `off` (Send and Archive) |
 | `source` | `composer`, `quickReply`, `sendLater` (Help me write: `composer` or `quickReply`, where the write ran) |
@@ -184,9 +184,10 @@ Every value a parameter can take:
 | `provider` | `gmail`, `microsoft` |
 | `aiProvider` | `claudeAPI`, `claudeCode`, `openAIAPI`, `codex` (the kind of provider chosen in Settings › AI, never the model) |
 | `ending` | `finished`, `stopped`, `failed` |
-| `draft` | `empty` (nothing typed: written from the conversation), `notes` (from the user's notes), `selection` (a selection rewritten) |
+| `draft` | `empty` (nothing typed: written from the conversation, from the forwarded message, or from the instruction alone), `notes` (from the user's notes), `selection` (a selection rewritten) |
 | `instruction` | `on`, `off` (an instruction came with it: the prompt line's words or a chip; never the words) |
 | `retry` | `on`, `off` (Try again) |
+| `subject` | `on`, `off` (Help me write: a subject was asked for with the message, a new message whose Subject was empty; never the subject, nor whether one came back or was set) |
 | `readerLine` | `text` (the sender's text part), `extracted` (the text taken from the design), `snippet` (the preview text): each switched to Show original; `original` (the message as sent, switched back with Show text) |
 | `trackers` | `1`, `2-5`, `6-20`, `21+` |
 | `attachmentAction` | `quickLook`, `open`, `download`, `downloadAll`, `saveAs`, `copy`, `drag` |
@@ -211,7 +212,7 @@ TelemetryDeck says it stores no IP address ([privacy FAQ](https://telemetrydeck.
 
 ### What is never sent
 
-Mail of any kind (bodies, subjects, snippets, attachments, their names, types or sizes, links and their parameters, the trackers' addresses or senders), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, anything of Help me write's but its provider's kind and how a write ended (no instruction, notes, reply, model, error words or API key), the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
+Mail of any kind (bodies, subjects, snippets, attachments, their names, types or sizes, links and their parameters, the trackers' addresses or senders), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, anything of Help me write's but what `HelpMeWrite.used` lists above, each from a closed set: its provider's kind, how a write ended, what was being written, what it worked from, whether an instruction came with it, whether it was a Try again, where it ran and whether a subject was asked for (no instruction, notes, subject, recipient, draft, model, error words or API key), the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
 
 ## 4. Check it end to end
 

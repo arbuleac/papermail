@@ -4,11 +4,11 @@ import SwiftUI
 
 /// Settings › AI (spec §5.40, §5.56): on General's grid, a fifth tab after Appearance that never scrolls. Provider (Off,
 /// then by where mail goes: Anthropic's Claude with an API key or Claude Code with the user's sign-in, OpenAI's API or
-/// Codex), whose choice shows the privacy sheet; its status line (with Turn On… for one never turned on); the API key
-/// (Check, Remove) or the CLI (Choose…, Check); the model; then the caption that says what is sent, when, and that Off
-/// stops it.
+/// Codex), whose choice shows the privacy sheet; its status line (with Turn On… for one never turned on, or on for
+/// replies only); the API key (Check, Remove) or the CLI (Choose…, Check); the model; then the caption that says what is
+/// sent, when, and that Off stops it.
 struct AISettingsView: View {
-    static let offCaption = "Off: Help Me Write sends nothing anywhere. Choose a provider to draft replies with \u{2318}J."
+    static let offCaption = "Off: Help Me Write sends nothing anywhere. Choose a provider to draft messages with \u{2318}J."
 
     @ObservedObject var model: AISettingsModel
 
@@ -22,8 +22,8 @@ struct AISettingsView: View {
                     // Turn On… follows its words at the row's gap, as Check follows the key field, rather than at the
                     // column's far edge.
                     HStack(spacing: Quire.Layout.Settings.statusButtonGap) {
-                        AIStatusLine(status: model.status, hugsWords: model.needsTurnOn)
-                        if model.needsTurnOn {
+                        AIStatusLine(status: model.status, hugsWords: model.offersTurnOn)
+                        if model.offersTurnOn {
                             Button("Turn On\u{2026}") { model.turnOnChosenProvider() }
                                 .buttonStyle(.quire(.secondary, size: .small))
                                 .disabled(model.isAsking)

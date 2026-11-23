@@ -8,6 +8,12 @@ import PaperCore
 protocol WriteField: AnyObject {
     /// The text view the reply goes into. Its identity is the writer's field (`AIFieldID`).
     var writeTextView: NSTextView { get }
+    /// What a write here writes: a reply, a new message, or the message above a forwarded one. The permission it needs
+    /// follows from it (`HelpMeWrite.availability(for:)`): a Turn On given for replies makes no other field ready.
+    var writeKind: WriteKind { get }
+    /// The field as Analytics names what is composed in it (`kind`): `reply` or `replyAll`, `new`, `forward`. Never
+    /// `draft`: a kept draft opened again is written in as what it is.
+    var analyticsKind: AnalyticsSignal.ComposeKind { get }
     /// The user's own text: the quick reply's whole text; a composer's body above its signature (the quoted original is
     /// never in the text). Sent as their notes and replaced by the reply.
     var ownTextRange: NSRange { get }

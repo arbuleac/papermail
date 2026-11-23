@@ -61,7 +61,7 @@ final class DemoAIScript: @unchecked Sendable {
     private var _failure: AIError?
     private var _failsAfter = 0
     private var _holdsAfter: Int?
-    private var _health: AIHealth = .ready(detail: "Demo · replies are made up on this Mac")
+    private var _health: AIHealth = .ready(detail: "Demo · drafts are made up on this Mac")
     private var _requests: [AIWriteRequest] = []
 
     /// The reply to write; nil writes the demo's canned reply for the request.

@@ -35,12 +35,16 @@ final class HelpMeWriteTests: XCTestCase {
     // MARK: Support
 
     /// A main window on thread-2 (three messages), `provider` chosen in Settings › AI and turned on (`turnedOn`), the demo
-    /// writer quick and scripted. Any sheet the write path tried to show would be recorded in `sheets`.
+    /// writer quick and scripted. Any sheet the write path tried to show would be recorded in `sheets`. With `settings`
+    /// the window opens over those as they stand, their provider and permission untouched.
     private func harness(provider: AIProviderKind? = .claudeAPI, turnedOn: Bool = true,
-                         reply: String = "Tuesday at ten works. See you then.") throws -> (MainWindowHarness, DemoAIScript) {
-        let harness = try MainWindowHarness()
-        harness.settings.aiProvider = provider
-        if let provider, turnedOn { harness.settings.setAIConsent(true, for: provider, demo: false) }
+                         reply: String = "Tuesday at ten works. See you then.",
+                         settings: AppSettings? = nil) throws -> (MainWindowHarness, DemoAIScript) {
+        let harness = try MainWindowHarness(settings: settings)
+        if settings == nil {
+            harness.settings.aiProvider = provider
+            if let provider, turnedOn { harness.settings.setAIConsent(true, for: provider, demo: false) }
+        }
         harness.environment.helpMeWrite.presentAlert = { [weak self] alert, _, done in
             self?.sheets.append(alert)
             done(0)
@@ -57,6 +61,17 @@ final class HelpMeWriteTests: XCTestCase {
 
     /// Sheets something tried to show while writing: there must be none (§5.56).
     private var sheets: [AppAlert] = []
+
+    /// Settings as a version before 1.21 left them: Claude chosen and turned on past the sheet that asked about replies,
+    /// which wrote `aiConsent` and nothing else. No code writes that key alone any more, so it is put there by hand.
+    private func settingsTurnedOnForRepliesOnly() throws -> AppSettings {
+        let suite = "HelpMeWriteTests.earlier.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set("claudeAPI", forKey: "aiProvider")
+        defaults.set(["claudeAPI"], forKey: "aiConsent")
+        return AppSettings(defaults: defaults)
+    }
 
     /// The quick reply focused with `text` typed, as R and typing leave it, its marks drawn as in the key window (the
     /// test window never is).
@@ -257,6 +272,144 @@ final class HelpMeWriteTests: XCTestCase {
         commandJ(harness)
         XCTAssertEqual(try session(harness).phase, .failed(reason: "Add your API key", offersSettings: true))
         XCTAssertTrue(script.requests.isEmpty)
+    }
+
+    // MARK: Turned on before the sheet named new messages and forwards
+
+    /// A Turn On from before the sheet named new messages and forwards (§5.56) still writes replies, in the quick reply
+    /// and in a reply composer, exactly as it did: the ghost, the write, its prompt, no sheet.
+    func testAnEarlierTurnOnStillWritesReplies() throws {
+        let (harness, script) = try harness(settings: try settingsTurnedOnForRepliesOnly())
+        defer { harness.close() }
+        let field = type("tue 10 ok", harness)
+        let session = try session(harness)
+        XCTAssertEqual(session.availability, .ready(writer: "Claude", source: "Claude Opus 5.5 \u{00b7} Anthropic"))
+        session.showNotesGhostNow()
+        XCTAssertEqual(session.layer.state.ghost?.words, "to write from your notes")
+        commandJ(harness)
+        until({ session.phase == .written }, "the reply lands")
+        XCTAssertEqual(field.string, "Tuesday at ten works. See you then.")
+        XCTAssertEqual(script.requests.map(\.kind), [.reply])
+        XCTAssertEqual(script.requests.first?.promptVersion, "write-reply-2")
+
+        let composer = replyComposer(harness)
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        let composed = try XCTUnwrap(composer.bodyWriteSession)
+        composed.assumesKeyWindow = true
+        composer.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertTrue(composed.availability.isReady)
+        XCTAssertEqual(composed.layer.state.ghost?.words, "to write a reply")
+        composer.helpMeWrite(nil)
+        until({ composed.phase == .written }, "and a reply composer's")
+        XCTAssertEqual(script.requests.map(\.kind), [.reply, .reply])
+        XCTAssertTrue(sheets.isEmpty, "no sheet anywhere in the write path")
+        XCTAssertNil(harness.controller.window?.attachedSheet)
+    }
+
+    /// Where a new message or a forward is written, that same Turn On makes nothing ready (§5.56): no ghost, no pill, the
+    /// text's menu keeps its group to say why, ⌘J shows “Help Me Write is on for replies only” under the caret's line with
+    /// Settings…, and nothing is read or sent. No sheet asks: Settings › AI's Turn On… does, and then the field is ready.
+    func testAnEarlierTurnOnWritesNothingButReplies() throws {
+        let settings = try settingsTurnedOnForRepliesOnly()
+        let center = HelpMeWrite.demo(isDemo: false)
+        center.settings = settings
+        center.presentAlert = { [weak self] alert, _, done in
+            self?.sheets.append(alert)
+            done(0)
+        }
+        var opened = 0
+        center.openSettings = { opened += 1 }
+        let script = try XCTUnwrap(center.demoScript)
+        script.delay = .milliseconds(1)
+
+        for writing in [WriteKind.newMessage, .forward] {
+            let field = PlainWriteField(writing: writing)
+            defer { field.close() }
+            let session = WriteSession(center: center, field: field)
+            session.assumesKeyWindow = true
+            field.focusText()
+            session.refresh()
+            XCTAssertEqual(session.availability, .unavailable(reason: "Help Me Write is on for replies only"), "\(writing)")
+            XCTAssertNil(session.layer.state.ghost, "\(writing): no ghost on the empty field")
+            field.type("lunch thursday at noon")
+            session.userDidEdit()
+            session.showNotesGhostNow()
+            XCTAssertNil(session.layer.state.ghost, "\(writing): none after the notes")
+            field.textView.setSelectedRange(NSRange(location: 0, length: 5))
+            session.selectionDidChange()
+            XCTAssertNil(session.layer.state.pill, "\(writing): no pill")
+            XCTAssertFalse(session.contextMenuItems().isEmpty, "\(writing): the text's menu offers it, to say why")
+            field.textView.setSelectedRange(NSRange(location: 22, length: 0))
+            session.selectionDidChange()
+
+            session.write()
+            XCTAssertEqual(session.phase, .failed(reason: "Help Me Write is on for replies only", offersSettings: true), "\(writing)")
+            XCTAssertEqual(session.layer.afterline.lineWords,
+                           "Help Me Write is on for replies only \u{00b7} Try again \u{2318}J \u{00b7} Settings\u{2026}")
+            ListTestSupport.spin(for: 0.1)
+            XCTAssertEqual(field.contextsRead, 0, "\(writing): nothing is read")
+            XCTAssertTrue(script.requests.isEmpty, "\(writing): nothing is sent")
+            XCTAssertEqual(field.textView.string, "lunch thursday at noon")
+            press(.settings, in: session.layer)
+            XCTAssertEqual(session.phase, .idle)
+        }
+        XCTAssertEqual(opened, 2, "Settings… opens Settings › AI, where Turn On… is")
+        XCTAssertTrue(sheets.isEmpty, "no sheet asks in the text")
+
+        // A reply's field over the same settings is ready, and the others are once the new sheet's Turn On is given.
+        let reply = PlainWriteField(writing: .reply)
+        defer { reply.close() }
+        let replySession = WriteSession(center: center, field: reply)
+        replySession.assumesKeyWindow = true
+        reply.focusText()
+        replySession.refresh()
+        XCTAssertTrue(replySession.availability.isReady)
+        XCTAssertNotNil(replySession.layer.state.ghost, "a reply's ghost shows")
+        reply.type("lunch thursday at noon")
+        reply.textView.setSelectedRange(NSRange(location: 0, length: 5))
+        replySession.selectionDidChange()
+        XCTAssertNotNil(replySession.layer.state.pill, "and its pill, under a selection")
+
+        let message = PlainWriteField(writing: .newMessage)
+        defer { message.close() }
+        let messageSession = WriteSession(center: center, field: message)
+        messageSession.assumesKeyWindow = true
+        message.focusText()
+        messageSession.refresh()
+        XCTAssertFalse(messageSession.availability.isReady)
+        settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        until({ messageSession.availability.isReady }, "Settings' Turn On reaches the field")
+        XCTAssertNotNil(messageSession.layer.state.ghost)
+    }
+
+    /// The kinds a field says it writes: the quick reply a reply (to all, when it answers all), a composer what it was
+    /// opened as. Analytics hears the composers' own names for them and never `draft`.
+    func testEachFieldSaysWhatItWrites() throws {
+        let (harness, _) = try harness()
+        defer { harness.close() }
+        type("tue 10 ok", harness)
+        let quick = try session(harness).field
+        XCTAssertEqual(quick.writeKind, .reply)
+        XCTAssertEqual(quick.analyticsKind, .reply)
+        harness.reader.quickReplyBar.mode = .replyAll
+        XCTAssertEqual(quick.writeKind, .reply)
+        XCTAssertEqual(quick.analyticsKind, .replyAll)
+
+        let accounts = harness.controller.accounts
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+        let expected: [(ComposeMode, WriteKind, AnalyticsSignal.ComposeKind)] = [
+            (.new, .newMessage, .new), (.reply(original, all: false), .reply, .reply),
+            (.reply(original, all: true), .reply, .replyAll), (.forward(original), .forward, .forward),
+        ]
+        for (mode, writes, named) in expected {
+            let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                           mode: mode)
+            let field = ComposerWriteField(composer: composer)
+            XCTAssertEqual(field.writeKind, writes, "\(mode)")
+            XCTAssertEqual(field.analyticsKind, named, "\(mode)")
+            composer.closeWithoutSaving()
+            XCTAssertEqual(field.writeKind, writes, "\(mode): the kind outlives the window")
+        }
     }
 
     // MARK: Undo, redo and the selection
@@ -1208,7 +1361,7 @@ final class HelpMeWriteTests: XCTestCase {
         let live = HelpMeWrite.demo(isDemo: true, liveCLIs: true)
         XCTAssertEqual(live.sourceLine(for: AIProviderConfiguration(kind: .claudeCode)), "Claude Code \u{00b7} Anthropic")
         XCTAssertEqual(live.writerName(for: .claudeCode), "Claude")
-        XCTAssertEqual(live.turnOnAlert(for: .claudeCode).title, "Use Claude Code to help write replies?")
+        XCTAssertEqual(live.turnOnAlert(for: .claudeCode).title, "Use Claude Code to help you write?")
         XCTAssertEqual(live.sourceLine(for: AIProviderConfiguration(kind: .claudeAPI)), "Demo \u{00b7} made up on this Mac")
         let real = HelpMeWrite.demo(isDemo: false)
         XCTAssertEqual(real.sourceLine(for: AIProviderConfiguration(kind: .claudeAPI)), "Claude Opus 5.5 \u{00b7} Anthropic")
@@ -1222,7 +1375,7 @@ final class HelpMeWriteTests: XCTestCase {
         let model = AISettingsModel(settings: settings, center: demo)
         model.locateExecutable = { _, _ in nil }
         model.setProvider(.claudeAPI)
-        XCTAssertEqual(model.caption, "In the demo, Help Me Write makes replies up on this Mac. Nothing is sent.")
+        XCTAssertEqual(model.caption, "In the demo, Help Me Write makes drafts up on this Mac. Nothing is sent.")
         XCTAssertNil(settings.aiProvider, "a provider chosen in the demo is the demo's alone")
         XCTAssertEqual(settings.aiProvider(demo: true), .claudeAPI)
         XCTAssertFalse(settings.hasAIConsent(for: .claudeAPI, demo: false), "and so is its Turn On")
@@ -1237,18 +1390,69 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(plain.turnOnAlert(for: .claudeCode).title, "Try Help Me Write?")
         plain.recordConsent(for: .claudeCode)
         plain.recordConsent(for: .claudeAPI)
-        XCTAssertTrue(plain.hasConsent(for: .claudeCode))
+        for writing in WriteKind.allCases {
+            XCTAssertTrue(plain.hasConsent(for: .claudeCode, writing: writing), "the made-up demo's one Turn On: \(writing)")
+        }
 
         let live = HelpMeWrite.demo(isDemo: true, liveCLIs: true)
         live.settings = settings
-        XCTAssertFalse(live.hasConsent(for: .claudeCode), "“Nothing is sent” never allowed a send")
-        XCTAssertTrue(live.hasConsent(for: .claudeAPI), "the demo writer still makes Claude's replies up: that Turn On stands")
+        for writing in WriteKind.allCases {
+            XCTAssertFalse(live.hasConsent(for: .claudeCode, writing: writing), "“Nothing is sent” never allowed a send: \(writing)")
+            XCTAssertTrue(live.hasConsent(for: .claudeAPI, writing: writing),
+                          "the demo writer still makes Claude's drafts up: that Turn On stands, \(writing)")
+        }
         live.recordConsent(for: .claudeCode)
-        XCTAssertTrue(live.hasConsent(for: .claudeCode))
-        XCTAssertFalse(settings.hasAIConsent(for: .claudeCode, demo: false), "and neither stands for real mail")
+        for writing in WriteKind.allCases {
+            XCTAssertTrue(live.hasConsent(for: .claudeCode, writing: writing), "\(writing)")
+            XCTAssertFalse(settings.hasAIConsent(for: .claudeCode, writing: writing, demo: false), "and neither stands for real mail")
+        }
+        XCTAssertFalse(settings.hasAIConsent(for: .claudeCode, demo: false))
         live.withdrawConsent(for: .claudeCode)
-        XCTAssertFalse(live.hasConsent(for: .claudeCode))
-        XCTAssertTrue(plain.hasConsent(for: .claudeCode), "withdrawing one leaves the other")
+        for writing in WriteKind.allCases {
+            XCTAssertFalse(live.hasConsent(for: .claudeCode, writing: writing), "\(writing)")
+            XCTAssertTrue(plain.hasConsent(for: .claudeCode, writing: writing), "withdrawing one leaves the other")
+        }
+    }
+
+    /// A CLI the demo runs for real does send, so its Turn On is kept as the user's own is: one from before the sheet
+    /// named new messages and forwards stands for replies only, and the sheet's Turn On writes both of its keys.
+    func testALiveDemoCLIsEarlierTurnOnStandsForRepliesOnly() throws {
+        let suite = "HelpMeWriteTests.live.earlier.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(["claudeCode"], forKey: "aiConsent.demo.live")
+        let settings = AppSettings(defaults: defaults)
+        let live = HelpMeWrite.demo(isDemo: true, liveCLIs: true)
+        live.settings = settings
+        XCTAssertTrue(live.hasConsent(for: .claudeCode, writing: .reply))
+        XCTAssertFalse(live.hasConsent(for: .claudeCode, writing: .newMessage))
+        XCTAssertFalse(live.hasConsent(for: .claudeCode, writing: .forward))
+        XCTAssertEqual(live.consentReason(for: .claudeCode, writing: .forward), "Help Me Write is on for replies only")
+
+        live.recordConsent(for: .claudeCode)
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.demo.live"), ["claudeCode"])
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.demo.live.2"), ["claudeCode"])
+        XCTAssertNil(defaults.object(forKey: "aiConsent"), "never the user's own keys")
+        XCTAssertNil(defaults.object(forKey: "aiConsent.2"))
+        for writing in WriteKind.allCases { XCTAssertTrue(live.hasConsent(for: .claudeCode, writing: writing), "\(writing)") }
+        live.withdrawConsent(for: .claudeCode)
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.demo.live"), [])
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.demo.live.2"), [], "withdrawn from both")
+    }
+
+    /// A render's Turn On is held in memory (§5.56's debug states): for everything, or as one given for replies only.
+    func testARendersTurnOnCanStandForRepliesOnly() throws {
+        let center = HelpMeWrite.demo(isDemo: false)
+        center.configurationOverride = AIProviderConfiguration(kind: .claudeAPI)
+        XCTAssertEqual(center.availability(for: .newMessage), .unavailable(reason: "Turn it on in Settings \u{203a} AI"))
+        center.consentOverride = [.claudeAPI]
+        for writing in WriteKind.allCases { XCTAssertTrue(center.availability(for: writing).isReady, "\(writing)") }
+        center.consentOverrideIsForRepliesOnly = true
+        XCTAssertTrue(center.availability(for: .reply).isReady)
+        XCTAssertEqual(center.availability(for: .newMessage), .unavailable(reason: "Help Me Write is on for replies only"))
+        XCTAssertEqual(center.availability(for: .forward), .unavailable(reason: "Help Me Write is on for replies only"))
+        XCTAssertFalse(center.hasConsent(for: .claudeAPI, writing: .forward))
+        XCTAssertTrue(center.hasConsent(for: .demo, writing: .forward), "the demo writer sends nothing, so it needs nothing")
     }
 
     func testAWriteLeavesNamesFromTheCodeOnly() throws {
@@ -1265,5 +1469,72 @@ final class HelpMeWriteTests: XCTestCase {
         until({ try! self.session(harness).phase == .written })
         let ai = crumbs.filter { $0.0 == "ai" }.compactMap(\.1)
         XCTAssertEqual(ai, ["write started", "claudeAPI", "write finished", "claudeAPI"])
+    }
+}
+
+/// A field of the test's own: a plain text view in a window off screen that says what it writes, so a session can be
+/// asked about a new message or a forward on its own terms. It answers no one: a write here has nothing to read.
+@MainActor
+private final class PlainWriteField: WriteField {
+    let textView: NSTextView
+    let writeKind: WriteKind
+    private let window: NSWindow
+    private let layer: WriteInlineLayer
+    /// How often a write asked for its context: none may, before it is allowed to send.
+    private(set) var contextsRead = 0
+
+    init(writing: WriteKind) {
+        writeKind = writing
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 240)
+        textView = NSTextView(frame: frame)
+        textView.allowsUndo = true
+        window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+        window.contentView?.addSubview(textView)
+        layer = WriteInlineLayer(textView: textView)
+    }
+
+    var writeTextView: NSTextView { textView }
+
+    var analyticsKind: AnalyticsSignal.ComposeKind {
+        switch writeKind {
+        case .reply: return .reply
+        case .newMessage: return .new
+        case .forward: return .forward
+        }
+    }
+
+    var ownTextRange: NSRange { NSRange(location: 0, length: (textView.string as NSString).length) }
+
+    func writeAttributes(at range: NSRange) -> [NSAttributedString.Key: Any] { textView.typingAttributes }
+
+    var refusesEdits = false
+
+    func streamDidUpdate() {}
+
+    func writeContext() -> WriteContextInputs? {
+        contextsRead += 1
+        return nil
+    }
+
+    var writeLayer: WriteInlineLayer { layer }
+
+    var placeholderWidth: CGFloat? { nil }
+
+    func reservedSpaceDidChange() {}
+
+    func setHeldOpen(_ held: Bool) {}
+
+    func focusText() {
+        window.makeFirstResponder(textView)
+    }
+
+    func type(_ text: String) {
+        textView.insertText(text, replacementRange: NSRange(location: 0, length: (textView.string as NSString).length))
+    }
+
+    func close() {
+        window.close()
     }
 }

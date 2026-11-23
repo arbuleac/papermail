@@ -150,9 +150,10 @@ final class WriteSession {
 
     // MARK: What the text shows
 
-    /// Reads the provider's state again from this Mac (the field took the keyboard, Settings changed) and shows it.
+    /// Reads the provider's state again from this Mac (the field took the keyboard, Settings changed) and shows it: for
+    /// what this field writes, since a provider turned on for replies is not ready for anything else.
     func refresh() {
-        availability = center.availability()
+        availability = center.availability(for: field.writeKind)
         layer.prompt.writer = availability.writer
         watchTheKeyboard()
         render()
@@ -493,8 +494,10 @@ final class WriteSession {
         // The one place a write's user action is made: the user pressed ⌘J, the ghost, the pill, a menu item, the prompt
         // line's ↩ or a chip, Try again or Shorter.
         let action = AIUserAction(userPressed: .write)
+        // No write here asks for a subject: `subject` says one was asked for, never that one was set.
         center.writeDetails[fieldID] = AnalyticsSignal.WriteDetails(ask, retry: retry,
-                                                                    source: field is ComposerWriteField ? .composer : .quickReply)
+                                                                    source: field is ComposerWriteField ? .composer : .quickReply,
+                                                                    kind: field.analyticsKind, subject: false)
         writeTask = Task { [weak self] in
             // Read and redacted off the main thread, only now that the user asked (§5.56: nothing before).
             let built = await Task.detached(priority: .userInitiated) { context.build(ask: ask) }.value
@@ -777,7 +780,10 @@ final class WriteSession {
         let keyboardWasHere = keyboardIsHere
         stopWriting()
         field.setHeldOpen(isPromptShown)
-        let reason = error == .consentRequired ? HelpMeWrite.turnOnWords : error.lineMessage(for: configuration?.kind)
+        // The writer's own refusal reads as the text's does: never turned on, or on for replies only.
+        let reason = error == .consentRequired
+            ? configuration.map { center.consentReason(for: $0.kind, writing: field.writeKind) } ?? HelpMeWrite.turnOnWords
+            : error.lineMessage(for: configuration?.kind)
         phase = .failed(reason: reason, offersSettings: error.needsSettings || error == .consentRequired)
         if keyboardWasHere, !layer.promptHoldsFocus { field.focusText() }
         announceFailure(reason)

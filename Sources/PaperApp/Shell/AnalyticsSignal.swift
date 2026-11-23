@@ -38,9 +38,10 @@ enum AnalyticsSignal: Equatable, Sendable {
     case undo(Trigger)
     case accountAdded(Provider)
     case accountRemoved(Provider)
-    /// A Help me write write ended (§5.56; `AIWriter`'s milestones): which kind of provider wrote and how it ended. Never
-    /// the instruction, the notes, the conversation, the model or a word of the reply, and none for a reply the demo makes
-    /// up (`HelpMeWrite.analyticsSignal`).
+    /// A Help me write write ended (§5.56; `AIWriter`'s milestones): which kind of provider wrote, how it ended and, by
+    /// kind only, what was written, from what and where (`WriteDetails`). Never the instruction, the notes, the subject,
+    /// the conversation, the model or a word of the draft, and none for a draft the demo makes up
+    /// (`HelpMeWrite.analyticsSignal`).
     case helpMeWriteUsed(Writer, WriteEnding, WriteDetails?)
     /// Reader mode switched on or off from the reader (§5.59): its switch in the header, ⇧⌘R or View › Reader Mode. Never
     /// when its experiment's gate moved it (that is Settings › Experimental's change).
@@ -226,7 +227,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         }
     }
 
-    /// What a Help me write write worked from and how it was asked for, and where (§5.56): never the words.
+    /// What a Help me write write wrote, what it worked from and how it was asked for, and where (§5.56): never the
+    /// words.
     struct WriteDetails: Equatable, Sendable {
         var draft: WriteDraft
         /// An instruction came with it: the prompt line's words or a chip.
@@ -234,16 +236,25 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// Try again: written again from the notes the last reply came from.
         var retry: Bool
         var source: SendSource
+        /// What was being written, in the composers' own kinds, so a write lines up with `Compose.started` and
+        /// `Compose.sent`: a new message, a reply, a reply to all or a forward. Never `draft`.
+        var kind: ComposeKind
+        /// A subject was asked for with the message. Whether one came back and was set is not known as the signal is
+        /// made, so it is not said.
+        var subject: Bool
 
-        init(draft: WriteDraft, instruction: Bool, retry: Bool, source: SendSource) {
+        init(draft: WriteDraft, instruction: Bool, retry: Bool, source: SendSource, kind: ComposeKind, subject: Bool) {
             self.draft = draft
             self.instruction = instruction
             self.retry = retry
             self.source = source
+            self.kind = kind
+            self.subject = subject
         }
 
-        init(_ ask: WriteAsk, retry: Bool, source: SendSource) {
-            self.init(draft: WriteDraft(ask.draft), instruction: !ask.instruction.isEmpty, retry: retry, source: source)
+        init(_ ask: WriteAsk, retry: Bool, source: SendSource, kind: ComposeKind, subject: Bool) {
+            self.init(draft: WriteDraft(ask.draft), instruction: !ask.instruction.isEmpty, retry: retry, source: source,
+                      kind: kind, subject: subject)
         }
     }
 
@@ -531,6 +542,7 @@ enum AnalyticsSignal: Equatable, Sendable {
             "draft": WriteDraft.allCases.map(\.rawValue),
             "instruction": Toggle.allCases.map(\.rawValue),
             "retry": Toggle.allCases.map(\.rawValue),
+            "subject": Toggle.allCases.map(\.rawValue),
             "readerLine": ReaderLine.allCases.map(\.rawValue),
             "trackers": CountBuckets.trackers.labels,
             "attachmentAction": AttachmentAction.allCases.map(\.rawValue),
@@ -652,6 +664,8 @@ enum AnalyticsSignal: Equatable, Sendable {
                 parameters["instruction"] = Toggle(details.instruction).rawValue
                 parameters["retry"] = Toggle(details.retry).rawValue
                 parameters["source"] = details.source.rawValue
+                parameters["kind"] = details.kind.rawValue
+                parameters["subject"] = Toggle(details.subject).rawValue
             }
             return parameters
         case .readerModeSwitched(let on, let trigger):

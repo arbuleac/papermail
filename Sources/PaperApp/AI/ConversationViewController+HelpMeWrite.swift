@@ -79,6 +79,10 @@ final class QuickReplyWriteField: WriteField {
 
     var writeTextView: NSTextView { bar?.writingTextView ?? NSTextView() }
 
+    var writeKind: WriteKind { .reply }
+
+    var analyticsKind: AnalyticsSignal.ComposeKind { bar?.mode == .replyAll ? .replyAll : .reply }
+
     var ownTextRange: NSRange {
         NSRange(location: 0, length: (writeTextView.string as NSString).length)
     }

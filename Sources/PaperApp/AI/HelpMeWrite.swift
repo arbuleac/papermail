@@ -34,9 +34,12 @@ final class HelpMeWrite {
     weak var settings: AppSettings? {
         didSet { observeSettings() }
     }
-    /// Snapshots: a provider and an Allow held in memory, never saved, so a render neither needs nor changes the user's.
+    /// Snapshots: a provider and a Turn On held in memory, never saved, so a render neither needs nor changes the user's.
     var configurationOverride: AIProviderConfiguration?
     var consentOverride: Set<AIProviderKind> = []
+    /// Snapshots: the Turn On held in memory is one given before the sheet named new messages and forwards, so it
+    /// stands for replies only.
+    var consentOverrideIsForRepliesOnly = false
     /// Snapshots: Help Me Write shows as off whatever Settings › AI chose.
     var forcesOff = false
     /// Settings… on the afterline: Settings › AI. The app delegate sets it.
@@ -46,12 +49,11 @@ final class HelpMeWrite {
         alert.present(on: window, completion: done)
     }
 
-    /// The service the reply writes through. Its permission check reads this object, so no path sends without a Turn On.
-    /// The Turn On people gave was asked for replies (its sheet names the conversation replied to and promises no other
-    /// mail is sent), so it stands for a reply and for nothing else the writer could be asked to write.
+    /// The service every write goes through. Its permission check reads this object with the request's own kind, so no
+    /// path sends without a Turn On, and none sends a new message or a forward on a Turn On that was given for replies.
     private(set) lazy var writer = AIWriter(
         resolve: resolve,
-        hasConsent: { [weak self] kind, writing in writing == .reply && (self?.hasConsent(for: kind) ?? false) },
+        hasConsent: { [weak self] kind, writing in self?.hasConsent(for: kind, writing: writing) ?? false },
         milestones: { [weak self] milestone, kind, field in
             // Names from the code only: what happened, and with which kind of provider.
             CrashReporting.breadcrumb(.ai, milestone.breadcrumbName)
@@ -108,7 +110,7 @@ final class HelpMeWrite {
     // MARK: What the text shows
 
     /// Posted (object: this) when what Help me write shows in the text may have changed: the provider, its permission, a key, a
-    /// CLI chosen. Hosts read `availability()` again.
+    /// CLI chosen. Hosts read `availability(for:)` again.
     static let availabilityDidChange = Notification.Name("HelpMeWrite.availabilityDidChange")
 
     private var settingsObservation: AnyCancellable?
@@ -120,25 +122,39 @@ final class HelpMeWrite {
         }
     }
 
-    /// Tells the hosts to read `availability()` again.
+    /// Tells the hosts to read `availability(for:)` again.
     func availabilityChanged() {
         NotificationCenter.default.post(name: Self.availabilityDidChange, object: self)
     }
 
     /// The reason a provider chosen but never turned on cannot write (§5.56).
     static let turnOnWords = "Turn it on in Settings \u{203a} AI"
+    /// The reason a provider turned on before its sheet named new messages and forwards cannot write one (§5.56): it
+    /// still writes replies, and Settings › AI offers Turn On… for the rest.
+    static let repliesOnlyWords = "Help Me Write is on for replies only"
     /// What ⌘J says while Help me write is off.
     static let offWords = "Help Me Write is off"
 
-    /// Whether the reply can be written in now, from this Mac's facts alone (spec §3b): a provider chosen and turned on,
-    /// a key stored or a CLI found at a version this build runs. No network, no process.
-    func availability() -> WriteAvailability {
+    /// Whether a write of `writing` can run now, from this Mac's facts alone (spec §3b): a provider chosen and turned on
+    /// for that kind of write, a key stored or a CLI found at a version this build runs. No network, no process.
+    ///
+    /// It takes the kind because permission does: a field that writes new messages or forwards is not ready on a Turn
+    /// On given for replies, and says why in the text (no ghost, no pill; ⌘J shows the reason with Settings…).
+    func availability(for writing: WriteKind) -> WriteAvailability {
         guard let configuration else { return .off }
         let kind = configuration.kind
-        guard hasConsent(for: kind) else { return .unavailable(reason: Self.turnOnWords) }
+        guard hasConsent(for: kind, writing: writing) else {
+            return .unavailable(reason: consentReason(for: kind, writing: writing))
+        }
         let health = writer.localHealth(of: configuration)
         guard health.isReady else { return .unavailable(reason: health.words) }
         return .ready(writer: writerName(for: kind), source: sourceLine(for: configuration))
+    }
+
+    /// Why `kind` may not be sent what a write of `writing` sends, in the text's words: it was never turned on, or it
+    /// was turned on when that meant replies only. Both are put right in Settings › AI, never by a sheet here.
+    func consentReason(for kind: AIProviderKind, writing: WriteKind) -> String {
+        writing != .reply && hasConsent(for: kind, writing: .reply) ? Self.repliesOnlyWords : Self.turnOnWords
     }
 
     /// What the last Check found, for this run: Settings › AI shows it again as it reopens rather than asking the provider
@@ -172,26 +188,28 @@ final class HelpMeWrite {
         forcesOff ? nil : configurationOverride ?? settings?.aiConfiguration(demo: isDemo)
     }
 
-    /// Whether a conversation may go to `kind`: the user turned it on in Settings › AI, past its privacy sheet (in the
-    /// demo, in the demo, and for a CLI the demo runs for real, on that CLI's own sheet). The demo writer itself needs
-    /// nothing, since nothing leaves the Mac.
-    func hasConsent(for kind: AIProviderKind) -> Bool {
-        if kind == .demo || consentOverride.contains(kind) { return true }
-        return settings?.hasAIConsent(for: kind, demo: isDemo, live: sendsFromTheDemo(kind)) ?? false
+    /// Whether what a write of `writing` sends may go to `kind`: the user turned it on in Settings › AI, past a privacy
+    /// sheet that named that kind of write (in the demo, in the demo, and for a CLI the demo runs for real, on that
+    /// CLI's own sheet). A Turn On given before the sheet named new messages and forwards stands for replies; the demo
+    /// writer itself needs nothing, since nothing leaves the Mac.
+    func hasConsent(for kind: AIProviderKind, writing: WriteKind) -> Bool {
+        if kind == .demo { return true }
+        if consentOverride.contains(kind) { return writing == .reply || !consentOverrideIsForRepliesOnly }
+        return settings?.hasAIConsent(for: kind, writing: writing, demo: isDemo, live: sendsFromTheDemo(kind)) ?? false
     }
 
-    /// The privacy sheet's Turn On, kept where it was given: a Turn On on the demo's “Nothing is sent” sheet never stands
-    /// for a send.
+    /// The privacy sheet's Turn On, for everything that sheet names, kept where it was given: a Turn On on the demo's
+    /// “Nothing is sent” sheet never stands for a send.
     func recordConsent(for kind: AIProviderKind) {
         settings?.setAIConsent(true, for: kind, demo: isDemo, live: sendsFromTheDemo(kind))
     }
 
-    /// Turn Off, or another provider turned on in its place: `kind`'s permission goes.
+    /// Turn Off, or another provider turned on in its place: all of `kind`'s permission goes, for replies and the rest.
     func withdrawConsent(for kind: AIProviderKind) {
         settings?.setAIConsent(false, for: kind, demo: isDemo, live: sendsFromTheDemo(kind))
     }
 
-    /// The demo sends the conversation with `kind`: one of its CLIs run for real (`--live-ai-clis`). Its Allows are kept
+    /// The demo sends the conversation with `kind`: one of its CLIs run for real (`--live-ai-clis`). Its Turn Ons are kept
     /// apart from the made-up demo's (`AppSettings.liveDemoAIConsent`).
     func sendsFromTheDemo(_ kind: AIProviderKind) -> Bool {
         isDemo && !makesUpReplies(for: kind)
@@ -204,8 +222,9 @@ final class HelpMeWrite {
     }
 
     /// What Analytics hears of a write (docs/ANALYTICS-AND-REPORTS.md): one signal as it ends, from the same two closed
-    /// sets as the breadcrumbs, the provider's kind and how it ended. A reply the demo makes up on this Mac is none: the
-    /// demo's sheet and Settings › AI say nothing is sent, and its kind would only be the one picked in the demo.
+    /// sets as the breadcrumbs, the provider's kind and how it ended, with `details` when the session stored them as it
+    /// started (what was written and from what, by kind, never a word). A draft the demo makes up on this Mac is none:
+    /// the demo's sheet and Settings › AI say nothing is sent, and its kind would only be the one picked in the demo.
     func analyticsSignal(_ milestone: AIWriteMilestone, _ kind: AIProviderKind,
                          details: AnalyticsSignal.WriteDetails? = nil) -> AnalyticsSignal? {
         guard !makesUpReplies(for: kind), let writer = AnalyticsSignal.Writer(kind),
@@ -213,8 +232,8 @@ final class HelpMeWrite {
         return .helpMeWriteUsed(writer, ending, details)
     }
 
-    /// What each field's write in progress worked from and where it is (`WriteSession` sets it as it starts one), for the
-    /// signal as the write ends: kinds only, never the words.
+    /// What each field's write in progress is writing, what it worked from and where it is (`WriteSession` sets it as
+    /// it starts one), for the signal as the write ends: kinds only, never the words.
     var writeDetails: [AIFieldID: AnalyticsSignal.WriteDetails] = [:]
 
     /// The source line in the demo, where no model writes: what is shown is attributed truthfully (§5.56).

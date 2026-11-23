@@ -346,6 +346,54 @@ final class HelpMeWriteEgressTests: XCTestCase {
         assertNoContact(log, "a check after shutdown")
     }
 
+    /// Runs a write of `writing` through `center`'s writer to its end: the error it ended with, if any.
+    private func failure(of writing: WriteKind, _ center: HelpMeWrite, _ configuration: AIProviderConfiguration) -> AIError? {
+        let request = AIWriteRequest(kind: writing, instructions: "Write it.", transcript: "", task: "Say yes")
+        let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "egress"),
+                                         action: AIUserAction(userPressed: .write))
+        var failure: AIError?
+        var isOver = false
+        Task { @MainActor in
+            do { for try await _ in stream {} } catch { failure = AIError.from(error) }
+            isOver = true
+        }
+        XCTAssertTrue(ListTestSupport.spin(until: { isOver }, timeout: 10), "\(writing): the write ends")
+        return failure
+    }
+
+    /// A Turn On from before the sheet named new messages and forwards never sends one (§5.56). With the real providers
+    /// on that permission alone, a new message's or a forward's request handed to the writer reaches nothing and starts
+    /// nothing, whatever asked for it; the reply's request, on the same permission, goes as it always did.
+    func testANewMessageOrAForwardOnAnEarlierTurnOnReachesNothing() throws {
+        let log = try installFakeClaude()
+        for kind in [AIProviderKind.claudeCode, .claudeAPI] {
+            let suite = "HelpMeWriteEgress.earlier.\(UUID().uuidString)"
+            addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            // As a version before 1.21 left them: chosen, and turned on past the sheet that asked about replies.
+            defaults.set(kind.rawValue, forKey: "aiProvider")
+            defaults.set([kind.rawValue], forKey: "aiConsent")
+            let settings = AppSettings(defaults: defaults)
+            let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
+            center.settings = settings
+            let configuration = try XCTUnwrap(center.configuration)
+            XCTAssertEqual(configuration.kind, kind)
+            XCTAssertTrue(center.availability(for: .reply).isReady, "\(kind): replies are ready, from this Mac")
+            for writing in [WriteKind.newMessage, .forward] {
+                XCTAssertEqual(center.availability(for: writing), .unavailable(reason: "Help Me Write is on for replies only"),
+                               "\(kind) \(writing)")
+                XCTAssertEqual(failure(of: writing, center, configuration), .consentRequired, "\(kind) \(writing): refused by the writer")
+            }
+            ListTestSupport.spin(for: 0.2)
+            assertNoContact(log, "\(kind): a new message and a forward on a Turn On given for replies")
+
+            guard kind == .claudeAPI else { continue }
+            XCTAssertNotEqual(failure(of: .reply, center, configuration), .consentRequired, "the reply is allowed")
+            XCTAssertEqual(contacts, ["write: POST api.anthropic.com/v1/messages"], "and is the one contact")
+            XCTAssertEqual(launches(log), [], "no CLI for the API")
+        }
+    }
+
     func testEachAllowedActionMakesExactlyItsOwnContacts() throws {
         let log = try installFakeClaude()
         let keys = InMemoryAIKeyStore()

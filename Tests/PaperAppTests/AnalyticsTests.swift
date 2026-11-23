@@ -172,9 +172,15 @@ final class AnalyticsTests: XCTestCase {
                 signals.append(.helpMeWriteUsed(writer, ending, nil))
                 for draft in S.WriteDraft.allCases {
                     for source in S.SendSource.allCases {
-                        for flags in [(false, false), (true, false), (false, true), (true, true)] {
-                            signals.append(.helpMeWriteUsed(writer, ending, .init(draft: draft, instruction: flags.0, retry: flags.1,
-                                                                                  source: source)))
+                        // What was being written is one of the composers' kinds, never a kept draft's `draft`.
+                        for kind in S.ComposeKind.allCases where kind != .draft {
+                            for flags in [(false, false), (true, false), (false, true), (true, true)] {
+                                for subject in [false, true] {
+                                    signals.append(.helpMeWriteUsed(writer, ending, .init(draft: draft, instruction: flags.0,
+                                                                                          retry: flags.1, source: source, kind: kind,
+                                                                                          subject: subject)))
+                                }
+                            }
                         }
                     }
                 }
@@ -295,8 +301,8 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(script.requests.count, 2, "both writes reached the writer")
     }
 
-    /// A write's signal says what it worked from and where, as `WriteSession` set it when it started, by kind only, and the
-    /// field forgets it once the write is over.
+    /// A write's signal says what was being written, what it worked from and where, as `WriteSession` set it when it
+    /// started, by kind only, and the field forgets it once the write is over.
     func testAHelpMeWriteSaysWhatItWorkedFromAndWhere() throws {
         try startAnalytics()
         let script = DemoAIScript()
@@ -305,7 +311,8 @@ final class AnalyticsTests: XCTestCase {
         let center = HelpMeWrite(keys: InMemoryAIKeyStore(), isDemo: false, demoScript: script) { _ in DemoAIProvider(script: script) }
         center.consentOverride = [.claudeAPI]
         let field = AIFieldID(name: "analytics")
-        center.writeDetails[field] = .init(WriteAsk(instruction: "warmer", draft: .notes("yes thursday")), retry: true, source: .quickReply)
+        center.writeDetails[field] = .init(WriteAsk(instruction: "warmer", draft: .notes("yes thursday")), retry: true, source: .quickReply,
+                                           kind: .new, subject: true)
         writesEnded = 0
         write(center, AIProviderConfiguration(kind: .claudeAPI))
         XCTAssertTrue(ListTestSupport.spin(until: { self.writesEnded == 1 && self.recorder.sent.count == 1 }, timeout: 5))
@@ -314,8 +321,70 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(sent.parameters["instruction"], "on")
         XCTAssertEqual(sent.parameters["retry"], "on")
         XCTAssertEqual(sent.parameters["source"], "quickReply")
+        XCTAssertEqual(sent.parameters["kind"], "new", "the composers' own word for a new message")
+        XCTAssertEqual(sent.parameters["subject"], "on", "a subject was asked for: on or off, never the subject")
+        XCTAssertEqual(Set(sent.parameters.keys), ["aiProvider", "ending", "draft", "instruction", "retry", "source", "kind", "subject", "mode"])
         XCTAssertFalse(sent.parameters.values.contains { $0.contains("warmer") || $0.contains("thursday") }, "never the words")
         XCTAssertNil(center.writeDetails[field], "forgotten once the write is over")
+    }
+
+    /// What was being written is said in the composers' kinds, so a write lines up with `Compose.started` and
+    /// `Compose.sent`: every kind a composer opens as, and never `draft`, which a write's field cannot say.
+    func testAHelpMeWritesKindIsOneAComposerOpensAs() throws {
+        let id = MessageID(accountID: AccountID("a"), providerID: "m")
+        let opened = [ComposeMode.new, .reply(id, all: false), .reply(id, all: true), .forward(id)].map { AnalyticsSignal.ComposeKind($0) }
+        XCTAssertEqual(opened.map(\.rawValue), ["new", "reply", "replyAll", "forward"])
+        XCTAssertFalse(opened.contains(.draft))
+        for kind in opened {
+            let details = AnalyticsSignal.WriteDetails(draft: .empty, instruction: false, retry: false, source: .composer, kind: kind,
+                                                       subject: false)
+            let parameters = AnalyticsSignal.helpMeWriteUsed(.claudeAPI, .finished, details).parameters
+            XCTAssertEqual(parameters["kind"], kind.rawValue)
+            XCTAssertEqual(parameters["subject"], "off")
+        }
+    }
+
+    /// The quick reply's and a reply composer's writes say what they are as they end: a reply, where it ran, and that no
+    /// subject was asked for. Through the window's own session, to the scripted writer.
+    func testAWriteInTheWindowSaysItIsAReply() throws {
+        try startAnalytics()
+        try useThrowawayDrafts()
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let script = try XCTUnwrap(harness.environment.helpMeWrite.demoScript)
+        script.delay = .zero
+        script.reply = "Tuesday at ten works."
+        let id = try XCTUnwrap(harness.list.conversations.first { $0.id.providerID == "thread-2" }?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { harness.reader.currentMessages.count == 3 }
+        func used() -> [RecordingAnalyticsTransport.Sent] { recorder.sent.filter { $0.name == "HelpMeWrite.used" } }
+
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let field = harness.reader.quickReplyBar.writingTextView
+        field.insertText("tue 10 ok", replacementRange: NSRange(location: 0, length: 0))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 1 }, timeout: 5), "the quick reply's write ends")
+        XCTAssertEqual(used().last?.parameters["kind"], "reply")
+        XCTAssertEqual(used().last?.parameters["subject"], "off")
+        XCTAssertEqual(used().last?.parameters["source"], "quickReply")
+        XCTAssertEqual(used().last?.parameters["draft"], "notes")
+
+        let accounts = harness.controller.accounts
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       mode: .reply(original, all: true))
+        defer { composer.closeWithoutSaving() }
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        composer.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 2 }, timeout: 5), "the composer's write ends")
+        XCTAssertEqual(used().last?.parameters["kind"], "replyAll", "a reply to all, as `Compose.sent` says it")
+        XCTAssertEqual(used().last?.parameters["subject"], "off")
+        XCTAssertEqual(used().last?.parameters["source"], "composer")
+        XCTAssertEqual(used().last?.parameters["draft"], "empty")
+        XCTAssertFalse(used().flatMap(\.parameters.values).contains { $0.contains("tue") || $0.contains("Tuesday") }, "never the words")
     }
 
     /// Block trackers' link cleaning (§5.60) counts a link only when it lost something, and only while the setting is on.

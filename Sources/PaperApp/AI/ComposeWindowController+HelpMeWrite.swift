@@ -66,14 +66,28 @@ extension ComposeWindowController {
 @MainActor
 final class ComposerWriteField: WriteField {
     private weak var composer: ComposeWindowController?
+    /// What the composer was opened as, which it never changes: kept here so the kind of write outlives the window.
+    private let mode: ComposeMode
 
     init(composer: ComposeWindowController) {
         self.composer = composer
+        mode = composer.mode
     }
 
     private var editor: ComposeTextView? { composer?.bodyEditor }
 
     var writeTextView: NSTextView { editor ?? NSTextView() }
+
+    var writeKind: WriteKind {
+        switch mode {
+        case .new: return .newMessage
+        case .reply: return .reply
+        case .forward: return .forward
+        }
+    }
+
+    /// From the mode, so a kept reply or forward opened again counts as what it is, never as `draft`.
+    var analyticsKind: AnalyticsSignal.ComposeKind { AnalyticsSignal.ComposeKind(mode) }
 
     var ownTextRange: NSRange {
         guard let editor else { return NSRange(location: 0, length: 0) }

@@ -75,13 +75,21 @@ final class AppSettings: ObservableObject {
         static let aiModelPrefix = "aiModel."
         /// The CLI chosen with Choose… for Claude Code and Codex, under this prefix and the provider's raw value.
         static let aiCLIPathPrefix = "aiCLIPath."
-        /// The providers the user allowed to receive a conversation (the consent sheet's Allow), as raw values.
+        /// The providers the user turned on in Settings › AI (its privacy sheet's Turn On), as raw values. Until 1.21 that
+        /// sheet named replies only, so a provider listed here and not under `aiConsentBeyondReplies` may be sent a
+        /// reply's conversation and nothing else.
         static let aiConsent = "aiConsent"
-        /// The demo's own, so an Allow given where nothing leaves the Mac never stands for the user's real mail.
+        /// The providers turned on past the sheet that names new messages and forwards too (1.21). A Turn On writes this
+        /// key and `aiConsent`; nothing is carried over from the earlier sheet, so its absence means not given.
+        static let aiConsentBeyondReplies = "aiConsent.2"
+        /// The demo's own, so a Turn On given where nothing leaves the Mac never stands for the user's real mail. It has
+        /// no second key: whatever is written, the demo sends nothing, so there is nothing more to ask.
         static let demoAIConsent = "aiConsent.demo"
-        /// The demo's Allows for a CLI it runs for real (`--live-ai-clis`), apart again: an Allow on the demo's “Nothing
-        /// is sent” sheet never stands for a send.
+        /// The demo's Turn Ons for a CLI it runs for real (`--live-ai-clis`), apart again: one given on the demo's
+        /// “Nothing is sent” sheet never stands for a send.
         static let liveDemoAIConsent = "aiConsent.demo.live"
+        /// Those of them given past the sheet that names new messages and forwards, as `aiConsentBeyondReplies`.
+        static let liveDemoAIConsentBeyondReplies = "aiConsent.demo.live.2"
         /// The demo's provider, models and CLIs, kept apart for the same reason: a choice made while trying the demo
         /// never turns Help Me Write on for the user's own mail.
         static let demoAIProvider = "aiProvider.demo"
@@ -461,15 +469,24 @@ final class AppSettings: ObservableObject {
     @Published private(set) var demoAIModels: [AIProviderKind: String]
     @Published private(set) var demoAICLIPaths: [AIProviderKind: String]
 
-    /// The providers the user allowed to receive a conversation, outside the demo.
+    /// The providers the user turned on, outside the demo: each may be sent the conversation a reply answers.
     @Published private(set) var aiConsent: Set<AIProviderKind>
 
-    /// The demo's Allows, kept apart: nothing leaves the Mac there, so they never stand for the user's real mail.
+    /// Those of them turned on past the sheet that names new messages and forwards (1.21): each may also be sent what
+    /// those are written from. One turned on before it is in `aiConsent` alone, and writes replies only until the user
+    /// turns it on again in Settings › AI.
+    @Published private(set) var aiConsentBeyondReplies: Set<AIProviderKind>
+
+    /// The demo's Turn Ons, kept apart: nothing leaves the Mac there, so they never stand for the user's real mail, and
+    /// they stand for everything the demo writes.
     @Published private(set) var demoAIConsent: Set<AIProviderKind>
 
-    /// The demo's Allows for its CLIs run for real (`--live-ai-clis`): the conversation does leave the Mac there, so an
-    /// Allow given where replies are made up never counts for them.
+    /// The demo's Turn Ons for its CLIs run for real (`--live-ai-clis`): the conversation does leave the Mac there, so
+    /// one given where drafts are made up never counts for them.
     @Published private(set) var liveDemoAIConsent: Set<AIProviderKind>
+
+    /// Those of them given past the sheet that names new messages and forwards, as `aiConsentBeyondReplies`.
+    @Published private(set) var liveDemoAIConsentBeyondReplies: Set<AIProviderKind>
 
     /// What Help Me Write uses now for the user's own mail, or nil while it is off.
     var aiConfiguration: AIProviderConfiguration? { aiConfiguration(demo: false) }
@@ -518,27 +535,46 @@ final class AppSettings: ObservableObject {
         if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
     }
 
-    /// Whether the user allowed `kind` to receive a conversation: the demo's Allows in the demo (`live`: those for a CLI the
-    /// demo runs for real), the real ones elsewhere.
+    /// Whether the user turned `kind` on, so that it may be sent the conversation a reply answers: the demo's Turn Ons
+    /// in the demo (`live`: those for a CLI the demo runs for real), the real ones elsewhere. A new message or a forward
+    /// needs more: ask with `writing`.
     func hasAIConsent(for kind: AIProviderKind, demo: Bool, live: Bool = false) -> Bool {
         if !demo { return aiConsent.contains(kind) }
         return (live ? liveDemoAIConsent : demoAIConsent).contains(kind)
     }
 
-    /// The consent sheet's Allow (`given`), or Settings › AI's Forget, which makes the sheet ask again next time.
+    /// Whether the user allowed `kind` to be sent what a write of `writing` sends. Permission is by what is written: a
+    /// reply needs the Turn On alone, exactly as it always did; a new message or a forward also needs it to have been
+    /// given past the sheet that names them. The made-up demo sends nothing whatever it writes, so its one Turn On
+    /// stands for all three.
+    func hasAIConsent(for kind: AIProviderKind, writing: WriteKind, demo: Bool, live: Bool = false) -> Bool {
+        guard hasAIConsent(for: kind, demo: demo, live: live) else { return false }
+        switch writing {
+        case .reply:
+            return true
+        case .newMessage, .forward:
+            if demo, !live { return true }
+            return (demo ? liveDemoAIConsentBeyondReplies : aiConsentBeyondReplies).contains(kind)
+        }
+    }
+
+    /// The privacy sheet's Turn On (`given`), which stands for everything that sheet names, replies, new messages and
+    /// forwards; or its withdrawal (Off, or another provider turned on in its place), which takes all of it back.
     func setAIConsent(_ given: Bool, for kind: AIProviderKind, demo: Bool, live: Bool = false) {
-        var kinds = !demo ? aiConsent : live ? liveDemoAIConsent : demoAIConsent
-        if given { kinds.insert(kind) } else { kinds.remove(kind) }
-        let stored = kinds.map(\.rawValue).sorted()
+        func changed(_ kinds: Set<AIProviderKind>, storedAs key: String) -> Set<AIProviderKind> {
+            var kinds = kinds
+            if given { kinds.insert(kind) } else { kinds.remove(kind) }
+            defaults.set(kinds.map(\.rawValue).sorted(), forKey: key)
+            return kinds
+        }
         if !demo {
-            aiConsent = kinds
-            defaults.set(stored, forKey: Key.aiConsent)
+            aiConsent = changed(aiConsent, storedAs: Key.aiConsent)
+            aiConsentBeyondReplies = changed(aiConsentBeyondReplies, storedAs: Key.aiConsentBeyondReplies)
         } else if live {
-            liveDemoAIConsent = kinds
-            defaults.set(stored, forKey: Key.liveDemoAIConsent)
+            liveDemoAIConsent = changed(liveDemoAIConsent, storedAs: Key.liveDemoAIConsent)
+            liveDemoAIConsentBeyondReplies = changed(liveDemoAIConsentBeyondReplies, storedAs: Key.liveDemoAIConsentBeyondReplies)
         } else {
-            demoAIConsent = kinds
-            defaults.set(stored, forKey: Key.demoAIConsent)
+            demoAIConsent = changed(demoAIConsent, storedAs: Key.demoAIConsent)
         }
     }
 
@@ -638,9 +674,13 @@ final class AppSettings: ObservableObject {
         aiCLIPaths = Self.storedValues(defaults, prefix: Key.aiCLIPathPrefix)
         demoAIModels = Self.storedValues(defaults, prefix: Key.demoAIModelPrefix)
         demoAICLIPaths = Self.storedValues(defaults, prefix: Key.demoAICLIPathPrefix)
+        // Read as stored, never derived from one another: a Turn On given before the sheet named new messages and
+        // forwards stays what it was, a permission for replies.
         aiConsent = Self.storedKinds(defaults, Key.aiConsent)
+        aiConsentBeyondReplies = Self.storedKinds(defaults, Key.aiConsentBeyondReplies)
         demoAIConsent = Self.storedKinds(defaults, Key.demoAIConsent)
         liveDemoAIConsent = Self.storedKinds(defaults, Key.liveDemoAIConsent)
+        liveDemoAIConsentBeyondReplies = Self.storedKinds(defaults, Key.liveDemoAIConsentBeyondReplies)
         let offersReaderMode = defaults.bool(forKey: Key.offersReaderMode)
         self.offersReaderMode = offersReaderMode
         // Never on while the experiment is off, whatever was saved (a value written by hand).

@@ -118,7 +118,8 @@ enum AppSnapshots {
             { launchAtLogin.showForSnapshot(.off); notificationPermission.showForSnapshot(.denied) },
             { notificationPermission.showForSnapshot(.allowedWithoutBadge) },
             // AI (§5.56), held for the render: Off; Claude Code as the tab opens (found, from this Mac) and after Check;
-            // Codex not found; OpenAI without a key; Claude checking; Claude chosen before 1.12 and never turned on.
+            // Codex not found; OpenAI without a key; Claude checking; Claude chosen before 1.12 and never turned on; Claude
+            // turned on before its sheet named new messages and forwards.
             { notificationPermission.showForSnapshot(.allowed); ai.showForSnapshot(provider: nil, status: .none); model.tab = .ai },
             { ai.showForSnapshot(provider: .claudeCode, status: .ready("Claude Code 2.1.322 found"), cliPath: home + "/.local/bin/claude") },
             { ai.showForSnapshot(provider: .claudeCode, status: .ready("Claude Code 2.1.322 \u{00b7} signed in with claude.ai"),
@@ -128,6 +129,8 @@ enum AppSnapshots {
             { ai.showForSnapshot(provider: .claudeAPI, status: .checking, hasKey: true) },
             { ai.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.notTurnedOnWords), hasKey: true,
                                  hasConsent: false) },
+            { ai.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.repliesOnlyWords), hasKey: true,
+                                 repliesOnly: true) },
             // Experimental (§5.58) with both experiments on, held for the run: never saved, never reported.
             {
                 settings.keepsExperimentsInMemory = true
