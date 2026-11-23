@@ -120,8 +120,9 @@ final class HelpMeWritePerformanceTests: XCTestCase {
         XCTAssertLessThan(median, 1)
     }
 
-    /// ⌘J on an empty new message has nothing to write from: it opens the prompt line within a frame, sends nothing,
-    /// and making the body's session (the first thing a new composer's body does) reads this Mac only.
+    /// ⌘J on an empty new message has nothing to write from: it opens the prompt line within a frame and sends nothing.
+    /// The body's session is there by the time the window is (it is made as the window comes forward, from this Mac's
+    /// facts alone).
     func testCommandJOnAnEmptyNewMessageOpensTheLineWithinAFrame() throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
@@ -129,15 +130,12 @@ final class HelpMeWritePerformanceTests: XCTestCase {
         harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
         let accounts = harness.controller.accounts
         var opens: [Double] = []
-        var sessions: [Double] = []
         for _ in 0..<15 {
             let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
                                                            mode: .new)
             composer.window?.makeFirstResponder(composer.bodyEditor)
-            var start = DispatchTime.now().uptimeNanoseconds
             let session = try XCTUnwrap(composer.bodyWriteSession)
-            sessions.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
-            start = DispatchTime.now().uptimeNanoseconds
+            let start = DispatchTime.now().uptimeNanoseconds
             composer.helpMeWrite(nil)
             composer.window?.contentView?.layoutSubtreeIfNeeded()
             opens.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
@@ -146,10 +144,7 @@ final class HelpMeWritePerformanceTests: XCTestCase {
         }
         XCTAssertEqual(harness.environment.helpMeWrite.demoScript?.requests.count, 0, "nothing was sent")
         let open = opens.sorted()[opens.count / 2]
-        let made = sessions.sorted()[sessions.count / 2]
-        print(String(format: "Help me write on a new message: its session made in %.2f ms, ⌘J to the prompt line %.2f ms (medians of %d)",
-                     made, open, opens.count))
+        print(String(format: "Help me write on a new message: ⌘J to the prompt line %.2f ms (median of %d)", open, opens.count))
         XCTAssertLessThan(open, 16)
-        XCTAssertLessThan(made, 16)
     }
 }

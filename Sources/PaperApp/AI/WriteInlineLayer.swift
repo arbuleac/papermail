@@ -4,7 +4,7 @@ import PaperDesign
 import os
 
 /// Help me write's marks in a reply's text (§5.56): the ghost after the caret, the selection pill, the prompt line, the
-/// pencil while a reply streams and the afterline under a draft. One per field (the quick reply's, a reply composer's
+/// pencil while a draft streams and the afterline under a draft. One per field (the quick reply's, a composer's
 /// body), the same in both: only the host differs. They are subviews of the text view, so they scroll with the text, and
 /// placed from its layout manager: the caret's line and baseline, a selection's or a draft's last line. The pill floats
 /// in `floatHost`, which does not clip it where the text's own scroll view would (the quick reply's bar).
