@@ -3,7 +3,7 @@ import Foundation
 /// What a Help Me Write request writes. A closed set, because three things turn on it and none may be guessed: which
 /// fixed instructions the model reads (and so which prompt version the log names), which permission the user must have
 /// given in Settings › AI, and whether the answer's first line is read as a subject.
-public enum WriteKind: String, Sendable, Hashable, CaseIterable {
+public enum WriteKind: Sendable, Hashable, CaseIterable {
     /// A reply (the quick reply, a reply or reply-all composer), written from the conversation it answers.
     case reply
     /// A new message, written from the user's brief alone. A forward whose forwarded message is not there to read is

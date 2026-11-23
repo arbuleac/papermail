@@ -12,6 +12,13 @@ final class WriteKindTests: XCTestCase {
         XCTAssertEqual(WritePrompt.version, "write-reply-2", "the reply's prompt is the one it was")
     }
 
+    /// The reply's prompt is as it was: people's permission was given for what it sends, so its words do not change
+    /// without a new version (`PromptChecksum`).
+    func testTheReplysWordsAreTheOnesTheyWere() {
+        XCTAssertEqual([true, false].map { PromptChecksum.of(WritePrompt.instructions(appendsSignature: $0)) },
+                       PromptChecksum.reply, "the words of write-reply-2 changed")
+    }
+
     /// A request says what it writes and its version follows: nothing a new message sends is logged as the reply's.
     func testARequestsPromptVersionFollowsItsKind() {
         for kind in WriteKind.allCases {

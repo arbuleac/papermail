@@ -59,8 +59,8 @@ public struct ComposeWriteInputs: Sendable, Hashable {
 
     /// The most characters of the subject that are sent.
     public static let maxSubjectCharacters = 300
-    /// The most To recipients whose first name is sent: enough for a greeting.
-    public static let maxRecipients = 4
+    /// The most first names of To recipients that are sent: enough for a greeting.
+    public static let maxRecipientNames = 4
 
     /// What a write from these values is: a forward when its forwarded message is in hand, else a new message.
     public var kind: WriteKind { forwarded == nil ? .newMessage : .forward }
@@ -87,11 +87,11 @@ public struct ComposeWriteInputs: Sendable, Hashable {
         String(WriteSubjectLine.oneLine(AIRedactor().redact(subject)).prefix(Self.maxSubjectCharacters))
     }
 
-    /// The first names of the first `maxRecipients` To recipients, for the greeting: a name's first word when it is
-    /// one word of letters (`ReplyContextBuilder.firstWord`), nothing for a bare address or an address written as a
-    /// name. Only what the window holds: no contact is looked up.
+    /// The first names of the To recipients, for the greeting, in order and at most `maxRecipientNames`: a name's first
+    /// word when it is one word of letters (`ReplyContextBuilder.firstWord`), nothing for a bare address or an address
+    /// written as a name. Only what the window holds: no contact is looked up.
     var recipientFirstNames: [String] {
-        to.prefix(Self.maxRecipients).compactMap { ReplyContextBuilder.firstWord(of: $0.name) }
+        Array(to.lazy.compactMap { ReplyContextBuilder.firstWord(of: $0.name) }.prefix(Self.maxRecipientNames))
     }
 
     /// The user's first name when Paper knows it: a Microsoft account's display name. Gmail's is the address's local

@@ -40,7 +40,7 @@ public struct ForwardContext: Sendable, Hashable {
     public var subject: String
     /// The forwarded message; nil for a selection's rewrite, which sends the selection and the instruction alone.
     public var message: Message?
-    /// The first names of the first To recipients, at most four; never Cc, never Bcc, never an address.
+    /// The first names of the To recipients, at most four; never Cc, never Bcc, never an address.
     public var recipientFirstNames: [String]
     /// The user's first name, to sign with; nil when Paper does not know it.
     public var userFirstName: String?

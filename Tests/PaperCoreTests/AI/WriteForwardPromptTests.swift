@@ -74,13 +74,6 @@ final class WriteForwardPromptTests: XCTestCase {
                        PromptChecksum.forward, "the words of write-forward-1 changed: bump its version")
     }
 
-    /// The reply's prompt is not this change's to touch: its words are the ones people's permission was given for.
-    func testTheReplysWordsAreTheOnesTheyWere() {
-        XCTAssertEqual(WritePrompt.version, "write-reply-2")
-        XCTAssertEqual([true, false].map { PromptChecksum.of(WritePrompt.instructions(appendsSignature: $0)) },
-                       PromptChecksum.reply, "write-reply-2 stays byte for byte")
-    }
-
     // MARK: The user turn
 
     func testTheUserTurnWithEverything() {

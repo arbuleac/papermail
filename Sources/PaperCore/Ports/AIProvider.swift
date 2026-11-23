@@ -23,8 +23,9 @@ public protocol AIProvider: Sendable {
     func check(_ action: AIUserAction) async -> AIHealth
 
     /// Streams one reply. Yields `.text` / `.replaceAll` / `.usage` in order, then exactly one `.finished`, or throws one
-    /// `AIError`. Cancelling the consuming task (the stream's termination) cancels the URLSession task or ends the
-    /// process. Nothing is sent before the stream is iterated.
+    /// `AIError`. Never `.subject`: the text goes on as the model gave it, and `AIWriter` reads a new message's subject
+    /// line off it. Cancelling the consuming task (the stream's termination) cancels the URLSession task or ends the
+    /// process. Nothing is sent before the stream is iterated, and of the request only its instructions and user turn.
     func write(_ request: AIWriteRequest, action: AIUserAction) -> AsyncThrowingStream<AIWriteEvent, Error>
 }
 

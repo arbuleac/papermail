@@ -9,7 +9,7 @@ import Foundation
 public struct NewMessageContext: Sendable, Hashable {
     /// The Subject as typed: redacted, one line, at most 300 characters; empty when there is none.
     public var subject: String
-    /// The first names of the first To recipients, at most four; never Cc, never Bcc, never an address.
+    /// The first names of the To recipients, at most four; never Cc, never Bcc, never an address.
     public var recipientFirstNames: [String]
     /// The user's first name, to sign with; nil when Paper does not know it.
     public var userFirstName: String?

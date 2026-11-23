@@ -262,16 +262,15 @@ public final class AIWriter {
     }
 
     /// What turns the body the reader has (`old`) into `new`: nothing when they are the same, the new end when the
-    /// body only grew, the whole body otherwise (a provider replaced its text, or the first line turned out to be a
-    /// subject after all).
+    /// body only grew, the whole body otherwise (the provider replaced its text).
     nonisolated static func change(from old: String, to new: String) -> AIWriteEvent? {
         guard new != old else { return nil }
-        // Compared as scalars: a combining mark arriving after its letter is a new end too, and `String.hasPrefix`
-        // would not take the letter alone for the start of the two together.
-        let had = old.unicodeScalars
-        let has = new.unicodeScalars
-        guard has.starts(with: had) else { return .replaceAll(new) }
-        return .text(String(has.dropFirst(had.count)))
+        // Compared as bytes: an accent that arrives after its letter is a new end too, and `String.hasPrefix`, which
+        // compares whole characters, would not take the letter alone for the start of the two together.
+        let had = old.utf8
+        let has = new.utf8
+        guard has.count > had.count, has.starts(with: had) else { return .replaceAll(new) }
+        return .text(String(decoding: has.dropFirst(had.count), as: UTF8.self))
     }
 
     nonisolated private static func ending(for stop: AIStop, wroteSomething: Bool) -> AIStreamGate.Ending {

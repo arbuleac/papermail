@@ -62,16 +62,19 @@ final class ComposeWriteInputsTests: XCTestCase {
                        ["Priya", "Jean-Luc"])
     }
 
-    func testAtMostTheFirstFourRecipientsAreRead() {
+    func testAtMostFourFirstNamesAreKept() {
         let names = ["Ana", "Ben", "Cleo", "Dev", "Eli", "Fay"]
         let many = names.map { EmailAddress(name: "\($0) Example", address: "\($0.lowercased())@example.test") }
         XCTAssertEqual(ComposeWriteInputs(to: many).recipientFirstNames, ["Ana", "Ben", "Cleo", "Dev"])
-        XCTAssertEqual(ComposeWriteInputs.maxRecipients, 4)
+        XCTAssertEqual(ComposeWriteInputs.maxRecipientNames, 4)
         let turn = request(ComposeWriteInputs(to: many), notes)?.userTurn ?? ""
         XCTAssertTrue(turn.contains("To: Ana, Ben, Cleo, Dev\n"))
         XCTAssertFalse(turn.contains("Eli") || turn.contains("Fay"))
-        let mixed = [EmailAddress(address: "x@example.test"), many[0], EmailAddress(address: "y@example.test"), many[1], many[2]]
-        XCTAssertEqual(ComposeWriteInputs(to: mixed).recipientFirstNames, ["Ana", "Ben"], "the first four recipients, named or not")
+        let bare = [EmailAddress(address: "x@example.test"), EmailAddress(address: "y@example.test")]
+        XCTAssertEqual(ComposeWriteInputs(to: [bare[0], many[0], bare[1], many[1], many[2]]).recipientFirstNames, ["Ana", "Ben", "Cleo"],
+                       "in To's order, whoever has no name between them")
+        XCTAssertEqual(ComposeWriteInputs(to: bare + many).recipientFirstNames, ["Ana", "Ben", "Cleo", "Dev"],
+                       "a recipient without a name does not take a place")
     }
 
     /// The composer hands over To and nothing else of the recipients: there is no field a Cc or a Bcc could travel in,
