@@ -17,10 +17,22 @@ enum SenderRuleCopy {
 
     /// The toast a new rule leaves: “Gmail will archive mail from news@letter.example”, “Outlook will block
     /// deals@shop.example”. The server does it from now on, so it is said in the future and names the server; the
-    /// address goes last, so a long one loses its end to the slip's truncation and the verb stays.
-    static func toast(_ action: SenderRule.Action, address: String, kind: ProviderKind) -> String {
+    /// address goes last, so a long one loses its end to the slip's truncation and the verb stays. When Always Archive
+    /// took rows out of the Inbox beyond the conversation it was set from (`archived`, the conversations it took out of
+    /// every Inbox, `SenderRuleSweep.counted`), what it did comes first, in the past, as a toast's action does, then the
+    /// rule, in the server's own word, and the address: “Archived 12 · Gmail filter for news@letter.example”,
+    /// “Archived 3 · Outlook rule for …”. Short, as “Marked 3 as unread” is, because the toast lives in the list: beside
+    /// Undo and Z, the list at its default width shows the count (to four digits) and the rule whole and cuts only the
+    /// address, and at its widest shows the address's start too. The rule's longer sentence after a count (“Archived 12
+    /// conversations · Gmail will archive mail from …”) never fitted the list, which then showed the count alone and no
+    /// longer said there was a rule.
+    static func toast(_ action: SenderRule.Action, address: String, kind: ProviderKind, archived conversations: Int? = nil) -> String {
         switch action {
-        case .archive: return "\(service(kind)) will archive mail from \(address)"
+        case .archive:
+            guard let conversations, conversations > 0 else { return "\(service(kind)) will archive mail from \(address)" }
+            let n = conversations.formatted(.number.grouping(.automatic))
+            let rule = kind == .gmail ? "Gmail filter" : "Outlook rule"
+            return "Archived \(n) · \(rule) for \(address)"
         case .trash: return "\(service(kind)) will block \(address)"
         }
     }

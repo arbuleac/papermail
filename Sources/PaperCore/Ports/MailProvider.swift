@@ -167,6 +167,11 @@ public protocol MailProvider: Sendable {
     /// Apply a change to the given messages. Must be idempotent: applying twice is harmless.
     func apply(_ change: MetadataChange, to providerIDs: [String]) async throws
 
+    /// The most messages one `apply` call should carry: the outbox cuts a larger operation into calls of this many
+    /// (`OperationRunner`, and never more than `SyncTuning.maxApplyTargets`). The default, 50, is cut again by Graph into
+    /// `$batch` requests of 20; Gmail's `batchModify` takes 1,000 ids for one request's quota.
+    var maxApplyTargets: Int { get }
+
     /// The permission `change` needs that the account has not granted, or nil when it can go out. Asked before every
     /// replay without a request (the granted scopes come with the token), so a change waiting for the user's
     /// permission costs nothing while it waits. The default needs none.
@@ -181,6 +186,10 @@ public protocol MailProvider: Sendable {
 extension MailProvider {
     public func missingPermission(for change: MetadataChange) async -> AccountPermission? {
         nil
+    }
+
+    public var maxApplyTargets: Int {
+        50
     }
 
     public func lookUpMetadata(for providerIDs: [String]) async throws -> MetadataLookup {

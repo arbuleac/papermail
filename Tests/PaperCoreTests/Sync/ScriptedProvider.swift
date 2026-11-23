@@ -333,11 +333,25 @@ class ScriptedProvider: MailProvider, @unchecked Sendable {
         if !steps.isEmpty { progress(1) }
     }
 
+    /// The most targets one apply call takes (`MailProvider.maxApplyTargets`): the default's 50, or Gmail's 1,000.
+    var maxApplyTargets: Int {
+        get { locked { scriptedApplyTargets } }
+        set { locked { scriptedApplyTargets = newValue } }
+    }
+    private var scriptedApplyTargets = 50
+    /// How long each apply call takes, so a test can watch what the lane does between them.
+    var applyDelay: TimeInterval {
+        get { locked { scriptedApplyDelay } }
+        set { locked { scriptedApplyDelay = newValue } }
+    }
+    private var scriptedApplyDelay: TimeInterval = 0
+
     func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
-        let result: Result<Void, Error> = locked {
+        let (result, delay): (Result<Void, Error>, TimeInterval) = locked {
             recordedApplyCalls.append((change, providerIDs, Date()))
-            return applyResults.isEmpty ? .success(()) : applyResults.removeFirst()
+            return (applyResults.isEmpty ? .success(()) : applyResults.removeFirst(), scriptedApplyDelay)
         }
+        if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             locked {
                 if holdApplies {

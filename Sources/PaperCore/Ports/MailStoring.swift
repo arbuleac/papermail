@@ -60,6 +60,13 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     /// read: what a new-mail notification is about, which the conversation's newest message may not be (a sender rule
     /// archived it as it arrived, or it is the user's own reply).
     func newestUnreadInboxMessages(in conversations: [ConversationID]) throws -> [ConversationID: MessageMetadata]
+    /// Every message in the Inbox (not in the Trash or Spam), in every account, whose From address is `address` as a
+    /// sender rule matches one (`SenderRule.normalizedAddress`: without case, whatever the display name), newest first
+    /// (then by account and provider id): what Always Archive Mail from This Sender takes out of the Inbox when it is set
+    /// (docs/ARCHITECTURE.md, "Rules"). Empty for an address that normalizes to nothing. It runs on the click, so its cost
+    /// follows the sender's mail, never the mailbox: the SQLite store takes its candidates from the full-text index's
+    /// `sender` column (docs/DATA-MODEL.md, `message_fts`).
+    func inboxMessages(from address: String) throws -> [MessageMetadata]
     /// Stores the body render-ready. A body that was evicted is whole again: it leaves the evicted state.
     func saveBody(_ body: StoredBody, for id: MessageID) throws
     /// Stores the body as `saveBody` does, except that one `evictBodies` would take for `cutoff` (the message received
@@ -176,6 +183,11 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     ) -> StoreObservation
     func observeConversation(_ id: ConversationID, onChange: @escaping @Sendable ([MessageMetadata]) -> Void) -> StoreObservation
     func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int
+    /// The summary rows of `conversations`, by id, those the store holds none of (gone, or nothing outside Spam) left
+    /// out: what a step needs to know of conversations the list may not hold, another account's or beyond its page
+    /// (Always Archive Mail from This Sender reads which came back from Later before it, and which left the Inbox after).
+    /// One key lookup a conversation.
+    func summaries(of conversations: [ConversationID]) throws -> [ConversationID: ConversationSummary]
 
     // MARK: Snoozes (docs/DATA-MODEL.md, "Snoozes")
     // Later archives a conversation now and moves it back to the Inbox at a time. The two halves are ordinary
@@ -224,15 +236,18 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     /// (`saved`) and the user's changes on their way there (`creating`, `replacing`, `deleting`, which the UI shows as
     /// such; a `deleting` row is no longer the user's rule, `SenderRule.isActive`).
     func senderRules() throws -> [SenderRule]
-    /// In one transaction: applies and queues `operations` as `enqueue` does (the rule's change on the sender's mail in
-    /// the conversation it was set from, or an undo's inverse steps), then sets the account's rule for `address` to
-    /// `action`, or removes it when `action` is nil, as a change on its way to the server: a new rule is `creating`; the
-    /// other action for a rule the server has is `replacing`; removing a rule the server has makes it `deleting`, and one
-    /// the server never had goes at once; setting a rule on a `deleting` row makes it `replacing` (the engine adopts what
-    /// the server has when it is the same). The same action again changes nothing. `now` is the row's `createdAt`, the
-    /// order the engine sends pending rows in.
+    /// In one transaction: applies and queues `operations` as `enqueue` does, whichever accounts they belong to (the
+    /// rule's change on the sender's mail: Always Archive's on their mail in every account's Inbox, one operation per
+    /// account; Block's in the conversation it was set from; or an undo's inverse steps), then sets `accountID`'s rule
+    /// for `address`, and no other account's, to `action`, or removes it when `action` is nil, as a change on its way to
+    /// the server: a new rule is `creating`; the other action for a rule the server has is `replacing`; removing a rule
+    /// the server has makes it `deleting`, and one the server never had goes at once; setting a rule on a `deleting` row
+    /// makes it `replacing` (the engine adopts what the server has when it is the same). The same action again changes
+    /// nothing. `now` is the row's `createdAt`, the order the engine sends pending rows in. Last, it puts back each of
+    /// `returnMarks` as `setMuted` does (an undo of Always Archive that took conversations back from Later out of the
+    /// Inbox).
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
-                       enqueueing operations: [Operation], at now: Date) throws
+                       enqueueing operations: [Operation], at now: Date, returnMarks: [ConversationID: Date]) throws
     /// The account's rows waiting for the server (`creating`, `replacing`, `deleting`), oldest `createdAt` first, then by
     /// address: what the engine sends.
     func pendingSenderRules(accountID: AccountID) throws -> [SenderRule]
@@ -332,6 +347,12 @@ extension MailStoring {
     /// `SQLiteMailStore` overrides it with one column.
     public func invitation(for id: MessageID) throws -> CalendarInvitation? {
         try body(for: id)?.invitation
+    }
+
+    /// `setSenderRule(_:for:accountID:enqueueing:at:returnMarks:)` with no return mark to put back.
+    public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
+                              enqueueing operations: [Operation], at now: Date) throws {
+        try setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now, returnMarks: [:])
     }
 
     /// `setMuted(_:conversations:enqueueing:returnMarks:)` with no return mark to put back.

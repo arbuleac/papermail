@@ -15,6 +15,8 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         case finishBackfill
         /// Either form of `enqueue`: one call, whether it carries one operation or several.
         case enqueue
+        /// The outbox writing an operation again: the write-ahead, a narrowing, a backoff, a give-up.
+        case updateOperation
         /// A calendar read's write.
         case replaceCalendarEvents
         case settleCalendarEvent
@@ -109,6 +111,7 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func deleteMessages(_ ids: [MessageID]) throws { try base.deleteMessages(ids) }
     func message(_ id: MessageID) throws -> MessageMetadata? { try base.message(id) }
     func messages(in conversation: ConversationID) throws -> [MessageMetadata] { try base.messages(in: conversation) }
+    func inboxMessages(from address: String) throws -> [MessageMetadata] { try base.inboxMessages(from: address) }
     func saveBody(_ body: StoredBody, for id: MessageID) throws { try base.saveBody(body, for: id) }
     func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
         let hook = lock.withLock { evictingSaveHook }
@@ -230,6 +233,9 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         base.observeConversation(id, onChange: onChange)
     }
     func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int { try base.unreadInboxCount(accountIDs: accountIDs) }
+    func summaries(of conversations: [ConversationID]) throws -> [ConversationID: ConversationSummary] {
+        try base.summaries(of: conversations)
+    }
     func snoozes() throws -> [Snooze] { try base.snoozes() }
     func setSnoozes(_ changes: [Snooze.Change], enqueueing operations: [Operation], at now: Date) throws {
         try base.setSnoozes(changes, enqueueing: operations, at: now)
@@ -248,8 +254,8 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func isMuted(_ conversation: ConversationID) throws -> Bool { try base.isMuted(conversation) }
     func senderRules() throws -> [SenderRule] { try base.senderRules() }
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
-                       enqueueing operations: [Operation], at now: Date) throws {
-        try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
+                       enqueueing operations: [Operation], at now: Date, returnMarks: [ConversationID: Date]) throws {
+        try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now, returnMarks: returnMarks)
     }
     func pendingSenderRules(accountID: AccountID) throws -> [SenderRule] { try base.pendingSenderRules(accountID: accountID) }
     func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws {
@@ -275,7 +281,10 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     func pendingOperations(accountID: AccountID, limit: Int) throws -> [Operation] {
         try base.pendingOperations(accountID: accountID, limit: limit)
     }
-    func updateOperation(_ operation: Operation) throws { try base.updateOperation(operation) }
+    func updateOperation(_ operation: Operation) throws {
+        try check(.updateOperation)
+        try base.updateOperation(operation)
+    }
     func confirmOperation(id: String) throws { try base.confirmOperation(id: id) }
     func deleteOperation(id: String) throws { try base.deleteOperation(id: id) }
     func acknowledgeFailedOperation(conversationID: ConversationID) throws { try base.acknowledgeFailedOperation(conversationID: conversationID) }

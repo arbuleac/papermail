@@ -388,6 +388,61 @@ extension MailStoreContractTests {
         XCTAssertNil(try failedMark("c"), "a later operation written as confirmed settles like a deleted one")
     }
 
+    /// The outbox narrows a live operation to the targets still owed (a partial refusal; a drain's share of calls spent
+    /// part-way through Always Archive's thousands): the provider took the rest, so each conversation the operation no
+    /// longer targets settles as a confirmation would, without waiting for the rest, which may take many drains or never
+    /// land. One it still targets keeps its mark until then; a newer failure keeps its mark.
+    func testNarrowingAnOperationSettlesTheConversationsItLeaves() throws {
+        try store.upsertMessages([
+            message("m1", in: "c", date: date(100)),
+            message("m2", in: "c", date: date(200)),
+            message("n1", in: "d", date: date(300)),
+            message("p1", in: "e", date: date(400)),
+            message("q1", in: "f", date: date(500)),
+        ])
+        // Older failures on every conversation the archive will touch, and a newer one on e.
+        let older = operation("op-older", .setRead(true), ["m1", "n1", "p1", "q1"], at: 1_000)
+        try store.enqueue(older)
+        try store.updateOperation(failed(older))
+        var archive = operation("op-archive", .archive, ["m1", "m2", "n1", "p1", "q1"], at: 2_000)
+        try store.enqueue(archive)
+        let newer = operation("op-newer", .setStarred(true), ["p1"], at: 3_000)
+        try store.enqueue(newer)
+        try store.updateOperation(failed(newer))
+        XCTAssertEqual(try failedMark("c"), .markRead)
+        XCTAssertEqual(try failedMark("e"), .star)
+
+        // The write-ahead keeps every target: nothing settles.
+        archive.status = .uncertain
+        archive.attempts = 1
+        try store.updateOperation(archive)
+        XCTAssertEqual(try failedMark("c"), .markRead)
+        XCTAssertEqual(try failedMark("d"), .markRead)
+
+        // Narrowed to what was not sent: m1, n1 and p1 went out, m2 and q1 are still owed.
+        archive.status = .pending
+        archive.attempts = 0
+        archive.targets = [MessageID(accountID: accountA, providerID: "m2"), MessageID(accountID: accountA, providerID: "q1")]
+        try store.updateOperation(archive)
+        XCTAssertNil(try failedMark("d"), "its part landed: the older failure is settled")
+        XCTAssertEqual(try failedMark("c"), .markRead, "m2 is still owed")
+        XCTAssertEqual(try failedMark("e"), .star, "a newer failure stands")
+        XCTAssertEqual(try failedMark("f"), .markRead)
+        XCTAssertTrue(try summary("c").hasPendingOperations)
+        XCTAssertFalse(try summary("d").hasPendingOperations)
+
+        // Given up on q1 after m2 went out: c settles, f is marked with the archive's failure.
+        archive.status = .failed
+        archive.attempts = 25
+        archive.nextAttemptAt = date(1_000_000)
+        archive.targets = [MessageID(accountID: accountA, providerID: "q1")]
+        try store.updateOperation(archive)
+        XCTAssertNil(try failedMark("c"), "the give-up's narrowing settles what landed too")
+        XCTAssertEqual(try failedMark("f"), .archive)
+        XCTAssertEqual(try store.message(MessageID(accountID: accountA, providerID: "q1"))?.roles, [.inbox], "only q1 is put back")
+        XCTAssertEqual(try store.message(MessageID(accountID: accountA, providerID: "m2"))?.roles, [])
+    }
+
     func testFailedMarkLivesOnTheSummaryRow() throws {
         try store.upsertMessages([message("m1", in: "c", date: date(100)), message("n1", in: "d", date: date(200))])
         let archive = operation("op-archive", .archive, ["m1", "n1"], at: 1_000)

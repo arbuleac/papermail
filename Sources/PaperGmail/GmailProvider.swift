@@ -107,6 +107,12 @@ public final class GmailProvider: MailProvider, Sendable {
         true
     }
 
+    /// One `batchModify` takes 1,000 ids for the quota of one request: archiving a sender's 5,000 messages is 5 requests,
+    /// where calls of 50 made 100, which Gmail's per-user rate throttles.
+    public var maxApplyTargets: Int {
+        Self.batchModifyChunk
+    }
+
     /// Ids only, 500 a page for 5 quota units.
     public func mailOutsideEnumeration(page: String?, limit: Int) async throws -> BackfillListing {
         let list = try await listMessages(page: page, limit: limit, query: Self.outsideEnumerationQuery, includeSpamTrash: true)

@@ -174,6 +174,10 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         }
     }
 
+    public func inboxMessages(from address: String) throws -> [MessageMetadata] {
+        try read { try MessageTable.inboxMessages(from: address, in: $0) }
+    }
+
     /// Stores a body for a known message. A body for a message that no longer exists is dropped silently: the
     /// hydrator may have fetched it just before a poll deleted the message.
     public func saveBody(_ body: StoredBody, for id: MessageID) throws {
@@ -376,6 +380,11 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try ConversationTable.unreadInboxCount(accountIDs: accountIDs, in: $0) }
     }
 
+    public func summaries(of conversations: [ConversationID]) throws -> [ConversationID: ConversationSummary] {
+        guard !conversations.isEmpty else { return [:] }
+        return try read { try ConversationTable.summaries(of: conversations, in: $0) }
+    }
+
     // MARK: Snoozes
 
     public func snoozes() throws -> [Snooze] {
@@ -431,10 +440,12 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
     }
 
     public func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
-                              enqueueing operations: [Operation], at now: Date) throws {
+                              enqueueing operations: [Operation], at now: Date, returnMarks: [ConversationID: Date]) throws {
         try write { db in
             for operation in operations { try OperationTable.enqueue(operation, in: db) }
             try SenderRuleTable.set(action, for: address, accountID: accountID, now: now, in: db)
+            // Last, once an undo's inverse steps have put the conversations back in the Inbox, which a mark needs.
+            for (conversation, date) in returnMarks { try SnoozeTable.markReturned(conversation, at: date, in: db) }
         }
     }
 
@@ -707,6 +718,11 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
     /// SQLite's plan for the calendar's range read, one line per step, so tests can pin it to the time index.
     func calendarQueryPlan(in interval: DateInterval, accountIDs: [AccountID]?) throws -> [String] {
         try read { try CalendarEventTable.explainEvents(in: interval, accountIDs: accountIDs, in: $0) }
+    }
+
+    /// SQLite's plan for `inboxMessages(from:)`, so tests can pin it to the full-text index.
+    func inboxMessagesQueryPlan(from address: String) throws -> [String] {
+        try read { try MessageTable.explainInboxMessages(from: address, in: $0) }
     }
 
     /// SQLite's plan for the reader's read of a conversation's mail times.

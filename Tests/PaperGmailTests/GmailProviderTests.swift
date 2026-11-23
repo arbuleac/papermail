@@ -480,6 +480,11 @@ final class GmailProviderTests: XCTestCase {
         XCTAssertEqual(calls[2].jsonBody["removeLabelIds"] as? [String], ["INBOX"])
     }
 
+    /// The outbox hands Gmail as many ids a call as one `batchModify` takes, so a sender's 5,000 messages are 5 requests.
+    func testTheOutboxMayHandItAThousandIDsACall() {
+        XCTAssertEqual(TestSupport.makeProvider().maxApplyTargets, 1_000)
+    }
+
     func testApplyWithNoTargetsMakesNoRequest() async throws {
         let provider = TestSupport.makeProvider()
         try await provider.apply(.archive, to: [])

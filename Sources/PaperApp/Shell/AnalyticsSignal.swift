@@ -451,8 +451,9 @@ enum AnalyticsSignal: Equatable, Sendable {
 
         var labels: [String] { ranges.map(\.label) }
 
-        /// Conversations a mail action took.
-        static let conversations = CountBuckets(ranges: [(0, "1"), (2, "2-5"), (6, "6-20"), (21, "21+")])
+        /// Conversations a mail action took. Only Always Archive Mail from This Sender sends "0": the rule is set even
+        /// when no Inbox holds the sender's mail, while every other action that takes nothing sends nothing.
+        static let conversations = CountBuckets(ranges: [(0, "0"), (1, "1"), (2, "2-5"), (6, "6-20"), (21, "21+")])
         /// Accounts of one kind.
         static let accounts = CountBuckets(ranges: [(0, "0"), (1, "1"), (2, "2"), (3, "3-5"), (6, "6+")])
         /// Search operators in a query (`from:`, `is:`, a leading minus…).

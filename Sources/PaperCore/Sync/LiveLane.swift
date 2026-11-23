@@ -27,9 +27,10 @@ actor LiveLane {
         /// `pollAfter`: the poll stopped short to stay within the live share and goes on after that long.
         case completed(nextAttemptAt: Date?, pollAfter: TimeInterval?)
         case throttled(retryAfter: TimeInterval?)
-        case failed
+        /// `outboxDueAt`: when the outbox drained before the failure asked to run again (`OperationRunner.Outcome`).
+        case failed(outboxDueAt: Date?)
         case needsReauth
-        case reset
+        case reset(outboxDueAt: Date?)
         case cancelled
     }
 
@@ -206,16 +207,17 @@ actor LiveLane {
                 )
                 timeout = schedulePoll(after: min(delay, backoffCap))
                 reportRetry(after: timeout)
-            case .failed:
+            case .failed(let outboxDueAt):
                 link.liveCycleEnded()
                 consecutiveFailures += 1
-                timeout = schedulePoll(after: backoffDelay(consecutiveFailures))
-                reportRetry(after: timeout)
+                let pollDelay = schedulePoll(after: backoffDelay(consecutiveFailures))
+                reportRetry(after: pollDelay)
+                timeout = Self.delay(pollDelay, outboxDueAt: outboxDueAt)
             case .needsReauth:
                 link.park()
                 nextPollAt = nil
                 timeout = nil
-            case .reset:
+            case .reset(let outboxDueAt):
                 link.liveCycleEnded()
                 consecutiveResets += 1
                 // One reset is routine (expired history): poll from the fresh cursor at once. Repeated ones mean
@@ -225,7 +227,7 @@ actor LiveLane {
                     continue cycles
                 }
                 setPhase(.idle)
-                timeout = schedulePoll(after: backoffDelay(consecutiveResets))
+                timeout = Self.delay(schedulePoll(after: backoffDelay(consecutiveResets)), outboxDueAt: outboxDueAt)
             case .cancelled:
                 break cycles
             }
@@ -242,6 +244,15 @@ actor LiveLane {
 
     private var backoffCap: TimeInterval {
         min(tuning.backoffCap, tuning.liveBackoffCap)
+    }
+
+    /// The wait after a failed poll: its backoff, or less when the outbox drained before it asked to run sooner (an
+    /// operation narrowed to what a drain's share left, due at once; another's retry). The wake is then an outbox-only
+    /// cycle, as after a user action, and the poll keeps its backoff (`nextPollAt`). A throttle is waited out whole:
+    /// the outbox spends the quota the provider asked to rest, and goes on after it.
+    private static func delay(_ pollDelay: TimeInterval, outboxDueAt: Date?) -> TimeInterval {
+        guard let outboxDueAt else { return pollDelay }
+        return min(pollDelay, seconds(until: outboxDueAt))
     }
 
     private var pollIsDue: Bool {
@@ -267,15 +278,18 @@ actor LiveLane {
 
     private func runCycle(full: Bool, requested: Bool) async -> CycleOutcome {
         if full { checkStarted() }
+        // Kept past a poll that fails after the drain, so the outbox's own schedule survives the poll's backoff.
+        var outboxDueAt: Date?
         do {
             if try store.syncCursor(for: accountID) == nil, try !adoptCheckpointCursor(), full {
                 try await fetchHead()
             }
             let nextAttemptAt = try await drainOutbox()
+            outboxDueAt = nextAttemptAt
             var pollAfter: TimeInterval?
             if full {
                 switch try await poll(requested: requested) {
-                case .reset: return .reset
+                case .reset: return .reset(outboxDueAt: nextAttemptAt)
                 case .deferred(let after): pollAfter = after
                 case .polled: break
                 }
@@ -290,7 +304,7 @@ actor LiveLane {
         } catch is CancellationError {
             return .cancelled
         } catch let error as ProviderError {
-            return await handle(error)
+            return await handle(error, outboxDueAt: outboxDueAt)
         } catch let error as AuthError where error.isKeychainDenial {
             // macOS asks for the keychain password on every read the user has not allowed (each rebuild of an
             // ad hoc signed app counts as a new app). Retrying on a backoff would bring the prompt back again
@@ -303,11 +317,11 @@ actor LiveLane {
             let description = SyncErrorDescription.describe(error)
             setPhase(.error, message: description)
             SyncLog.logger.error("sync failed for \(self.accountID.rawValue, privacy: .public): \(description, privacy: .private)")
-            return .failed
+            return .failed(outboxDueAt: outboxDueAt)
         }
     }
 
-    private func handle(_ error: ProviderError) async -> CycleOutcome {
+    private func handle(_ error: ProviderError, outboxDueAt: Date?) async -> CycleOutcome {
         let id = accountID.rawValue
         switch error {
         case .unauthorized:
@@ -329,7 +343,7 @@ actor LiveLane {
             let description = SyncErrorDescription.describe(error)
             setPhase(.error, message: description)
             SyncLog.logger.error("sync failed for \(id, privacy: .public): \(description, privacy: .private)")
-            return .failed
+            return .failed(outboxDueAt: outboxDueAt)
         }
     }
 

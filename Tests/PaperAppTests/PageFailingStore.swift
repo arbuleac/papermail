@@ -48,6 +48,7 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func deleteMessages(_ ids: [MessageID]) throws { try base.deleteMessages(ids) }
     func message(_ id: MessageID) throws -> MessageMetadata? { try base.message(id) }
     func messages(in conversation: ConversationID) throws -> [MessageMetadata] { try base.messages(in: conversation) }
+    func inboxMessages(from address: String) throws -> [MessageMetadata] { try base.inboxMessages(from: address) }
     func saveBody(_ body: StoredBody, for id: MessageID) throws { try base.saveBody(body, for: id) }
     func saveBody(_ body: StoredBody, for id: MessageID, evictingIfReceivedBefore cutoff: Date) throws -> Bool {
         try base.saveBody(body, for: id, evictingIfReceivedBefore: cutoff)
@@ -109,6 +110,9 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
         base.observeConversation(id, onChange: onChange)
     }
     func unreadInboxCount(accountIDs: [AccountID]?) throws -> Int { try base.unreadInboxCount(accountIDs: accountIDs) }
+    func summaries(of conversations: [ConversationID]) throws -> [ConversationID: ConversationSummary] {
+        try base.summaries(of: conversations)
+    }
     func snoozes() throws -> [Snooze] { try base.snoozes() }
     func setSnoozes(_ changes: [Snooze.Change], enqueueing operations: [PaperCore.Operation], at now: Date) throws {
         try base.setSnoozes(changes, enqueueing: operations, at: now)
@@ -127,8 +131,8 @@ final class PageFailingStore: MailStoring, @unchecked Sendable {
     func isMuted(_ conversation: ConversationID) throws -> Bool { try base.isMuted(conversation) }
     func senderRules() throws -> [SenderRule] { try base.senderRules() }
     func setSenderRule(_ action: SenderRule.Action?, for address: String, accountID: AccountID,
-                       enqueueing operations: [PaperCore.Operation], at now: Date) throws {
-        try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now)
+                       enqueueing operations: [PaperCore.Operation], at now: Date, returnMarks: [ConversationID: Date]) throws {
+        try base.setSenderRule(action, for: address, accountID: accountID, enqueueing: operations, at: now, returnMarks: returnMarks)
     }
     func pendingSenderRules(accountID: AccountID) throws -> [SenderRule] { try base.pendingSenderRules(accountID: accountID) }
     func replaceServerSenderRules(accountID: AccountID, with rules: [ServerSenderRule], readAt: Date) throws {

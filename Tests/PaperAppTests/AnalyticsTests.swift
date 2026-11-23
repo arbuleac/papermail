@@ -397,7 +397,8 @@ final class AnalyticsTests: XCTestCase {
 
     func testCountsAndDurationsAreBucketed() {
         typealias C = AnalyticsSignal.CountBuckets
-        XCTAssertEqual([1, 2, 5, 6, 20, 21, 400].map(C.conversations.label), ["1", "2-5", "2-5", "6-20", "6-20", "21+", "21+"])
+        XCTAssertEqual([0, 1, 2, 5, 6, 20, 21, 400].map(C.conversations.label), ["0", "1", "2-5", "2-5", "6-20", "6-20", "21+", "21+"],
+                       "0 is its own: Always Archive sends it for a sender no Inbox holds")
         XCTAssertEqual([0, 1, 2, 3, 5, 6, 30].map(C.accounts.label), ["0", "1", "2", "3-5", "3-5", "6+", "6+"])
         XCTAssertEqual([0, 1, 10, 11, 50, 51, 199, 200].map(C.results.label), ["0", "1-10", "1-10", "11-50", "11-50", "51-199", "51-199", "200+"])
         XCTAssertEqual(C.accounts.label(-4), "0", "below the first range is the first")
@@ -719,6 +720,70 @@ final class AnalyticsTests: XCTestCase {
         // A step with no way in of its own is a menu's (no key is being handled here).
         XCTAssertEqual(recorder.sent.map { $0.parameters["trigger"] }, ["menu", "menu", "drag", "toolbar", "toast"])
         XCTAssertEqual(recorder.sent.first?.parameters["conversations"], "2-5")
+        assertNothingOfTheMail(in: harness)
+    }
+
+    /// Always Archive Mail from This Sender counts the conversations it took out of every Inbox, both accounts' (spec
+    /// §5.52), bucketed, none included ("0", the rule set for a sender no Inbox holds), and nothing of the sender.
+    func testAlwaysArchiveSendsTheConversationsItArchived() throws {
+        try startAnalytics()
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        let accounts = [ListTestSupport.accountA, ListTestSupport.accountB]
+        func mail(_ index: Int, from sender: String, roles: Set<MailboxRole>) -> MessageMetadata {
+            let account = accounts[index % 2]
+            return MessageMetadata(id: MessageID(accountID: account.id, providerID: "\(sender)-\(index)"),
+                                   conversationID: ConversationID(accountID: account.id, providerID: "\(sender)-\(index)"),
+                                   subject: "Issue \(index)", snippet: "", from: EmailAddress(name: "Weekly", address: "\(sender)@letter.example"),
+                                   date: Date().addingTimeInterval(-Double(index) - 5), roles: roles, isRead: false, isStarred: false,
+                                   hasAttachments: false)
+        }
+        try harness.environment.store.upsertMessages((0..<3).map { mail($0, from: "news", roles: [.inbox]) } + [mail(0, from: "quiet", roles: [])])
+        func open(_ id: ConversationID) {
+            harness.spin { harness.list.conversations.contains { $0.id == id } }
+            harness.list.selectedConversationID = id
+            harness.list.onSelectionChange?(id)
+            harness.spin { harness.reader.currentConversationID == id && !harness.reader.currentMessages.isEmpty }
+        }
+        func lastAction() -> [String: String]? { recorder.sent.last { $0.name == "Mail.action" }?.parameters }
+
+        open(ConversationID(accountID: accounts[0].id, providerID: "news-0"))
+        harness.controller.alwaysArchiveSender(nil)
+        harness.spin { lastAction() != nil }
+        XCTAssertEqual(lastAction()?["action"], "alwaysArchiveSender")
+        XCTAssertEqual(lastAction()?["conversations"], "2-5", "three conversations, in both accounts")
+        XCTAssertEqual(lastAction()?["trigger"], "menu")
+
+        // A sender whose only mail is archived already: the rule is set, and archived none.
+        XCTAssertTrue(harness.controller.perform(.goTo(.all)))
+        open(ConversationID(accountID: accounts[0].id, providerID: "quiet-0"))
+        let count = recorder.sent.count
+        harness.controller.alwaysArchiveSender(nil)
+        harness.spin { self.recorder.sent.count > count && lastAction()?["conversations"] == "0" }
+        XCTAssertEqual(lastAction()?["action"], "alwaysArchiveSender")
+        XCTAssertEqual(lastAction()?["conversations"], "0")
+
+        // A sender whose other Inbox mail sits beside someone else's: that row stays in the Inbox, so it is not counted.
+        let solo = ConversationID(accountID: accounts[0].id, providerID: "solo-0")
+        let mixed = ConversationID(accountID: accounts[1].id, providerID: "solo-mixed")
+        try harness.environment.store.upsertMessages([
+            mail(0, from: "solo", roles: [.inbox]),
+            MessageMetadata(id: MessageID(accountID: mixed.accountID, providerID: "solo-mixed-1"), conversationID: mixed, subject: "Hi",
+                            snippet: "", from: EmailAddress(address: "solo@letter.example"), date: Date().addingTimeInterval(-30),
+                            roles: [.inbox], isRead: false, isStarred: false, hasAttachments: false),
+            MessageMetadata(id: MessageID(accountID: mixed.accountID, providerID: "solo-mixed-2"), conversationID: mixed, subject: "Hi",
+                            snippet: "", from: EmailAddress(address: "ben@example.com"), date: Date().addingTimeInterval(-40),
+                            roles: [.inbox], isRead: false, isStarred: false, hasAttachments: false),
+        ])
+        XCTAssertTrue(harness.controller.perform(.goTo(.inbox)))
+        open(solo)
+        let before = recorder.sent.count
+        harness.controller.alwaysArchiveSender(nil)
+        harness.spin { self.recorder.sent.count > before && lastAction()?["conversations"] == "1" }
+        XCTAssertEqual(lastAction()?["conversations"], "1", "the open conversation alone left the Inbox")
+        for sent in recorder.sent {
+            XCTAssertFalse(sent.parameters.values.contains { $0.contains("letter") || $0.contains("@") }, "\(sent.name) names no sender")
+        }
         assertNothingOfTheMail(in: harness)
     }
 

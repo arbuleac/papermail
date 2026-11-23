@@ -21,10 +21,12 @@ public struct SenderRule: Hashable, Sendable {
         }
 
         /// What setting the rule now does to one message already stored, nil when it leaves it alone: a server rule only
-        /// acts on mail that arrives after it exists, so the app applies it once, itself, to the sender's mail in the
-        /// conversation it was set from. Spam is left where the provider put it, and neither rule takes the user's own
-        /// sent mail or drafts (a rule for one's own address would otherwise throw them away); the block takes what is
-        /// not in the Trash already, the archive only what is in the Inbox.
+        /// acts on mail that arrives after it exists, so the app applies it once, itself, to the sender's mail already
+        /// here (`SenderRuleSweep`): Always Archive to their mail in the Inbox of every account (`MailStoring.inboxMessages`),
+        /// Block to their mail in the conversation it was set from. Spam is left where the provider put it, and neither rule
+        /// takes the user's own sent mail or drafts (a rule for one's own address would otherwise throw them away); the
+        /// block takes what is not in the Trash already, the archive only what is in the Inbox, so a snoozed conversation,
+        /// archived until its time, keeps its snooze.
         public func change(for message: MessageMetadata) -> MetadataChange? {
             guard !message.roles.contains(.spam), !message.roles.contains(.sent), !message.roles.contains(.drafts) else {
                 return nil
