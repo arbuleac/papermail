@@ -63,4 +63,16 @@ final class LocalDraftConversationTests: XCTestCase {
         XCTAssertNil(old.preview)
         XCTAssertNil(old.continuesDraft)
     }
+
+    /// A draft rebuilt from the outbox says its body is the message's text as sent (Help Me Write then rewrites only a
+    /// selection in it); a draft written in a composer does not carry the key at all, and neither does an older record.
+    func testTheRecordSaysWhenItsBodyIsTheTextAsSent() throws {
+        var rebuilt = record()
+        XCTAssertNil(rebuilt.bodyIsAsSent, "not said unless it is so")
+        let plain = try JSONSerialization.jsonObject(with: try rebuilt.encoded()) as? [String: Any] ?? [:]
+        XCTAssertNil(plain["bodyIsAsSent"], "a composer's own draft writes no such key")
+        XCTAssertNil(try ComposeDraftRecord.decode(try JSONSerialization.data(withJSONObject: plain)).bodyIsAsSent, "and an older record decodes")
+        rebuilt.bodyIsAsSent = true
+        XCTAssertEqual(try ComposeDraftRecord.decode(try rebuilt.encoded()).bodyIsAsSent, true)
+    }
 }

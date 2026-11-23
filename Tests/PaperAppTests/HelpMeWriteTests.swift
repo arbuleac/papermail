@@ -188,7 +188,10 @@ final class HelpMeWriteTests: XCTestCase {
         XCTAssertEqual(write.title, "Try Again")
     }
 
-    func testCommandJAppliesToReplyComposersOnly() throws {
+    /// ⌘J applies in a reply composer's body as it always did, and since 1.21 in a new message's and a forward's too:
+    /// the item validates there with no tooltip (the one that sent the user to replies is gone), and nothing about Help
+    /// me write shows in any composer's bar.
+    func testCommandJAppliesInEveryComposersBody() throws {
         let (harness, _) = try harness()
         defer { harness.close() }
         let accounts = harness.controller.accounts
@@ -204,9 +207,12 @@ final class HelpMeWriteTests: XCTestCase {
             let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
                                                            mode: mode)
             composer.window?.makeFirstResponder(composer.bodyEditor)
-            XCTAssertFalse(composer.validateMenuItem(item), "\(mode) answers no one")
-            XCTAssertEqual(item.toolTip, "Help Me Write works on replies")
-            XCTAssertFalse(showsAWriteButton(in: composer.content.bottomBar), "and shows no Write control")
+            let item = writeItem
+            XCTAssertTrue(composer.validateMenuItem(item), "\(mode): ⌘J applies in its body")
+            XCTAssertNil(item.toolTip, "\(mode): and nothing says it works on replies")
+            XCTAssertNotNil(composer.writeSession, "\(mode): its body has a session")
+            composer.content.layoutSubtreeIfNeeded()
+            XCTAssertFalse(showsAWriteButton(in: composer.content.bottomBar), "\(mode): no Write control in the bar either")
         }
     }
 

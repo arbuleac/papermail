@@ -286,6 +286,7 @@ final class FailedSendAppTests: XCTestCase {
                        "Couldn't send: Paper quit while sending it, so it may have gone. Check Sent before sending it again.")
         XCTAssertEqual(draft.subject, "Lisbon")
         XCTAssertEqual(draft.to.map(\.address), ["ben@example.com"])
+        XCTAssertTrue(draft.bodyIsAsSent, "made from the message as it would have gone: its body is marked as that text (§5.56)")
         XCTAssertEqual(harness.toastMessage, "\u{201c}Lisbon\u{201d} may have gone. Check Sent.")
         // Kept in Drafts: nothing waits to go, so no Outbox shows (it may have, for the moment before it was kept).
         harness.spin { !harness.controller.showsOutbox }

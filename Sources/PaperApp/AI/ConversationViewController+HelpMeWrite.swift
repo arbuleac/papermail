@@ -123,7 +123,7 @@ final class QuickReplyWriteField: WriteField {
         reader.client.keepBodies(of: messages.map(\.id))
         let account = reader.accountsByID[target.id.accountID]
         let signature = ComposeSignature.export(html: account?.signature)?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return WriteContextInputs(store: reader.client.store, messages: messages, target: target.id,
-                                  accounts: Array(reader.accountsByID.values), appendsSignature: !signature.isEmpty)
+        return .reply(ReplyWriteInputs(store: reader.client.store, messages: messages, target: target.id,
+                                       accounts: Array(reader.accountsByID.values), appendsSignature: !signature.isEmpty))
     }
 }

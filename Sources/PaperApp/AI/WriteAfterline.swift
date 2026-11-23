@@ -54,7 +54,7 @@ final class WriteAfterline: NSView {
         actions[.tryAgain]?.title = WriteWords.tryAgain
         actions[.tryAgain]?.keycap = "\u{2318}J"
         actions[.tryAgain]?.toolTip = "Try Again  \u{2318}J"
-        actions[.shorter]?.title = WriteWords.presets[0]
+        actions[.shorter]?.title = WriteWords.shorter
         actions[.shorter]?.toolTip = "Write It Shorter"
         actions[.sayHow]?.title = WriteWords.sayHow
         actions[.sayHow]?.keycap = "\u{21e7}\u{2318}J"

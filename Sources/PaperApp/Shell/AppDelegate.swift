@@ -270,8 +270,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // `attachments`: the hand-off pack forwarded, its files on the strip (§5.22, §5.57), and no sample in the body; the
         // forward's files are fetched, so the render waits longer for them.
         let forwardsFiles = CommandLine.arguments.contains { $0.hasPrefix("--snapshot-state=") && $0.contains("attachments") }
-        let opened = forwardsFiles ? mainWindow?.openForwardComposer() : mainWindow?.openReplyComposer()
-        let settle: TimeInterval = forwardsFiles ? 3 : 1.5
+        // Help me write's states on what a composer can be (§5.56): with `new` a new message, with `forward` a forward,
+        // which is written from its forwarded message, so the render waits for that and the write after it.
+        let writesNew = WriteSnapshotStates.opensNewMessage
+        let writesForward = WriteSnapshotStates.opensForward
+        let opened = writesNew ? mainWindow?.openNewMessageComposerForWriteSnapshot()
+            : forwardsFiles || writesForward ? mainWindow?.openForwardComposer() : mainWindow?.openReplyComposer()
+        let settle: TimeInterval = writesForward ? 4 : forwardsFiles ? 3 : 1.5
         #else
         let opened = mainWindow?.openReplyComposer()
         let settle: TimeInterval = 1.5

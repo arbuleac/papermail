@@ -41,6 +41,10 @@ struct ComposeDraft {
     var sendFailure: String?
     /// The provider's draft this one continues (Continue Editing on a synced Drafts row): sending discards it.
     var continuesDraft: MessageID? = nil
+    /// The body is the message's text as it would have been sent (a Send Later message rebuilt from the outbox,
+    /// `SendLaterOutbox.draft(for:)`): what the user wrote, the quoted original and the signature are one unmarked text.
+    /// Help Me Write then rewrites a selection there and nothing else (§5.56), as in a provider's draft continued here.
+    var bodyIsAsSent = false
 
     var fingerprint: Fingerprint {
         Fingerprint(

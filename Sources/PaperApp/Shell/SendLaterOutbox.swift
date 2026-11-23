@@ -206,9 +206,11 @@ final class SendLaterOutbox {
             ComposeAttachment(id: UUID(), filename: $0.filename, mimeType: $0.mimeType, sizeBytes: $0.data.count, source: .data($0.data),
                               contentID: $0.contentID)
         }
+        // The text as it would have gone holds the quoted original and the signature too, unmarked: the draft says so,
+        // so Help Me Write never takes that body for the user's notes (§5.56).
         return ComposeDraft(id: id, mode: mode, account: account, to: message.to, cc: message.cc, bcc: message.bcc,
                             subject: message.subject, body: ComposeTextView.plainBody(message.text), attachments: attachments,
-                            quoted: nil, threading: threading)
+                            quoted: nil, threading: threading, bodyIsAsSent: true)
     }
 
     /// Schedules kept draft `draft` for `date` (Undo of Cancel and of Discard), built as the composer builds a message it

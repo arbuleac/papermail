@@ -3,23 +3,28 @@ import PaperCore
 import PaperDesign
 import os
 
-/// Help me write on one reply, at the caret (spec §5.56): the quick reply's field or a reply composer's body. Everything
-/// it shows is in the text itself (`WriteInlineLayer`): the ghost “⌘J to write a reply” after the caret, “⌘J to write from
-/// your notes” once the user pauses at the end of them, the pill “Rewrite ⌘J” under a settled selection, ⇧⌘J's prompt
-/// line under the caret's line, the pencil after the last word while a reply streams, and the afterline under the draft.
-/// ⌘J (or the ghost, the pill, the context menu) starts at once: the reply streams into the field in pencil, replacing the
-/// user's notes (or the selection), then lands in ink as one undoable step, “Undo Help Me Write”, which brings the notes
-/// back. Right after, ⌘J tries again from the same notes; once the user edits the draft, ⌘J writes from what the field
-/// holds now.
+/// Help me write in one field, at the caret (spec §5.56): the quick reply's field or a composer's body, whatever it
+/// writes (a reply, a new message, the message above a forward). Everything it shows is in the text itself
+/// (`WriteInlineLayer`): the ghost “⌘J to write a reply” after the caret, “⌘J to write from your notes” once the user
+/// pauses at the end of them, the pill “Rewrite ⌘J” under a settled selection, ⇧⌘J's prompt line under the caret's line,
+/// the pencil after the last word while a draft streams, and the afterline under the draft.
 ///
-/// Nothing about the conversation is read, built or sent before the user acts (spec §3b): what shows comes from this
-/// Mac's facts alone (`HelpMeWrite.availability`), and the write itself is the one place in the app that makes a write's
-/// `AIUserAction`. The ghost's and the pill's timers are local; showing any mark, opening the prompt line or the context
-/// menu sends nothing. There is no permission sheet here: permission is given in Settings › AI when a provider is
-/// chosen; without it, ⌘J says so under the caret's line and sends nothing.
+/// One rule for ⌘J (and the ghost, the pill, the context menu): it writes at once where there is something to write
+/// from, and opens the prompt line where there is nothing. Something to write from is a selection, the user's notes, a
+/// draft just written (Try again), a reply's conversation or a forward's forwarded message; an empty new message has
+/// none of them, so ⌘J asks what to write there and sends nothing. A write streams into the field in pencil, replacing
+/// the user's notes (or the selection), then lands in ink as one undoable step, “Undo Help Me Write”, which brings the
+/// notes back, and with them the empty Subject of a new message the draft gave a subject to. Right after, ⌘J tries
+/// again from the same notes; once the user edits the draft, ⌘J writes from what the field holds now.
 ///
-/// The quick reply's owner and each reply composer keep one session for as long as the reply lives. `end()` stops its
-/// write first: the writer's field is the text view's identity, and a write must never outlive the reply it fills.
+/// Nothing is read, built or sent before the user acts (spec §3b): what shows comes from this Mac's facts alone
+/// (`HelpMeWrite.availability`), and the write itself is the one place in the app that makes a write's `AIUserAction`,
+/// after it has checked that there is something to write from. The ghost's and the pill's timers are local; showing any
+/// mark, opening the prompt line or the context menu sends nothing. There is no permission sheet here: permission is
+/// given in Settings › AI when a provider is chosen; without it, ⌘J says so under the caret's line and sends nothing.
+///
+/// The quick reply's owner and each composer keep one session for as long as the field lives. `end()` stops its write
+/// first: the writer's field is the text view's identity, and a write must never outlive the message it fills.
 @MainActor
 final class WriteSession {
     let center: HelpMeWrite
@@ -31,6 +36,8 @@ final class WriteSession {
     /// What the session is doing, as the text shows it.
     private(set) var phase: WritePhase = .idle {
         didSet {
+            // What failed is asked again only from under its own line: once that line goes, so does the ask.
+            if !phase.isFailed { lastFailure = nil }
             guard oldValue != phase else { return }
             render()
         }
@@ -64,11 +71,42 @@ final class WriteSession {
         /// Who wrote it, for the afterline.
         var writer: String
         var source: String?
+        /// What was written, as its request named it: a forward without its forwarded message is a new message.
+        var kind: WriteKind
+        /// The instruction a new message was first written from, when it had no notes: its whole brief. A follow-up
+        /// (Shorter, a chip, new words) keeps it as the notes of what it asks, and after ⌘Z back to the empty body ⌘J
+        /// offers it again in the prompt line.
+        var brief: String?
     }
 
     private var lastDraft: Draft?
-    /// The write under way: what it asks, so a reply that lands becomes `lastDraft`.
-    private var running: (ask: WriteAsk, isRewrite: Bool)?
+
+    /// A write under way: what it asks, so a draft that lands becomes `lastDraft` and one that fails can be asked again.
+    private struct Running {
+        var ask: WriteAsk
+        var isRewrite: Bool
+        var kind: WriteKind
+        /// A subject was asked for with the draft.
+        var wantsSubject: Bool
+        var brief: String?
+    }
+
+    private var running: Running?
+
+    /// What the last write that did not go through was asked, kept while its reason shows under the caret's line: Try
+    /// again asks the same again (§5.56), the same notes and the same instruction.
+    private enum Failure {
+        /// It could not start (Help Me Write off, not turned on, needing setup): the instruction it came with.
+        case notStarted(instruction: String?)
+        /// It was asked and failed. `text` is the field's whole text as it was asked, which must still stand.
+        case asked(ask: WriteAsk, range: NSRange, isRewrite: Bool, brief: String?, text: String)
+    }
+
+    private var lastFailure: Failure?
+    /// The subject the write under way proposes for its message, held here and never shown while the body streams: it
+    /// is set only as the draft lands, in the draft's one undo step, so Stop, a failure, a close or an autosave
+    /// mid-write leave the Subject as it was.
+    private var proposedSubject: String?
     private var configuration: AIProviderConfiguration?
     private var edit: WriteStreamEdit?
     private var writeTask: Task<Void, Never>?
@@ -153,10 +191,19 @@ final class WriteSession {
     /// Reads the provider's state again from this Mac (the field took the keyboard, Settings changed) and shows it: for
     /// what this field writes, since a provider turned on for replies is not ready for anything else.
     func refresh() {
-        availability = center.availability(for: field.writeKind)
+        let kind = field.writeKind
+        availability = center.availability(for: kind)
         layer.prompt.writer = availability.writer
+        layer.prompt.presets = WriteWords.presets(for: kind)
         watchTheKeyboard()
         render()
+    }
+
+    /// What the field can be written from changed without the user's doing (a forward's forwarded message arrived, or
+    /// will not): the ghost follows, and the line that said it was still loading goes.
+    func fieldDidChange() {
+        if case .failed(reason: WriteWords.forwardLoading, offersSettings: _) = phase { phase = .idle }
+        refresh()
     }
 
     /// The marks the text shows now, from the phase, the caret, the selection and the provider's state.
@@ -166,7 +213,7 @@ final class WriteSession {
         if isWriting {
             state.pencil = edit.map { NSMaxRange($0.range) }
         } else if let promptAnchor {
-            state.block = .prompt(promptAnchor)
+            state.block = .prompt(promptAnchor, chips: canWriteAtOnce)
         } else if phase == .written, let lastDraft, textView.string == lastDraft.textAfter {
             let end = lastDraft.range.location + (lastDraft.reply as NSString).length
             state.block = .afterline(.end(end), .written(writer: lastDraft.writer, rewrite: lastDraft.isRewrite, source: lastDraft.source))
@@ -192,11 +239,12 @@ final class WriteSession {
         return assumesKeyWindow || window.isKeyWindow
     }
 
-    /// The ghost after the caret (§5.56): on an empty reply at once; at the end of a paragraph of the user's notes once
-    /// they pause; never mid-line, never in the signature.
+    /// The ghost after the caret (§5.56): on an empty field at once, in the words of what ⌘J does there; at the end of
+    /// a paragraph of the user's notes once they pause; never mid-line, never in the signature, and none where only a
+    /// selection can be rewritten.
     private func ghost(own: NSRange) -> WriteInlineLayer.Ghost? {
         let selection = textView.selectedRange()
-        guard selection.length == 0 else { return nil }
+        guard selection.length == 0, field.selectionOnlyReason == nil else { return nil }
         let text = textView.string as NSString
         let at = selection.location
         guard at >= own.location, at <= NSMaxRange(own) else { return nil }
@@ -208,7 +256,7 @@ final class WriteSession {
             if let offset = field.placeholderWidth {
                 return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostAfterPlaceholder, offset: offset)
             }
-            return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostReply)
+            return WriteInlineLayer.Ghost(location: at, words: WriteWords.emptyGhost(for: field.writeKind))
         }
         guard notesGhostReady, Self.hasWords(Int(Quire.Layout.WriteCaret.hintMinWords), in: text, range: own) else { return nil }
         return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostNotes, fades: true)
@@ -332,29 +380,57 @@ final class WriteSession {
     enum Plan: Equatable {
         /// Rewrite the selection.
         case rewriteSelection
-        /// Write again from the same notes: the last reply stands as written.
+        /// Write again from the same notes: the last draft stands as written.
         case tryAgain
-        /// Write the reply from the user's notes.
+        /// Say why nothing but a selection can be rewritten here (`WriteField.selectionOnlyReason`).
+        case selectionOnly
+        /// Write from the user's notes.
         case fromNotes
-        /// Write the reply from the conversation alone.
-        case reply
+        /// Write from what the field answers or forwards alone: a reply's conversation, a forward's message.
+        case fromContext
+        /// Ask what to write: there is nothing to write from, so the prompt line opens and nothing is sent.
+        case askWhat
     }
 
     var plan: Plan {
         if rewritableSelection != nil, !isWriting { return .rewriteSelection }
-        if let lastDraft, textView.string == lastDraft.textAfter { return .tryAgain }
-        return ownText.contains { !$0.isWhitespace } ? .fromNotes : .reply
+        if standingDraft != nil { return .tryAgain }
+        if field.selectionOnlyReason != nil { return .selectionOnly }
+        let own = ownText
+        if field.writeKind.hasNothingToWriteFrom(WriteAsk(draft: .notes(own))) { return .askWhat }
+        return own.contains { !$0.isWhitespace } ? .fromNotes : .fromContext
     }
 
-    /// Edit › Help Me Write's title for what it does now (§5.35).
+    /// The last draft, while it stands in the field as it was written: ⌘J tries again from what it was written from.
+    private var standingDraft: Draft? {
+        guard let lastDraft, textView.string == lastDraft.textAfter else { return nil }
+        return lastDraft
+    }
+
+    /// Whether ⌘J would write at once here, with no instruction: there is a selection, a draft just written, notes, or
+    /// what the field answers or forwards. The prompt line's chips show exactly then, since each is a whole instruction
+    /// that runs by itself.
+    private var canWriteAtOnce: Bool {
+        switch plan {
+        case .rewriteSelection, .tryAgain, .fromNotes, .fromContext: return true
+        case .selectionOnly, .askWhat: return false
+        }
+    }
+
+    /// Edit › Help Me Write's title for what it does now (§5.35). “Write Message…” ends in an ellipsis because it asks
+    /// for more: on an empty new message ⌘J opens the prompt line.
     func menuTitle(withInstructions: Bool) -> String {
+        let noun = WriteWords.noun(for: field.writeKind)
         switch (plan, withInstructions) {
         case (.rewriteSelection, false): return "Rewrite Selection"
         case (.rewriteSelection, true): return "Rewrite Selection with Instructions\u{2026}"
+        case (.selectionOnly, false): return MainMenu.helpMeWriteTitle
+        case (.selectionOnly, true): return MainMenu.helpMeWriteWithInstructionsTitle
         case (.tryAgain, false): return "Try Again"
-        case (.fromNotes, false): return "Write Reply from Notes"
-        case (.reply, false): return "Write Reply"
-        case (_, true): return "Write Reply with Instructions\u{2026}"
+        case (.fromNotes, false): return "Write \(noun) from Notes"
+        case (.fromContext, false): return "Write \(noun)"
+        case (.askWhat, false): return "Write \(noun)\u{2026}"
+        case (_, true): return "Write \(noun) with Instructions\u{2026}"
         }
     }
 
@@ -382,7 +458,8 @@ final class WriteSession {
         write()
     }
 
-    /// ⌘J: Try again, a selection's rewrite, or a reply from the notes, with the prompt line's instruction while it shows.
+    /// ⌘J: Try again, a selection's rewrite, or a draft from the notes, with the prompt line's instruction while it shows.
+    /// Where there is nothing to write from it opens the prompt line instead (`run`).
     func write() {
         if isPromptShown {
             runFromPrompt(layer.prompt.instruction.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -392,23 +469,60 @@ final class WriteSession {
     }
 
     /// The prompt line's ↩ or a chip: the line closes, its words kept for the next ⇧⌘J, and the write runs with them.
+    /// With nothing to write from (an empty new message and no words here) nothing is sent and the line stays open, the
+    /// keyboard in it, for the words it still needs: no beep, no failure line.
     private func runFromPrompt(_ instruction: String) {
         guard !isWriting else { return }
+        refresh()
+        // Only while Help Me Write can write: otherwise the line closes and the reason shows, as on a reply.
+        if availability.isReady, center.configuration != nil, hasNothingToWriteFrom(instruction: instruction) {
+            if !layer.promptHoldsFocus { layer.prompt.focus() }
+            return
+        }
         closePrompt(focusText: true)
         run(instruction: instruction)
     }
 
+    /// What a write with `instruction` would be asked now, from what the field holds: the user's own text as its notes,
+    /// or an empty draft. Reads this Mac only.
+    private func freshAsk(instruction: String) -> (ask: WriteAsk, range: NSRange) {
+        let text = textView.string as NSString
+        let own = field.ownTextRange
+        let notes = NSMaxRange(own) <= text.length ? text.substring(with: own) : ""
+        let typed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (WriteAsk(instruction: instruction, draft: typed.isEmpty ? .empty : .notes(typed)), own)
+    }
+
+    /// Whether a write with `instruction` would have nothing to write from (`WriteKind.hasNothingToWriteFrom`): no
+    /// selection, no draft just written, and an ask that says nothing where the field itself answers nothing.
+    private func hasNothingToWriteFrom(instruction: String) -> Bool {
+        guard rewritableSelection == nil, standingDraft == nil else { return false }
+        return field.writeKind.hasNothingToWriteFrom(freshAsk(instruction: instruction).ask)
+    }
+
     /// Runs a write with `instruction` (the prompt line's ↩, a chip, Shorter; nil: ⌘J's own, the last draft's on Try again).
+    ///
+    /// In order: why it cannot write at all (off, not turned on, needing setup), under the caret's line; Try again after
+    /// a failure, which asks the same again; a selection's rewrite; Try again of a draft just written; why only a
+    /// selection can be rewritten here; then, where there is nothing to write from, the prompt line and nothing sent;
+    /// else the write.
     func run(instruction: String?) {
         guard !isWriting else { return }
+        // ⌘J or Try again under a failure's line asks what failed again; anything said since is a new ask.
+        let failed = instruction == nil && phase.isFailed ? lastFailure : nil
+        lastFailure = nil
+        var instruction = instruction
+        if case .notStarted(let kept)? = failed { instruction = kept }
         refresh()
         failureAnchor = .caret(textView.selectedRange().location)
         guard let configuration = center.configuration else {
+            lastFailure = failed ?? .notStarted(instruction: instruction)
             phase = .failed(reason: HelpMeWrite.offWords, offersSettings: true)
             announceFailure(HelpMeWrite.offWords)
             return
         }
         if case .unavailable(let reason) = availability {
+            lastFailure = failed ?? .notStarted(instruction: instruction)
             phase = .failed(reason: reason, offersSettings: true)
             announceFailure(reason)
             return
@@ -416,6 +530,13 @@ final class WriteSession {
         self.configuration = configuration
         let text = textView.string as NSString
 
+        // The same ask only while the field stands as it was asked: its text, and what is selected in it. A selection
+        // made or let go since says what to work on now.
+        if case .asked(let ask, let range, let isRewrite, let brief, let before)? = failed, textView.string == before,
+           NSMaxRange(range) <= text.length, rewritableSelection == (isRewrite ? range : nil) {
+            start(ask: ask, range: range, isRewrite: isRewrite, previous: nil, configuration: configuration, retry: true, brief: brief)
+            return
+        }
         if let range = rewritableSelection {
             // The selection's own leading and trailing space and line breaks stay where they are (a triple-clicked
             // paragraph keeps its line break): the reply, trimmed, replaces what lies between them. A selection of blanks
@@ -424,22 +545,79 @@ final class WriteSession {
             start(ask: ask, range: range, isRewrite: true, previous: nil, configuration: configuration)
             return
         }
-        if let draft = lastDraft, textView.string == draft.textAfter {
+        let selectionOnly = field.selectionOnlyReason
+        if let draft = standingDraft, draft.isRewrite || selectionOnly == nil {
             tryAgain(draft, instruction: instruction, configuration: configuration)
             return
         }
-        let own = field.ownTextRange
-        let notes = NSMaxRange(own) <= text.length ? text.substring(with: own) : ""
-        let typed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ask = WriteAsk(instruction: instruction ?? "", draft: typed.isEmpty ? .empty : .notes(typed))
-        start(ask: ask, range: own, isRewrite: false, previous: nil, configuration: configuration)
+        if let selectionOnly {
+            refuse(selectionOnly)
+            return
+        }
+        let fresh = freshAsk(instruction: instruction ?? "")
+        if field.writeKind.hasNothingToWriteFrom(fresh.ask) {
+            // Nothing to write from: ⌘J asks what to write, and sends nothing.
+            askWhatToWrite()
+            return
+        }
+        start(ask: fresh.ask, range: fresh.range, isRewrite: false, previous: nil, configuration: configuration,
+              brief: Self.brief(of: fresh.ask))
     }
 
-    /// Writes again from the notes the last reply came from, never from the reply: its step is undone first, so the new
-    /// reply's one step goes back to the notes, and the old reply stays in sight, in pencil, until the new one starts.
+    /// The instruction a draft is written from when it is all there is: its brief.
+    private static func brief(of ask: WriteAsk) -> String? {
+        guard case .empty = ask.draft else { return nil }
+        let words = ask.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        return words.isEmpty ? nil : words
+    }
+
+    /// The prompt line, opened by ⌘J where there is nothing to write from. After ⌘Z took a draft back to the empty
+    /// body, the brief it was written from waits in the line, selected: ↩ writes it again, typing replaces it.
+    private func askWhatToWrite() {
+        if let lastDraft, textView.string == lastDraft.textBefore, let brief = lastDraft.brief { layer.prompt.instruction = brief }
+        showPrompt()
+    }
+
+    /// A reason no write runs here now, under the caret's line (a failure's afterline, with no Settings…): nothing was
+    /// asked, so nothing is sent.
+    private func refuse(_ reason: String) {
+        failureAnchor = .caret(textView.selectedRange().location)
+        lastFailure = nil
+        phase = .failed(reason: reason, offersSettings: false)
+        announceFailure(reason)
+    }
+
+    /// Writes again from the notes the last draft came from, never from the draft: its step is undone first, so the new
+    /// draft's one step goes back to the notes (and a new message's Subject back to empty, to be proposed again), and the
+    /// old draft stays in sight, in pencil, until the new one starts.
+    ///
+    /// What the write is made from is read before that undo: where the field can give none, the draft and its subject
+    /// stay as they are.
     private func tryAgain(_ draft: Draft, instruction: String?, configuration: AIProviderConfiguration) {
         var ask = draft.ask
-        if let instruction { ask.instruction = instruction }
+        var brief = draft.brief
+        if let instruction {
+            let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            if draft.kind == .newMessage, case .empty = ask.draft, let standing = Self.brief(of: ask) {
+                // A new message written from an instruction alone: that instruction is its whole brief. New words are a
+                // follow-up on it, so the brief becomes the notes of what is asked now; no words, or the same ones, ask
+                // the same again.
+                if !words.isEmpty, words != standing {
+                    ask = WriteAsk(instruction: instruction, draft: .notes(standing))
+                    brief = standing
+                }
+            } else {
+                ask.instruction = instruction
+            }
+        }
+        if !draft.isRewrite, let reason = field.selectionOnlyReason {
+            refuse(reason)
+            return
+        }
+        guard field.writeContext() != nil else {
+            NSSound.beep()
+            return
+        }
         if let undo = textView.undoManager, undo.canUndo, undo.undoActionName == WriteStreamEdit.actionName {
             isChangingText = true
             undo.undo()
@@ -454,32 +632,45 @@ final class WriteSession {
             run(instruction: instruction)
             return
         }
-        start(ask: ask, range: range, isRewrite: draft.isRewrite, previous: draft.reply, configuration: configuration, retry: true)
+        start(ask: ask, range: range, isRewrite: draft.isRewrite, previous: draft.reply, configuration: configuration, retry: true,
+              brief: brief)
     }
 
     private func start(ask: WriteAsk, range: NSRange, isRewrite: Bool, previous: String?, configuration: AIProviderConfiguration,
-                       retry: Bool = false) {
+                       retry: Bool = false, brief: String? = nil) {
+        // A whole draft where only a selection can be rewritten (a forward still loading, a body that may hold quoted
+        // mail) never starts, whatever asked for it.
+        if !isRewrite, let reason = field.selectionOnlyReason {
+            refuse(reason)
+            return
+        }
+        // Read now, after Try again's undo: the Subject that undo emptied is asked for again.
         guard let context = field.writeContext() else {
             NSSound.beep()
             return
         }
-        // The reply replaces the whole selection or the notes, so all of it must be sent: past the cap, nothing is.
-        switch ask.draft {
-        case .selection(let part) where ReplyContextBuilder.exceedsAskLimit(part),
-             .notes(let part) where ReplyContextBuilder.exceedsAskLimit(part):
-            let reason = AIError.tooLong(selection: isRewrite).lineMessage(for: configuration.kind)
+        let kind = context.kind
+        // Nothing to write from never sends: checked here, before the user's action is made, whatever path led here.
+        guard !kind.hasNothingToWriteFrom(ask) else { return }
+        // The draft replaces the whole selection or the notes, so all of it must be sent, and a new message's
+        // instruction can be its whole brief: past the cap, nothing is.
+        if let refusal = kind.lengthRefusal(of: ask) {
+            let reason = refusal.lineMessage(for: configuration.kind)
+            lastFailure = .asked(ask: ask, range: range, isRewrite: isRewrite, brief: brief, text: textView.string)
             phase = .failed(reason: reason, offersSettings: false)
             announceFailure(reason)
             return
-        default:
-            break
         }
+        let wantsSubject = context.wantsSubject(for: ask)
+        // Only a new message can be written from an instruction alone; elsewhere it is no brief to keep.
+        let brief = kind == .newMessage ? brief : nil
         let fieldID = AIFieldID(textView)
         generation += 1
         let mine = generation
         written = ""
+        proposedSubject = nil
         lastDraft = nil
-        running = (ask, isRewrite)
+        running = Running(ask: ask, isRewrite: isRewrite, kind: kind, wantsSubject: wantsSubject, brief: brief)
         edit = WriteStreamEdit(textView: textView, range: range, attributes: field.writeAttributes(at: range), showing: previous)
         field.streamDidUpdate()
         field.refusesEdits = true
@@ -490,19 +681,23 @@ final class WriteSession {
                                     from: textView)
 
         let writer = center.writer
-        let signature = context.appendsSignature
         // The one place a write's user action is made: the user pressed ⌘J, the ghost, the pill, a menu item, the prompt
         // line's ↩ or a chip, Try again or Shorter.
         let action = AIUserAction(userPressed: .write)
-        // No write here asks for a subject: `subject` says one was asked for, never that one was set.
+        // `subject` says one was asked for with the draft, never that one was set.
         center.writeDetails[fieldID] = AnalyticsSignal.WriteDetails(ask, retry: retry,
                                                                     source: field is ComposerWriteField ? .composer : .quickReply,
-                                                                    kind: field.analyticsKind, subject: false)
+                                                                    kind: field.analyticsKind, subject: wantsSubject)
         writeTask = Task { [weak self] in
-            // Read and redacted off the main thread, only now that the user asked (§5.56: nothing before).
-            let built = await Task.detached(priority: .userInitiated) { context.build(ask: ask) }.value
+            // Read, redacted and built off the main thread, only now that the user asked (§5.56: nothing before).
+            let built = await Task.detached(priority: .userInitiated) { context.request(for: ask, configuration: configuration) }.value
             guard let self, self.generation == mine, !Task.isCancelled else { return }
-            let request = WritePrompt.request(for: built, appendsSignature: signature, configuration: configuration)
+            guard let request = built else {
+                // Nothing may be sent for this ask (the builder's own test of what was checked above): no write started.
+                self.center.writeDetails[fieldID] = nil
+                self.writeEndedElsewhere()
+                return
+            }
             #if DEBUG
             Self.requestObserver?(request)
             #endif
@@ -520,10 +715,9 @@ final class WriteSession {
                         self.flush()
                     case .usage:
                         break
-                    case .subject:
-                        // A new message's proposed subject. Only replies are written here, and the writer never makes
-                        // one for a reply.
-                        break
+                    case .subject(let subject):
+                        // Held until the draft lands: a Stop can still follow it.
+                        self.proposedSubject = subject
                     case .finished(.done), .finished(.maxTokens):
                         self.finish()
                         return
@@ -608,6 +802,7 @@ final class WriteSession {
     func end() {
         stopWriting()
         lastDraft = nil
+        lastFailure = nil
         layer.prompt.instruction = ""
         promptAnchor = nil
         phase = .idle
@@ -620,6 +815,7 @@ final class WriteSession {
         writeTask?.cancel()
         writeTask = nil
         running = nil
+        proposedSubject = nil
         center.writer.stop(AIFieldID(textView))
         if let edit, !edit.isFinished {
             edit.rollback()
@@ -650,6 +846,11 @@ final class WriteSession {
     /// keyboard in it, its last instruction kept and selected. Opening it sends nothing.
     func showPrompt() {
         guard !isWriting else { return }
+        // Where only a selection can be rewritten, there is nothing to say how to write without one.
+        if !isPromptShown, rewritableSelection == nil, standingDraft?.isRewrite != true, let reason = field.selectionOnlyReason {
+            refuse(reason)
+            return
+        }
         if !isPromptShown {
             if let selection = rewritableSelection {
                 promptAnchor = .end(NSMaxRange(selection))
@@ -692,8 +893,8 @@ final class WriteSession {
         case .shorter:
             guard !isWriting else { return }
             if textView.window?.firstResponder !== textView { field.focusText() }
-            layer.prompt.instruction = WriteWords.presets[0]
-            run(instruction: WriteWords.presets[0])
+            layer.prompt.instruction = WriteWords.shorter
+            run(instruction: WriteWords.shorter)
         case .sayHow: sayHowFromMark()
         case .undo: undoDraft()
         case .settings: openSettings()
@@ -730,7 +931,8 @@ final class WriteSession {
         }
     }
 
-    /// The reply is complete: one undoable change in ink, the caret after it, and the afterline under it.
+    /// The draft is complete: one undoable change in ink, the caret after it, and the afterline under it. A subject that
+    /// came with a new message's draft is set in that same step, if the message still takes one.
     private func finish() {
         guard let edit, let running else { return }
         let keyboardWasHere = keyboardIsHere
@@ -743,9 +945,15 @@ final class WriteSession {
         markStreaming(false, in: textView.window)
         self.edit = nil
         self.running = nil
+        let subject = running.wantsSubject && !running.isRewrite ? proposedSubject : nil
+        proposedSubject = nil
         let reply = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        var setSubject = false
         isChangingText = true
-        let committed = edit.commit(reply)
+        let committed = edit.commit(reply) { [field] undo in
+            guard let subject else { return }
+            setSubject = field.commitSubject(subject, undo: undo)
+        }
         isChangingText = false
         field.streamDidUpdate()
         written = ""
@@ -757,6 +965,8 @@ final class WriteSession {
             } else {
                 let reason = AIError.emptyReply.lineMessage(for: configuration?.kind)
                 failureAnchor = .caret(textView.selectedRange().location)
+                lastFailure = .asked(ask: running.ask, range: edit.originalRange, isRewrite: running.isRewrite, brief: running.brief,
+                                     text: edit.textBefore)
                 phase = .failed(reason: reason, offersSettings: false)
                 announceFailure(reason)
             }
@@ -765,25 +975,34 @@ final class WriteSession {
         let writer = configuration.map { center.writerName(for: $0.kind) } ?? "Claude"
         lastDraft = Draft(ask: running.ask, range: edit.originalRange, isRewrite: running.isRewrite, reply: reply,
                           textAfter: textView.string, textBefore: edit.textBefore, selection: edit.originalSelection,
-                          writer: writer, source: configuration.map { center.sourceLine(for: $0) })
+                          writer: writer, source: configuration.map { center.sourceLine(for: $0) }, kind: running.kind,
+                          brief: running.brief)
         // The caret waits after the reply; the keyboard goes to it from the text or the prompt, never from elsewhere.
         if keyboardWasHere { field.focusText() }
         phase = .written
         render()
-        QuireAccessibility.announce(running.isRewrite ? "Selection rewritten by \(writer)" : "Reply written by \(writer)",
+        QuireAccessibility.announce(WriteWords.landed(running.kind, by: writer, rewrite: running.isRewrite, withSubject: setSubject),
                                     from: textView)
         Self.logger.debug("Help Me Write committed \(reply.count, privacy: .public) characters")
     }
 
     /// The write failed: the field as it was, and the afterline says why in words (never the request or the reply).
+    /// What was asked is kept while that line shows, for Try again.
     private func fail(_ error: AIError) {
         let keyboardWasHere = keyboardIsHere
+        let asked: Failure? = running.flatMap { running in
+            edit.map { .asked(ask: running.ask, range: $0.originalRange, isRewrite: running.isRewrite, brief: running.brief,
+                              text: $0.textBefore) }
+        }
+        // What was being written, as its request named it: the writer's refusal is about that.
+        let kind = running?.kind ?? field.writeKind
         stopWriting()
         field.setHeldOpen(isPromptShown)
         // The writer's own refusal reads as the text's does: never turned on, or on for replies only.
         let reason = error == .consentRequired
-            ? configuration.map { center.consentReason(for: $0.kind, writing: field.writeKind) } ?? HelpMeWrite.turnOnWords
+            ? configuration.map { center.consentReason(for: $0.kind, writing: kind) } ?? HelpMeWrite.turnOnWords
             : error.lineMessage(for: configuration?.kind)
+        lastFailure = asked
         phase = .failed(reason: reason, offersSettings: error.needsSettings || error == .consentRequired)
         if keyboardWasHere, !layer.promptHoldsFocus { field.focusText() }
         announceFailure(reason)

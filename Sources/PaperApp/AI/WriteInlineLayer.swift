@@ -33,12 +33,13 @@ final class WriteInlineLayer {
     }
 
     enum Block: Equatable {
-        case prompt(Anchor)
+        /// The prompt line, with its chips or as the capsule alone: the block carries which, since its height does.
+        case prompt(Anchor, chips: Bool)
         case afterline(Anchor, WriteAfterline.Content)
 
         var anchor: Anchor {
             switch self {
-            case .prompt(let anchor), .afterline(let anchor, _): return anchor
+            case .prompt(let anchor, _), .afterline(let anchor, _): return anchor
             }
         }
 
@@ -46,7 +47,7 @@ final class WriteInlineLayer {
         var height: CGFloat {
             let c = Quire.Layout.WriteCaret.self
             switch self {
-            case .prompt: return WritePromptLine.blockHeight
+            case .prompt(_, let chips): return WritePromptLine.blockHeight(chips: chips)
             case .afterline: return c.blockGapTop + WriteAfterline.height + c.blockGapBottom
             }
         }
@@ -281,7 +282,8 @@ final class WriteInlineLayer {
         let column = column
         let top = origin.y + rect.minY + c.blockGapTop
         switch block {
-        case .prompt:
+        case .prompt(_, let chips):
+            prompt.showsChips = chips
             prompt.frame = NSRect(x: column.minX, y: top, width: column.width, height: rect.height - c.blockGapTop - c.blockGapBottom)
         case .afterline(_, let content):
             afterline.content = content

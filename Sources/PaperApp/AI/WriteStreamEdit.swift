@@ -117,8 +117,12 @@ final class WriteStreamEdit {
     /// and brings back exactly that, with the caret where it was before the write (never the notes selected, which ⌘J
     /// would then rewrite as a selection); Redo puts the reply back with the caret after it. The caret ends after the
     /// reply. False when the field refused the change.
+    ///
+    /// `alongside` runs once the change is in, inside the same undo group and before it is named: what lands with the
+    /// draft (a new message's subject) registers its own inverse on the manager it is handed, so one Undo takes both
+    /// back. It never runs for a change that did not go in.
     @discardableResult
-    func commit(_ text: String) -> Bool {
+    func commit(_ text: String, alongside: ((UndoManager?) -> Void)? = nil) -> Bool {
         guard !isFinished else { return false }
         restoreOriginal()
         isFinished = true
@@ -148,6 +152,7 @@ final class WriteStreamEdit {
         }
         storage.replaceCharacters(in: originalRange, with: inserted)
         textView.didChangeText()
+        alongside?(undo)
         Self.registerSelection(on: undo, of: textView, undoTo: nil, redoTo: [NSValue(range: end)])
         undo?.setActionName(Self.actionName)
         undo?.endUndoGrouping()

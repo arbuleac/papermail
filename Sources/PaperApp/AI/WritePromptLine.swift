@@ -5,8 +5,12 @@ import PaperDesign
 /// a draft's, right after one), in a space the text below moves down to make, never over the text. A capsule as wide as
 /// the text column (at most `promptMaxWidth`): `pencil.line` in `accent`, the field in the writing font (“Tell Claude what
 /// to write…”, “…how to rewrite it…” with a selection) and the quiet ↩ keycap; `chipsGap` under it, the presets as quiet
-/// text chips (Shorter · Friendlier · Say no politely), washed under the pointer or the keyboard. ↩ runs the field, a
-/// chip runs its words, Esc closes the line and gives the keyboard back to the text, Tab or ↓ moves to the chips.
+/// text chips (Shorter · Friendlier · Say no politely on a reply; Shorter · Friendlier · More formal on a new message or
+/// a forward), washed under the pointer or the keyboard. ↩ runs the field, a chip runs its words, Esc closes the line
+/// and gives the keyboard back to the text, Tab or ↓ moves to the chips.
+///
+/// A chip is a whole instruction that runs at once, so the chips show only where one could (`showsChips`): on an empty
+/// new message, where there is nothing yet to make shorter, the line is the capsule alone, and Tab and ↓ stay in it.
 @MainActor
 final class WritePromptLine: NSView, NSTextFieldDelegate {
     /// ↩ or a chip: the instruction to run (the field's words, a chip's).
@@ -17,7 +21,19 @@ final class WritePromptLine: NSView, NSTextFieldDelegate {
     var onFocusChange: (() -> Void)?
 
     let field = PromptField(frame: .zero)
+    /// The chips that show now, in order: none while `showsChips` is off.
     private(set) var chips: [Chip] = []
+
+    /// The chips' words, for what the field writes (`WriteWords.presets(for:)`).
+    var presets: [String] = WriteWords.presets {
+        didSet { if oldValue != presets { rebuildChips() } }
+    }
+
+    /// Whether the chips show: only where one could run a write by itself (§5.56). Without them the line is the capsule
+    /// alone (`blockHeight(chips:)`).
+    var showsChips = true {
+        didSet { if oldValue != showsChips { rebuildChips() } }
+    }
 
     /// The writer named in the placeholder (“Claude”).
     var writer = "Claude" { didSet { if oldValue != writer { updatePlaceholder() } } }
@@ -56,10 +72,29 @@ final class WritePromptLine: NSView, NSTextFieldDelegate {
         }
         field.setAccessibilityLabel("Instruction for Help Me Write")
         addSubview(field)
-        for title in WriteWords.presets {
+        rebuildChips()
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Help Me Write instructions")
+        updatePlaceholder()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("built in code")
+    }
+
+    /// The chips for `presets`, or none while they do not show. The keyboard is never on a chip as they change: the
+    /// session sets them as the line opens, and while it is open only as the selection in the text moves.
+    private func rebuildChips() {
+        let keyboardWasOnAChip = chips.contains { $0 === window?.firstResponder }
+        chips.forEach { $0.removeFromSuperview() }
+        chips = []
+        for title in showsChips ? presets : [] {
             let chip = Chip(frame: .zero)
             chip.title = title
             chip.takesKeyboard = true
+            chip.windowKeyOverride = windowKeyOverride
             chip.onPress = { [weak self] in self?.run(chip: title) }
             chip.onKey = { [weak self, weak chip] key in
                 guard let self, let chip else { return false }
@@ -72,15 +107,9 @@ final class WritePromptLine: NSView, NSTextFieldDelegate {
         // Tab from the field reaches the chips and comes back round to it, inside the line.
         field.nextKeyView = chips.first
         for (index, chip) in chips.enumerated() { chip.nextKeyView = index + 1 < chips.count ? chips[index + 1] : field }
-        setAccessibilityElement(true)
-        setAccessibilityRole(.group)
-        setAccessibilityLabel("Help Me Write instructions")
-        updatePlaceholder()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("built in code")
+        if keyboardWasOnAChip { window?.makeFirstResponder(field) }
+        needsLayout = true
+        needsDisplay = true
     }
 
     override var isFlipped: Bool { true }
@@ -101,10 +130,13 @@ final class WritePromptLine: NSView, NSTextFieldDelegate {
         needsLayout = true
     }
 
-    /// The line's height in the text's flow, its gaps above and below included (the reserved block's).
-    nonisolated static var blockHeight: CGFloat {
+    /// The line's height in the text's flow with its chips, its gaps above and below included (the reserved block's).
+    nonisolated static var blockHeight: CGFloat { blockHeight(chips: true) }
+
+    /// The line's height in the text's flow: without chips it is the capsule and its gaps, never an empty row under it.
+    nonisolated static func blockHeight(chips: Bool) -> CGFloat {
         let c = Quire.Layout.WriteCaret.self
-        return c.blockGapTop + c.promptHeight + c.chipsGap + c.chipHeight + c.blockGapBottom
+        return c.blockGapTop + c.promptHeight + (chips ? c.chipsGap + c.chipHeight : 0) + c.blockGapBottom
     }
 
     var placeholder: String { WriteWords.promptPlaceholder(writer: writer, rewrites: rewritesSelection) }
@@ -239,6 +271,9 @@ final class WritePromptLine: NSView, NSTextFieldDelegate {
             onEscape?()
             return true
         case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertTab(_:)):
+            // With no chips there is nowhere in the line to go: the keys do nothing, rather than leave the line, which
+            // would close it.
+            guard showsChips else { return true }
             guard let first = chips.first(where: { !$0.isHidden }) else { return false }
             window?.makeFirstResponder(first)
             return true

@@ -72,14 +72,23 @@ final class HelpMeWritePerformanceTests: XCTestCase {
     /// The ghost, the pill and the rest placed again as each key lands, on a reply composer's body of 2,000 words: the
     /// caret's line is laid out, never the whole body (`ai.place`).
     func testTheMarksArePlacedInUnder1msAKeystrokeOnALongBody() throws {
+        try placeMarks(in: .reply(MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2"), all: false))
+    }
+
+    /// The same on a new message, whose body has a session since 1.21 as every composer's does: its marks cost what a
+    /// reply's do, though what ⌘J does there is read from the body on every key (notes, or nothing to write from).
+    func testTheMarksArePlacedInUnder1msAKeystrokeOnALongNewMessage() throws {
+        try placeMarks(in: .new)
+    }
+
+    private func placeMarks(in mode: ComposeMode) throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
         harness.settings.aiProvider = .claudeAPI
         harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
         let accounts = harness.controller.accounts
-        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
         let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
-                                                       mode: .reply(original, all: false))
+                                                       mode: mode)
         defer { composer.closeWithoutSaving() }
         let editor = composer.bodyEditor
         composer.window?.makeFirstResponder(editor)
@@ -106,8 +115,41 @@ final class HelpMeWritePerformanceTests: XCTestCase {
         XCTAssertNotNil(session.layer.state.ghost, "the ghost was placed each time")
         let median = places.sorted()[places.count / 2]
         let p95 = places.sorted()[Int(Double(places.count) * 0.95)]
-        print(String(format: "Help me write marks: placed in %.3f ms median, %.3f ms p95 on %d words", median, p95,
-                     WriteSession.wordCount(in: editor.string)))
+        print(String(format: "Help me write marks (\(mode == .new ? "new message" : "reply")): placed in %.3f ms median, %.3f ms p95 on %d words",
+                     median, p95, WriteSession.wordCount(in: editor.string)))
         XCTAssertLessThan(median, 1)
+    }
+
+    /// ⌘J on an empty new message has nothing to write from: it opens the prompt line within a frame, sends nothing,
+    /// and making the body's session (the first thing a new composer's body does) reads this Mac only.
+    func testCommandJOnAnEmptyNewMessageOpensTheLineWithinAFrame() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let accounts = harness.controller.accounts
+        var opens: [Double] = []
+        var sessions: [Double] = []
+        for _ in 0..<15 {
+            let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                           mode: .new)
+            composer.window?.makeFirstResponder(composer.bodyEditor)
+            var start = DispatchTime.now().uptimeNanoseconds
+            let session = try XCTUnwrap(composer.bodyWriteSession)
+            sessions.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+            start = DispatchTime.now().uptimeNanoseconds
+            composer.helpMeWrite(nil)
+            composer.window?.contentView?.layoutSubtreeIfNeeded()
+            opens.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+            XCTAssertTrue(session.isPromptShown)
+            composer.closeWithoutSaving()
+        }
+        XCTAssertEqual(harness.environment.helpMeWrite.demoScript?.requests.count, 0, "nothing was sent")
+        let open = opens.sorted()[opens.count / 2]
+        let made = sessions.sorted()[sessions.count / 2]
+        print(String(format: "Help me write on a new message: its session made in %.2f ms, ⌘J to the prompt line %.2f ms (medians of %d)",
+                     made, open, opens.count))
+        XCTAssertLessThan(open, 16)
+        XCTAssertLessThan(made, 16)
     }
 }
