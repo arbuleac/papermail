@@ -62,7 +62,10 @@ public struct ForwardContext: Sendable, Hashable {
     /// then written as a new message is), or when a part of the ask is longer than is sent.
     public init?(_ inputs: ComposeWriteInputs, ask: WriteAsk) {
         guard let forwarded = inputs.forwarded, WriteKind.forward.lengthRefusal(of: ask) == nil else { return nil }
+        let asked = ask
         let ask = inputs.cleaned(ask)
+        // A selection of pictures alone has nothing to rewrite, and is never written over as a whole message.
+        guard ask.isRewrite == asked.isRewrite else { return nil }
         guard !ask.isRewrite else {
             self.init(message: nil, ask: ask, appendsSignature: inputs.appendsSignature)
             return

@@ -35,4 +35,23 @@ public struct WriteAsk: Sendable, Hashable {
         if case .empty = draft { return !instruction.isEmpty }
         return true
     }
+
+    /// The character a picture in a composer's body is: the text system's attachment character, U+FFFC.
+    public static let pictureCharacter = "\u{FFFC}"
+
+    /// The ask with every picture taken out of its notes or its selection: a picture holds no words, so it is nothing
+    /// to write from and nothing to send. A new message's and a forward's ask is read so; a reply's is sent as it
+    /// always was.
+    var withoutPictures: WriteAsk {
+        var ask = self
+        switch draft {
+        case .empty:
+            break
+        case .notes(let notes):
+            ask.draft = .notes(notes.replacingOccurrences(of: Self.pictureCharacter, with: ""))
+        case .selection(let selection):
+            ask.draft = .selection(selection.replacingOccurrences(of: Self.pictureCharacter, with: ""))
+        }
+        return ask
+    }
 }

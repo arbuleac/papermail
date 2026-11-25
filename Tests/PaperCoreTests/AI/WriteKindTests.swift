@@ -80,6 +80,27 @@ final class WriteKindTests: XCTestCase {
         }
     }
 
+    /// A picture in the body is its attachment character, which holds no words: notes or a selection of pictures alone
+    /// are nothing to write from in a new message, and a picture with words beside it is still notes. A reply's ask is
+    /// read as it always was.
+    func testPicturesAloneAreNothingToWriteFromInANewMessage() {
+        let kind = WriteKind.newMessage
+        for pictures in ["\u{FFFC}", "\u{FFFC}\u{FFFC}", "\n\u{FFFC} \n\u{FFFC}\n", " \u{200B}\u{FFFC}"] {
+            XCTAssertTrue(kind.hasNothingToWriteFrom(WriteAsk(draft: .notes(pictures))), pictures.debugDescription)
+            XCTAssertTrue(kind.hasNothingToWriteFrom(WriteAsk(draft: .selection(pictures))), pictures.debugDescription)
+            XCTAssertFalse(kind.hasNothingToWriteFrom(WriteAsk(instruction: "Say hi", draft: .notes(pictures))), "an instruction is a brief")
+        }
+        XCTAssertFalse(kind.hasNothingToWriteFrom(WriteAsk(draft: .notes("lunch \u{FFFC}"))), "words beside a picture are notes")
+        XCTAssertFalse(kind.hasNothingToWriteFrom(WriteAsk(draft: .notes("\u{FFFC}\nsee above"))))
+        XCTAssertEqual(WriteAsk(instruction: "\u{FFFC}", draft: .notes("a\u{FFFC}b")).withoutPictures,
+                       WriteAsk(instruction: "\u{FFFC}", draft: .notes("ab")), "only the notes or the selection hold pictures")
+        XCTAssertEqual(WriteAsk(draft: .selection("\u{FFFC}x")).withoutPictures, WriteAsk(draft: .selection("x")))
+        XCTAssertEqual(WriteAsk().withoutPictures, WriteAsk())
+        for other in [WriteKind.reply, .forward] {
+            XCTAssertFalse(other.hasNothingToWriteFrom(WriteAsk(draft: .notes("\u{FFFC}"))), "\(other)")
+        }
+    }
+
     // MARK: Too long to send
 
     private let long = String(repeating: "word ", count: 1_601)   // 8,004 characters once trimmed

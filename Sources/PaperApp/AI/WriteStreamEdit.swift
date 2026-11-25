@@ -32,13 +32,19 @@ final class WriteStreamEdit {
     private(set) var wasDisturbed = false
     /// The undo manager whose registration this edit turned off, so the same one is turned back on.
     private var silencedUndo: UndoManager?
+    /// Written after the reply as part of it, in its style: the empty line between a draft and the picture it goes above
+    /// (a new message's or a forward's body that holds pictures and no words). Empty for every other write.
+    let trailing: String
+    private var trailingLength: Int { (trailing as NSString).length }
 
     /// `previous`, when given, is shown in pencil in place of `range` until the first words arrive: Try again keeps the
     /// draft it replaces in sight rather than flashing the notes back. Without it, what `range` holds (the notes, the
     /// selection) turns to pencil where it is until then, its own style kept: it is what the reply will take the place of,
     /// and the pencil mark waits after it (§5.56).
-    init(textView: NSTextView, range: NSRange, attributes: [NSAttributedString.Key: Any], showing previous: String? = nil) {
+    init(textView: NSTextView, range: NSRange, attributes: [NSAttributedString.Key: Any], showing previous: String? = nil,
+         trailing: String = "") {
         self.textView = textView
+        self.trailing = trailing
         let length = textView.textStorage?.length ?? 0
         let location = min(max(0, range.location), length)
         let safe = NSRange(location: location, length: min(range.length, length - location))
@@ -54,9 +60,9 @@ final class WriteStreamEdit {
         if let previous, !previous.isEmpty, let storage = textView.textStorage {
             silenceUndo()
             storage.beginEditing()
-            storage.replaceCharacters(in: safe, with: NSAttributedString(string: previous, attributes: pencilAttributes))
+            storage.replaceCharacters(in: safe, with: NSAttributedString(string: previous + trailing, attributes: pencilAttributes))
             storage.endEditing()
-            self.range = NSRange(location: safe.location, length: (previous as NSString).length)
+            self.range = NSRange(location: safe.location, length: (previous as NSString).length + (trailing as NSString).length)
             holdsPrevious = true
             wroteStorage = true
         } else if safe.length > 0, let manager = textView.layoutManager {
@@ -66,6 +72,11 @@ final class WriteStreamEdit {
             manager.addTemporaryAttribute(.foregroundColor, value: WriteStreamEdit.pencilInk, forCharacterRange: safe)
             penciledInPlace = true
         }
+    }
+
+    /// Where the text the stream has put in ends, before `trailing`: the pencil mark waits there.
+    var textEnd: Int {
+        wroteStorage ? NSMaxRange(range) - trailingLength : NSMaxRange(range)
     }
 
     /// Pencil: the colour token `layout.writeCaret.pencilInk` names (`ink2`).
@@ -99,16 +110,16 @@ final class WriteStreamEdit {
         storage.beginEditing()
         if !holdsPrevious, before.length > 0, now.length > before.length, now.substring(to: before.length) == shown {
             let added = NSAttributedString(string: now.substring(from: before.length), attributes: pencilAttributes)
-            storage.insert(added, at: NSMaxRange(range))
+            storage.insert(added, at: NSMaxRange(range) - trailingLength)
         } else {
-            storage.replaceCharacters(in: range, with: NSAttributedString(string: text, attributes: pencilAttributes))
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: text + trailing, attributes: pencilAttributes))
         }
         holdsPrevious = false
         wroteStorage = true
         storage.endEditing()
         shown = text
-        range = NSRange(location: originalRange.location, length: now.length)
-        let end = NSRange(location: NSMaxRange(range), length: 0)
+        range = NSRange(location: originalRange.location, length: now.length + trailingLength)
+        let end = NSRange(location: NSMaxRange(range) - trailingLength, length: 0)
         textView.setSelectedRange(end)
         textView.scrollRangeToVisible(end)
     }
@@ -126,18 +137,20 @@ final class WriteStreamEdit {
         guard !isFinished else { return false }
         restoreOriginal()
         isFinished = true
-        let inserted = NSAttributedString(string: text, attributes: attributes)
+        let replacement = text + trailing
+        let inserted = NSAttributedString(string: replacement, attributes: attributes)
         guard !wasDisturbed else { return false }
         // The owner's answer first (it refuses while it holds edits), so a refused change leaves no step behind.
         let allowed = textView.isEditable
-            && (textView.delegate?.textView?(textView, shouldChangeTextIn: originalRange, replacementString: text) ?? true)
-        guard let storage = textView.textStorage, inserted.length > 0, allowed else {
+            && (textView.delegate?.textView?(textView, shouldChangeTextIn: originalRange, replacementString: replacement) ?? true)
+        guard let storage = textView.textStorage, !text.isEmpty, allowed else {
             textView.selectedRanges = originalSelection
             return false
         }
         // Its own undo step: typing just before or after must not fold into it.
         textView.breakUndoCoalescing()
-        let end = NSRange(location: originalRange.location + inserted.length, length: 0)
+        // The caret after the reply's last word, before `trailing`.
+        let end = NSRange(location: originalRange.location + inserted.length - trailingLength, length: 0)
         let undo = textView.undoManager
         undo?.beginUndoGrouping()
         // An undo group runs last what was registered first: the caret goes back after the text view's own undo of the
@@ -145,7 +158,7 @@ final class WriteStreamEdit {
         // registration runs first on undo and does nothing then; its redo runs last on redo, after the text view selects
         // the reply, and puts the caret after it.
         Self.registerSelection(on: undo, of: textView, undoTo: originalSelection, redoTo: nil)
-        guard textView.shouldChangeText(in: originalRange, replacementString: text) else {
+        guard textView.shouldChangeText(in: originalRange, replacementString: replacement) else {
             undo?.endUndoGrouping()
             textView.selectedRanges = originalSelection
             return false

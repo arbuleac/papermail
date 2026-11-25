@@ -36,8 +36,10 @@ public struct NewMessageContext: Sendable, Hashable {
     /// meaning and greets no one, so the subject and the names have no use in it.
     public init?(_ inputs: ComposeWriteInputs, ask: WriteAsk) {
         guard WriteKind.newMessage.lengthRefusal(of: ask) == nil else { return nil }
+        let asked = ask
         let ask = inputs.cleaned(ask)
-        guard !WriteKind.newMessage.hasNothingToWriteFrom(ask) else { return nil }
+        // A selection of pictures alone has nothing to rewrite, and is never written over as a whole message.
+        guard !WriteKind.newMessage.hasNothingToWriteFrom(ask), ask.isRewrite == asked.isRewrite else { return nil }
         guard !ask.isRewrite else {
             self.init(ask: ask, appendsSignature: inputs.appendsSignature)
             return

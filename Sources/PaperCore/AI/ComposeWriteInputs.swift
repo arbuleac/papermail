@@ -101,11 +101,11 @@ public struct ComposeWriteInputs: Sendable, Hashable {
         return ReplyContextBuilder.firstWord(of: account.displayName)
     }
 
-    /// `ask` as it is sent: invisible characters out and the ends trimmed, blank notes or a blank selection becoming
-    /// none; never cut (a part too long is refused before this). With `redactsOwnText`, the notes or the selection
-    /// redacted too. The instruction is always the user's own typing.
+    /// `ask` as it is sent: pictures and invisible characters out and the ends trimmed, blank notes or a blank
+    /// selection becoming none; never cut (a part too long is refused before this). With `redactsOwnText`, the notes or
+    /// the selection redacted too. The instruction is always the user's own typing.
     func cleaned(_ ask: WriteAsk) -> WriteAsk {
-        var cleaned = ReplyContextBuilder.cleaned(ask, limit: .max)
+        var cleaned = ReplyContextBuilder.cleaned(ask.withoutPictures, limit: .max)
         guard redactsOwnText else { return cleaned }
         func redacted(_ text: String) -> String {
             AIRedactor().redact(text).trimmingCharacters(in: .whitespacesAndNewlines)

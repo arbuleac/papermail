@@ -24,14 +24,15 @@ public enum WriteKind: Sendable, Hashable, CaseIterable {
     /// Whether a write of this kind would have nothing to write from: such a write never sends. A reply has its
     /// conversation and a forward its forwarded message; a new message has only what the user gave, so it needs notes,
     /// a selection or an instruction that still says something once cleaned. A subject alone is not a brief, and
-    /// neither are the recipients' names: neither is asked about here.
+    /// neither are the recipients' names: neither is asked about here. Nor is a picture in the body: notes that are
+    /// pictures and nothing else say nothing (`WriteAsk.withoutPictures`).
     ///
     /// With `ask.instruction` left empty this is also the test of whether ⌘J can write at once in the field as it
     /// stands, or has to ask what to write.
     public func hasNothingToWriteFrom(_ ask: WriteAsk) -> Bool {
         switch self {
         case .reply, .forward: return false
-        case .newMessage: return !ReplyContextBuilder.cleaned(ask, limit: .max).hasBrief
+        case .newMessage: return !ReplyContextBuilder.cleaned(ask.withoutPictures, limit: .max).hasBrief
         }
     }
 

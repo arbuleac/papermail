@@ -177,6 +177,41 @@ final class ComposeWriteInputsTests: XCTestCase {
         XCTAssertNotNil(request(full, WriteAsk(instruction: "lunch")))
     }
 
+    /// A picture in the body holds no words and is never sent: notes of pictures alone are no brief, so a new message
+    /// sends nothing and a forward writes from its forwarded message alone; words beside a picture go without it; and
+    /// a selection of pictures alone has nothing to rewrite, so nothing is written over it.
+    func testPicturesInTheBodyAreNeverSentNorABrief() throws {
+        let inputs = ComposeWriteInputs(subject: "Q3 numbers", to: [priya])
+        let forward = ComposeWriteInputs(subject: "Fwd: Venue contract", to: [priya], forwarded: forwarded())
+        let pictures = WriteAsk(draft: .notes("\u{FFFC}\n\u{FFFC}"))
+        XCTAssertNil(request(inputs, pictures), "a subject, a name and a picture are not a brief")
+        XCTAssertNil(request(ComposeWriteInputs(redactsOwnText: true), pictures))
+        XCTAssertNil(request(inputs, WriteAsk(draft: .selection("\u{FFFC}"))))
+        XCTAssertNil(request(inputs, WriteAsk(instruction: "Shorter", draft: .selection("\u{FFFC}"))),
+                     "a selection of a picture is never written over as a whole message")
+        XCTAssertNil(request(forward, WriteAsk(instruction: "Shorter", draft: .selection(" \u{FFFC} "))))
+
+        let fromInstruction = try XCTUnwrap(request(inputs, WriteAsk(instruction: "Ask Priya for the Q3 numbers", draft: pictures.draft)))
+        XCTAssertFalse(fromInstruction.userTurn.contains("\u{FFFC}"))
+        XCTAssertFalse(fromInstruction.task.contains("NOTES"), "the instruction is the brief")
+        XCTAssertTrue(fromInstruction.transcript.contains("Subject: Q3 numbers\nTo: Priya"))
+
+        let alone = try XCTUnwrap(request(forward, pictures))
+        XCTAssertEqual(alone.kind, .forward)
+        XCTAssertFalse(alone.task.contains("NOTES"), "written from the forwarded message alone")
+        XCTAssertFalse(alone.userTurn.contains("\u{FFFC}"))
+
+        for written in [inputs, forward] {
+            let beside = try XCTUnwrap(request(written, WriteAsk(draft: .notes("numbers below \u{FFFC} by friday"))))
+            XCTAssertTrue(beside.task.contains("numbers below  by friday"), "words beside a picture are notes")
+            XCTAssertFalse(beside.userTurn.contains("\u{FFFC}"))
+            let rewrite = try XCTUnwrap(request(written, WriteAsk(draft: .selection("\u{FFFC}see the chart"))))
+            XCTAssertTrue(rewrite.isRewrite)
+            XCTAssertTrue(rewrite.task.contains("see the chart"))
+            XCTAssertFalse(rewrite.userTurn.contains("\u{FFFC}"))
+        }
+    }
+
     // MARK: Which kind
 
     func testAForwardWithoutItsOriginalIsWrittenAsANewMessage() {

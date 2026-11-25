@@ -115,6 +115,19 @@ final class HelpMeWriteComposeTests: XCTestCase {
         return view.subviews.flatMap { addressFields(in: $0) }
     }
 
+    /// Pastes a small picture at the caret in the body, as ⌘V would, from a pasteboard of its own (never the user's
+    /// clipboard): its attachment character, U+FFFC, goes into the text.
+    private func pastePicture(in composer: ComposeWindowController) {
+        let board = NSPasteboard(name: NSPasteboard.Name("HelpMeWriteCompose-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        let picture = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8, samplesPerPixel: 4,
+                                       hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        board.setData(picture?.representation(using: .png, properties: [:]), forType: .png)
+        composer.bodyEditor.pasteboard = board
+        composer.bodyEditor.paste(nil)
+    }
+
     /// The body's session with the keyboard in the body, its marks drawn as in the key window (the test window never is).
     private func session(_ composer: ComposeWindowController) throws -> WriteSession {
         composer.window?.makeFirstResponder(composer.bodyEditor)
@@ -292,6 +305,111 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertEqual(request.promptVersion, "write-new-1")
         XCTAssertEqual(request.task, "Write my message from this brief:\nask Priya to lunch on Thursday")
         XCTAssertTrue(sheets.isEmpty)
+    }
+
+    /// A picture holds no words. A new message whose body is pictures alone has nothing to write from: its ghost says
+    /// what ⌘J does there, ⌘J opens the prompt line and sends nothing, and a selection of the picture alone is none. The
+    /// draft written from what is said there goes above the picture, an empty line between, and the picture stays; ⌘Z
+    /// takes the draft back and leaves the picture. Words beside a picture are notes, which the draft replaces with it,
+    /// as in a reply. A forward of pictures alone is written from its forwarded message, above them too.
+    func testABodyOfPicturesAloneIsNothingToWriteFromAndKeepsItsPicture() throws {
+        let (harness, script) = try harness(reply: lunch)
+        defer { harness.close() }
+        let composer = newMessage(harness, link: MailtoLink(to: [priya]))
+        let session = try session(composer)
+        pastePicture(in: composer)
+        XCTAssertEqual(composer.bodyText, "\u{FFFC}")
+        session.refresh()
+        XCTAssertEqual(session.plan, .askWhat, "a picture is no brief")
+        XCTAssertEqual(composer.bodyWriteLayer.state.ghost?.words, "to say what to write")
+        XCTAssertEqual(titles(composer).first, "Write Message\u{2026}")
+        composer.bodyEditor.setSelectedRange(NSRange(location: 0, length: 1))
+        session.selectionDidChange()
+        XCTAssertNil(composer.bodyWriteLayer.state.pill, "a selection of the picture alone is none")
+        XCTAssertEqual(session.plan, .askWhat)
+        composer.bodyEditor.setSelectedRange(NSRange(location: 1, length: 0))
+
+        commandJ(composer)
+        XCTAssertTrue(session.isPromptShown, "⌘J asks what to write")
+        pressReturn(in: composer)
+        ListTestSupport.spin(for: 0.1)
+        XCTAssertTrue(session.isPromptShown)
+        XCTAssertEqual(script.requests.count, 0, "nothing is sent for a picture and a name")
+
+        say("ask Priya for the Q3 numbers in the chart", in: composer)
+        until({ session.phase == .written })
+        let request = try XCTUnwrap(script.requests.last)
+        XCTAssertEqual(task(request), "Write my message from this brief:\nask Priya for the Q3 numbers in the chart")
+        XCTAssertFalse(request.userTurn.contains("\u{FFFC}"))
+        XCTAssertTrue(request.wantsSubject)
+        XCTAssertEqual(composer.bodyText, lunchBody + "\n\n\u{FFFC}", "the draft above the picture, which stays")
+        XCTAssertEqual(ComposeInlineImages.pictures(in: composer.contents.body).count, 1)
+        XCTAssertEqual(composer.subjectText, "Lunch on Thursday?")
+        guard case .afterline(.end(let end), .written)? = composer.bodyWriteLayer.state.block else {
+            return XCTFail("the afterline under the draft")
+        }
+        XCTAssertEqual(end, (lunchBody as NSString).length, "after its last word, not after the empty line")
+        // Try again writes above the picture again.
+        commandJ(composer)
+        until({ session.phase == .written && script.requests.count == 2 })
+        XCTAssertEqual(composer.bodyText, lunchBody + "\n\n\u{FFFC}")
+        XCTAssertEqual(ComposeInlineImages.pictures(in: composer.contents.body).count, 1)
+        composer.window?.undoManager?.undo()
+        XCTAssertEqual(composer.bodyText, "\u{FFFC}", "⌘Z takes the draft back, the picture stays")
+        XCTAssertEqual(composer.subjectText, "")
+
+        // While a draft streams above the picture, the pencil waits after its last word; Stop leaves the picture alone.
+        script.holdsAfter = 2
+        commandJ(composer)
+        XCTAssertEqual(composer.bodyWriteLayer.prompt.instruction, "ask Priya for the Q3 numbers in the chart", "the brief, kept")
+        pressReturn(in: composer)
+        until({ session.phase == .writing && composer.bodyText.hasPrefix("Hi Priya,\n\nAre ") })
+        XCTAssertTrue(composer.bodyText.hasSuffix(" \n\n\u{FFFC}"), composer.bodyText.debugDescription)
+        XCTAssertEqual(composer.bodyWriteLayer.state.pencil, (composer.bodyText as NSString).length - 3)
+        session.stop()
+        script.holdsAfter = nil
+        XCTAssertEqual(composer.bodyText, "\u{FFFC}")
+
+        // Words beside the picture are notes: sent without it, and the draft replaces them and it, one ⌘Z away.
+        composer.bodyEditor.insertText("numbers below ", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(session.plan, .fromNotes)
+        let sent = script.requests.count
+        commandJ(composer)
+        until({ session.phase == .written && script.requests.count == sent + 1 })
+        let notes = try XCTUnwrap(script.requests.last)
+        XCTAssertTrue(notes.task.contains("numbers below"))
+        XCTAssertFalse(notes.userTurn.contains("\u{FFFC}"))
+        XCTAssertEqual(composer.bodyText, lunchBody)
+        composer.window?.undoManager?.undo()
+        XCTAssertEqual(composer.bodyText, "numbers below \u{FFFC}")
+        composer.closeWithoutSaving()
+
+        // A forward of pictures alone writes from its forwarded message, above them.
+        script.reply = "Hi Priya,\n\nForwarding the venue's note."
+        let forwarding = try forward(harness)
+        let writing = try self.session(forwarding)
+        forwarding.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        pastePicture(in: forwarding)
+        writing.refresh()
+        let own = forwarding.bodyText
+        XCTAssertTrue(own.hasPrefix("\u{FFFC}"))
+        XCTAssertEqual(writing.plan, .fromContext)
+        XCTAssertEqual(forwarding.bodyWriteLayer.state.ghost?.words, "to write a message")
+        XCTAssertEqual(titles(forwarding).first, "Write Message")
+        let before = script.requests.count
+        commandJ(forwarding)
+        until({ writing.phase == .written && script.requests.count == before + 1 })
+        let forwarded = try XCTUnwrap(script.requests.last)
+        XCTAssertEqual(forwarded.kind, .forward)
+        XCTAssertFalse(forwarded.task.contains("NOTES"), "from the forwarded message alone")
+        XCTAssertEqual(forwarding.bodyText, "Hi Priya,\n\nForwarding the venue's note.\n\n" + own)
+
+        // A reply reads a picture as it always did: as notes.
+        let reply = present(.reply(MessageID(accountID: a.id, providerID: "msg-2-2"), all: false), harness)
+        let replying = try self.session(reply)
+        reply.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        pastePicture(in: reply)
+        XCTAssertEqual(replying.plan, .fromNotes)
     }
 
     /// Esc with the prompt line open on an empty new message closes the line and gives the keyboard back to the body,

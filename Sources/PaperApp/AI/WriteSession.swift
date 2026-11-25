@@ -211,7 +211,7 @@ final class WriteSession {
         layer.textAttributes = field.writeAttributes(at: NSRange(location: textView.selectedRange().location, length: 0))
         var state = WriteInlineLayer.State()
         if isWriting {
-            state.pencil = edit.map { NSMaxRange($0.range) }
+            state.pencil = edit.map(\.textEnd)
         } else if let promptAnchor {
             state.block = .prompt(promptAnchor, chips: canWriteAtOnce)
         } else if phase == .written, let lastDraft, textView.string == lastDraft.textAfter {
@@ -252,7 +252,7 @@ final class WriteSession {
         guard at == NSMaxRange(own) || (at < text.length && WriteTextGeometry.isLineEnd(text.character(at: at))) else { return nil }
         // Never the whole notes copied or counted on each key: the first letter, then the first few words, are enough.
         guard NSMaxRange(own) <= text.length else { return nil }
-        if text.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted, options: [], range: own).location == NSNotFound {
+        if text.rangeOfCharacter(from: Self.words(writing: field.writeKind), options: [], range: own).location == NSNotFound {
             if let offset = field.placeholderWidth {
                 return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostAfterPlaceholder, offset: offset)
             }
@@ -269,9 +269,27 @@ final class WriteSession {
         let selection = textView.selectedRange()
         guard selection.length > 0, NSMaxRange(selection) <= text.length else { return nil }
         let core = Self.trimmedCore(of: selection, in: text)
-        guard text.substring(with: core).contains(where: { !$0.isWhitespace }) else { return nil }
+        guard Self.holdsWords(text.substring(with: core), writing: field.writeKind) else { return nil }
         return core
     }
+
+    /// Whether `text` holds something written, in a field writing `kind`: anything but blanks, and in a new message or
+    /// a forward anything but a picture too (its attachment character, `WriteAsk.pictureCharacter`), which holds no
+    /// words. So there a body of pictures alone is empty to ⌘J, its ghost the empty body's, and a selection of pictures
+    /// alone is none. A reply's field reads a picture as it always did.
+    static func holdsWords(_ text: String, writing kind: WriteKind) -> Bool {
+        kind == .reply ? text.contains { !$0.isWhitespace } : text.contains { !$0.isWhitespace && $0 != picture }
+    }
+
+    /// `holdsWords` as a set, for a search in the text without copying it.
+    static func words(writing kind: WriteKind) -> CharacterSet {
+        kind == .reply ? notBlank : notBlankOrPicture
+    }
+
+    private static let picture = Character(WriteAsk.pictureCharacter)
+    private static let notBlank = CharacterSet.whitespacesAndNewlines.inverted
+    private static let notBlankOrPicture = CharacterSet.whitespacesAndNewlines
+        .union(CharacterSet(charactersIn: WriteAsk.pictureCharacter)).inverted
 
     /// The selection moved (a click, the arrows, a drag let go): the ghost goes until the next pause, the pill follows the
     /// selection once it has settled, and the open prompt's placeholder follows what ⌘J would rewrite.
@@ -397,8 +415,9 @@ final class WriteSession {
         if standingDraft != nil { return .tryAgain }
         if field.selectionOnlyReason != nil { return .selectionOnly }
         let own = ownText
-        if field.writeKind.hasNothingToWriteFrom(WriteAsk(draft: .notes(own))) { return .askWhat }
-        return own.contains { !$0.isWhitespace } ? .fromNotes : .fromContext
+        let kind = field.writeKind
+        if kind.hasNothingToWriteFrom(WriteAsk(draft: .notes(own))) { return .askWhat }
+        return Self.holdsWords(own, writing: kind) ? .fromNotes : .fromContext
     }
 
     /// The last draft, while it stands in the field as it was written: ⌘J tries again from what it was written from.
@@ -484,13 +503,30 @@ final class WriteSession {
     }
 
     /// What a write with `instruction` would be asked now, from what the field holds: the user's own text as its notes,
-    /// or an empty draft. Reads this Mac only.
+    /// or an empty draft (in a new message or a forward, also where that text is pictures and nothing else), and where
+    /// the draft goes (`wholeDraftRange`). Reads this Mac only.
     private func freshAsk(instruction: String) -> (ask: WriteAsk, range: NSRange) {
         let text = textView.string as NSString
         let own = field.ownTextRange
         let notes = NSMaxRange(own) <= text.length ? text.substring(with: own) : ""
         let typed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (WriteAsk(instruction: instruction, draft: typed.isEmpty ? .empty : .notes(typed)), own)
+        return (WriteAsk(instruction: instruction, draft: Self.holdsWords(typed, writing: field.writeKind) ? .notes(typed) : .empty),
+                wholeDraftRange)
+    }
+
+    /// Where a draft of the whole message goes: the user's own text, which it replaces. In a new message or a forward
+    /// whose own text holds pictures and no words, only the blanks before the first picture: the draft goes above the
+    /// pictures, an empty line between them (`start`), and every picture stays where it was (§5.56). Notes beside a
+    /// picture are replaced with it, as in a reply, whose field is written over whole as it always was.
+    private var wholeDraftRange: NSRange {
+        let own = field.ownTextRange
+        let kind = field.writeKind
+        let text = textView.string as NSString
+        guard kind != .reply, NSMaxRange(own) <= text.length,
+              text.rangeOfCharacter(from: Self.words(writing: kind), options: [], range: own).location == NSNotFound else { return own }
+        let picture = text.range(of: WriteAsk.pictureCharacter, options: .literal, range: own)
+        guard picture.location != NSNotFound else { return own }
+        return NSRange(location: own.location, length: picture.location - own.location)
     }
 
     /// Whether a write with `instruction` would have nothing to write from (`WriteKind.hasNothingToWriteFrom`): no
@@ -625,7 +661,7 @@ final class WriteSession {
             if textView.string == draft.textBefore { textView.selectedRanges = draft.selection }
             isChangingText = false
         }
-        let range = draft.isRewrite ? draft.range : field.ownTextRange
+        let range = draft.isRewrite ? draft.range : wholeDraftRange
         guard NSMaxRange(range) <= (textView.string as NSString).length, textView.string != draft.textAfter else {
             // The undo did not bring the notes back (the stack changed under it): the field as it is is the notes.
             lastDraft = nil
@@ -671,7 +707,12 @@ final class WriteSession {
         proposedSubject = nil
         lastDraft = nil
         running = Running(ask: ask, isRewrite: isRewrite, kind: kind, wantsSubject: wantsSubject, brief: brief)
-        edit = WriteStreamEdit(textView: textView, range: range, attributes: field.writeAttributes(at: range), showing: previous)
+        // A whole draft that goes above a picture (`wholeDraftRange`) keeps an empty line between them.
+        let text = textView.string as NSString
+        let abovePicture = !isRewrite && kind != .reply && NSMaxRange(range) < text.length
+            && text.character(at: NSMaxRange(range)) == 0xFFFC
+        edit = WriteStreamEdit(textView: textView, range: range, attributes: field.writeAttributes(at: range), showing: previous,
+                               trailing: abovePicture ? "\n\n" : "")
         field.streamDidUpdate()
         field.refusesEdits = true
         field.setHeldOpen(true)
