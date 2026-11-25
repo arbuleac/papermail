@@ -3,7 +3,8 @@ import Foundation
 /// `write-new-1`: the prompt for a new message. Its own text, not a variant of the reply's: there is no conversation to
 /// lay out, the answer may begin with a subject line (which `write-reply-2` forbids), and with nothing to answer the
 /// model's easiest move is to talk to the user, so the first thing the instructions say is that the answer is the
-/// message itself. Bump `newMessageVersion` whenever the words change.
+/// message itself. Bump `newMessageVersion` whenever the words change. A selection's rewrite has its own prompt,
+/// `rewrite-new-1` (`WritePrompt+Rewrite`), with the same message block.
 extension WritePrompt {
     public static let newMessageVersion = "write-new-1"
 
@@ -71,16 +72,20 @@ extension WritePrompt {
         return "The message I'm writing:\n" + fenced("MESSAGE", lines.joined(separator: "\n"), fence: fence)
     }
 
-    /// What a new message is written from besides the ask (`AIWriteRequest.transcript`): the message block. Empty for a
-    /// selection's rewrite, which sends the selection and the instruction alone.
+    /// What a new message is written from besides the ask (`AIWriteRequest.transcript`): the message block, for a
+    /// whole write and a selection's rewrite alike.
     public static func transcript(of context: NewMessageContext, fence: String) -> String {
-        guard !context.ask.isRewrite else { return "" }
-        return messageBlock(subject: context.subject, recipientFirstNames: context.recipientFirstNames, fence: fence)
+        messageBlock(subject: context.subject, recipientFirstNames: context.recipientFirstNames, fence: fence)
     }
 
     /// The user's part of a new message's request (`AIWriteRequest.task`): their first name, then their notes or the
-    /// selection, then the instruction. With no notes the instruction is the brief and is given as one.
+    /// selection, then the instruction. With no notes the instruction is the brief and is given as one. A selection's is
+    /// the rewrite's own (`rewriteTask`).
     public static func task(for context: NewMessageContext, fence: String) -> String {
+        if context.ask.isRewrite {
+            return rewriteTask(kind: .newMessage, firstName: context.userFirstName, ask: context.ask,
+                               frame: rewriteFrame(of: context.ask, redacts: context.redactsAround, fence: fence), fence: fence)
+        }
         let instruction = strip(context.ask.instruction, fence: fence)
         var parts: [String] = []
         if let name = context.userFirstName { parts.append("My first name: \(strip(name, fence: fence))") }
@@ -89,8 +94,9 @@ extension WritePrompt {
             parts.append(instruction.isEmpty ? "Write my message." : "Write my message from this brief:\n\(instruction)")
         case .notes(let notes):
             parts.append(notesPart(notes, instruction: instruction, fence: fence))
-        case .selection(let selection):
-            return rewritePart(selection, instruction: instruction, fence: fence)
+        case .selection:
+            // Answered above: a selection's rewrite has its own prompt.
+            break
         }
         return parts.joined(separator: "\n\n")
     }
@@ -101,8 +107,13 @@ extension WritePrompt {
                                fence: String = WritePrompt.newFence()) -> AIWriteRequest? {
         guard !WriteKind.newMessage.hasNothingToWriteFrom(context.ask),
               WriteKind.newMessage.lengthRefusal(of: context.ask) == nil else { return nil }
-        // A rewrite replaces part of the body: no subject comes with it.
-        let wantsSubject = context.wantsSubject && !context.ask.isRewrite
+        if context.ask.isRewrite {
+            // A rewrite replaces part of the body: no subject comes with it.
+            return rewriteRequest(kind: .newMessage, transcript: transcript(of: context, fence: fence),
+                                  firstName: context.userFirstName, ask: context.ask, redacts: context.redactsAround,
+                                  configuration: configuration, fence: fence)
+        }
+        let wantsSubject = context.wantsSubject
         return AIWriteRequest(
             kind: .newMessage,
             instructions: newMessageInstructions(appendsSignature: context.appendsSignature, wantsSubject: wantsSubject),
@@ -110,7 +121,6 @@ extension WritePrompt {
             task: task(for: context, fence: fence),
             model: configuration.resolvedModel,
             wantsSubject: wantsSubject,
-            isRewrite: context.ask.isRewrite,
             fence: fence
         )
     }
@@ -121,14 +131,5 @@ extension WritePrompt {
     static func notesPart(_ notes: String, instruction: String, fence: String) -> String {
         "My notes so far, the brief for the message:\n" + fenced("NOTES", notes, fence: fence) + "\n\n"
             + (instruction.isEmpty ? "Write my message from these notes." : "Write my message from these notes. \(instruction)")
-    }
-
-    /// The selection, fenced, and the line that asks for it to be rewritten. Nothing else goes with a rewrite: not the
-    /// user's first name, which signs a whole message and not a part of one.
-    static func rewritePart(_ selection: String, instruction: String, fence: String) -> String {
-        "Part of my message, to rewrite:\n" + fenced("SELECTION", selection, fence: fence) + "\n\n"
-            + (instruction.isEmpty
-                ? "Rewrite this part so it reads well, keeping its meaning and language. Return only the rewritten part."
-                : "Rewrite this part: \(instruction) Keep its language. Return only the rewritten part.")
     }
 }

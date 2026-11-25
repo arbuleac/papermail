@@ -105,8 +105,8 @@ enum WriteWords {
 
     /// What VoiceOver says as a draft lands: a selection rewritten, or what was written, and that the Subject was set
     /// with it when it was (the one effect of a write that is not at the caret).
-    static func landed(_ kind: WriteKind, by writer: String, rewrite: Bool, withSubject: Bool) -> String {
-        if rewrite { return "Selection rewritten by \(writer)" }
+    static func landed(_ kind: WriteKind, by writer: String, rewrite: Bool, withSubject: Bool, joined: Bool = false) -> String {
+        if rewrite { return "Selection rewritten by \(writer)" + (joined ? ", with the words next to it adjusted" : "") }
         return noun(for: kind) + (withSubject ? " and subject" : "") + " written by \(writer)"
     }
 

@@ -113,19 +113,20 @@ final class WritePromptTests: XCTestCase {
         """)
     }
 
+    /// A selection sent alone (the ALONE form, `rewrite-reply-1`'s task); the DRAFT form is in `WriteRewritePromptTests`.
     func testTheTaskForASelection() {
         let task = WritePrompt.task(for: context(ask: WriteAsk(draft: .selection("see u thurs")), name: nil), fence: fence)
         XCTAssertEqual(task, """
-        Part of my reply, to rewrite:
+        Part of my reply, to rewrite (the rest of my reply isn't given):
         <<<SELECTION 1a2b3c4d>>>
         see u thurs
         <<<END SELECTION 1a2b3c4d>>>
 
-        Rewrite this part so it reads well, keeping its meaning and language. Return only the rewritten part.
+        Rewrite this part so it reads well, keeping its meaning and language. Answer with the rewritten part alone.
         """)
         let instructed = WritePrompt.task(for: context(ask: WriteAsk(instruction: "More formal.", draft: .selection("x")), name: nil),
                                           fence: fence)
-        XCTAssertTrue(instructed.hasSuffix("Rewrite this part: More formal. Keep its language. Return only the rewritten part."))
+        XCTAssertTrue(instructed.hasSuffix("Rewrite this part: More formal. Keep its language. Answer with the rewritten part alone."))
     }
 
     func testTheFenceCodeIsStrippedFromTheUsersWordsToo() {

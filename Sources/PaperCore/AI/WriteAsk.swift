@@ -14,13 +14,45 @@ public struct WriteAsk: Sendable, Hashable {
         case selection(String)
     }
 
+    /// The user's own text around a selection to rewrite, read in the field as the user asked (`WriteSession.run`) and
+    /// never before: what the rewrite reads so the part fits where it stands, and the few words beside it that it may
+    /// change to join it (spec §5.56). Raw, as the field holds it: `WriteRewriteFrame` cleans, cuts and, for a body a
+    /// mail link or a Service filled in, redacts it off the main thread. Only text the field calls the user's own is
+    /// ever put here (`WriteField.textAroundSelectionIsOwn`, `WriteField.ownTextRange`).
+    public struct Around: Sendable, Hashable {
+        /// The field's own text from its start to the selection's trimmed core.
+        public var before: String
+        /// The field's own text from the core's end to the own text's end (above a composer's signature).
+        public var after: String
+        /// UTF-16 lengths measured outward from the core's edges (`WriteSeamWindows`): the blanks right before the core,
+        /// then the few words before those that may change; the after side mirrors it. A window of 0 is none.
+        public var beforeGap: Int
+        public var beforeWindow: Int
+        public var afterGap: Int
+        public var afterWindow: Int
+
+        public init(before: String, after: String, beforeGap: Int = 0, beforeWindow: Int = 0, afterGap: Int = 0,
+                    afterWindow: Int = 0) {
+            self.before = before
+            self.after = after
+            self.beforeGap = beforeGap
+            self.beforeWindow = beforeWindow
+            self.afterGap = afterGap
+            self.afterWindow = afterWindow
+        }
+    }
+
     /// The card's instruction field; may be empty.
     public var instruction: String
     public var draft: Draft
+    /// For a selection's rewrite where the text around it is the user's own: that text (the DRAFT form of the request).
+    /// Nil for every other write, and for a rewrite that sends the selection alone.
+    public var around: Around?
 
-    public init(instruction: String = "", draft: Draft = .empty) {
+    public init(instruction: String = "", draft: Draft = .empty, around: Around? = nil) {
         self.instruction = instruction
         self.draft = draft
+        self.around = around
     }
 
     /// The card says “Rewrite selection” and the button **Rewrite**.

@@ -186,6 +186,22 @@ final class AnalyticsTests: XCTestCase {
                 }
             }
         }
+        // A selection's rewrite: whether the draft around it went, and how the words beside it came out (only with the
+        // draft, on a finished write). Apart from the loop above, which it would multiply.
+        for writer in S.Writer.allCases {
+            for ending in S.WriteEnding.allCases {
+                for around in S.WriteAround.allCases {
+                    signals.append(.helpMeWriteUsed(writer, ending, .init(draft: .selection, instruction: false, retry: false,
+                                                                          source: .quickReply, kind: .reply, subject: false,
+                                                                          around: around)))
+                }
+            }
+            for join in S.WriteJoinResult.allCases {
+                signals.append(.helpMeWriteUsed(writer, .finished, .init(draft: .selection, instruction: true, retry: false,
+                                                                         source: .composer, kind: .new, subject: false,
+                                                                         around: .draft, join: join)))
+            }
+        }
         for trigger in S.Trigger.allCases {
             signals += [.readerModeSwitched(on: true, trigger), .readerModeSwitched(on: false, trigger),
                         .quotedText(shown: true, trigger), .quotedText(shown: false, trigger)]
@@ -385,6 +401,69 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(used().last?.parameters["source"], "composer")
         XCTAssertEqual(used().last?.parameters["draft"], "empty")
         XCTAssertFalse(used().flatMap(\.parameters.values).contains { $0.contains("tue") || $0.contains("Tuesday") }, "never the words")
+        XCTAssertFalse(used().contains { $0.parameters["around"] != nil || $0.parameters["join"] != nil },
+                       "whole writes carry neither of a rewrite's parameters")
+    }
+
+    /// A selection's rewrite says whether the user's draft around it went with it and, when it did and the write
+    /// finished, how the words beside it came out (§5.56): from the writer's milestone, as the write ends. Never a word.
+    func testARewriteSaysWhetherItsDraftWentAndHowItJoined() throws {
+        try startAnalytics()
+        try useThrowawayDrafts()
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let script = try XCTUnwrap(harness.environment.helpMeWrite.demoScript)
+        script.delay = .zero
+        script.reply = "Priya and Ben\n<<<AFTER {fence}>>>are coming tomorrow<<<END AFTER {fence}>>>"
+        let id = try XCTUnwrap(harness.list.conversations.first { $0.id.providerID == "thread-2" }?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { harness.reader.currentMessages.count == 3 }
+        func used() -> [RecordingAnalyticsTransport.Sent] { recorder.sent.filter { $0.name == "HelpMeWrite.used" } }
+
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let field = harness.reader.quickReplyBar.writingTextView
+        field.insertText("John is coming tomorrow.", replacementRange: NSRange(location: 0, length: 0))
+        field.setSelectedRange(NSRange(location: 0, length: 4))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 1 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["draft"], "selection")
+        XCTAssertEqual(used().last?.parameters["around"], "draft")
+        XCTAssertEqual(used().last?.parameters["join"], "after")
+        XCTAssertEqual(field.string, "Priya and Ben are coming tomorrow.")
+
+        script.reply = "Priya and Ben"
+        field.undoManager?.undo()
+        field.setSelectedRange(NSRange(location: 0, length: 4))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 2 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["join"], "none", "no seam line came")
+
+        script.failure = .offline
+        field.undoManager?.undo()
+        field.setSelectedRange(NSRange(location: 0, length: 4))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 3 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["ending"], "failed")
+        XCTAssertEqual(used().last?.parameters["around"], "draft")
+        XCTAssertNil(used().last?.parameters["join"], "said only of a finished write")
+        XCTAssertFalse(used().flatMap(\.parameters.values).contains { $0.contains("John") || $0.contains("Priya") }, "never the words")
+
+        // The selection alone: `alone`, and no join, as the writer reads nothing beside it.
+        let center = harness.environment.helpMeWrite
+        script.failure = nil
+        let alone = AIFieldID(name: "alone")
+        center.writeDetails[alone] = .init(WriteAsk(draft: .selection("see u thurs")), retry: false, source: .composer, kind: .reply,
+                                           subject: false)
+        let request = AIWriteRequest(kind: .reply, instructions: "", transcript: "", task: "part", isRewrite: true, fence: "1a2b3c4d")
+        let stream = center.writer.write(request, using: AIProviderConfiguration(kind: .claudeAPI), in: alone,
+                                         action: AIUserAction(userPressed: .write))
+        Task { do { for try await _ in stream {} } catch {} }
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 4 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["around"], "alone")
+        XCTAssertNil(used().last?.parameters["join"])
     }
 
     /// Block trackers' link cleaning (§5.60) counts a link only when it lost something, and only while the setting is on.

@@ -18,22 +18,26 @@ public struct NewMessageContext: Sendable, Hashable {
     public var appendsSignature: Bool
     /// The answer is to begin with a subject line, which becomes the message's subject.
     public var wantsSubject: Bool
+    /// The body is still what a mail link or a Service filled in: the text around a selection to rewrite is redacted,
+    /// cut only at blanks (`WriteRewriteFrame`), as the notes are.
+    public var redactsAround: Bool
 
     public init(subject: String = "", recipientFirstNames: [String] = [], userFirstName: String? = nil, ask: WriteAsk,
-                appendsSignature: Bool = false, wantsSubject: Bool = false) {
+                appendsSignature: Bool = false, wantsSubject: Bool = false, redactsAround: Bool = false) {
         self.subject = subject
         self.recipientFirstNames = recipientFirstNames
         self.userFirstName = userFirstName
         self.ask = ask
         self.appendsSignature = appendsSignature
         self.wantsSubject = wantsSubject
+        self.redactsAround = redactsAround
     }
 
     /// What a write of `ask` sends from what the composer holds; nil when nothing may be sent: the ask gives nothing to
     /// write from, or a part of it is longer than is sent (never cut: the instruction can be the whole brief).
     ///
-    /// A rewrite of a selection takes the selection and the instruction and nothing else: it keeps the selection's
-    /// meaning and greets no one, so the subject and the names have no use in it.
+    /// A rewrite of a selection reads what a whole write reads (the subject, the names, the user's first name), so the
+    /// part fits the message it stands in; it never asks for a subject.
     public init?(_ inputs: ComposeWriteInputs, ask: WriteAsk) {
         guard WriteKind.newMessage.lengthRefusal(of: ask) == nil else { return nil }
         let asked = ask
@@ -41,7 +45,9 @@ public struct NewMessageContext: Sendable, Hashable {
         // A selection of pictures alone has nothing to rewrite, and is never written over as a whole message.
         guard !WriteKind.newMessage.hasNothingToWriteFrom(ask), ask.isRewrite == asked.isRewrite else { return nil }
         guard !ask.isRewrite else {
-            self.init(ask: ask, appendsSignature: inputs.appendsSignature)
+            self.init(subject: inputs.sentSubject, recipientFirstNames: inputs.recipientFirstNames,
+                      userFirstName: inputs.userFirstName, ask: ask, appendsSignature: inputs.appendsSignature,
+                      wantsSubject: false, redactsAround: inputs.redactsOwnText)
             return
         }
         // Send asks about an empty Subject by this same test, so the field a subject is proposed for is the one Send
@@ -49,6 +55,7 @@ public struct NewMessageContext: Sendable, Hashable {
         let subjectIsEmpty = inputs.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         self.init(subject: inputs.sentSubject, recipientFirstNames: inputs.recipientFirstNames,
                   userFirstName: inputs.userFirstName, ask: ask, appendsSignature: inputs.appendsSignature,
-                  wantsSubject: inputs.wantsSubject && inputs.forwarded == nil && subjectIsEmpty)
+                  wantsSubject: inputs.wantsSubject && inputs.forwarded == nil && subjectIsEmpty,
+                  redactsAround: inputs.redactsOwnText)
     }
 }

@@ -17,6 +17,9 @@ import PaperDesign
 /// - `write-written`: the reply landed, the afterline under it;
 /// - `write-failed`: the key refused, the afterline in `danger` with Try again and Settings…;
 /// - `write-rewrite`: part of the notes selected and rewritten, held mid-stream;
+/// - `write-rewrite-joined`: “John” selected in “… John is coming tomorrow, I think, …” and rewritten as “Priya and
+///   Ben”, the answer's AFTER line changing “is” to “are” beside it, landed in one step; with `held`, resting after the
+///   part's first words, the words beside it still as typed;
 /// - `write-unavailable`: a provider chosen but not turned on, ⌘J pressed: the reason under the caret's line;
 /// - `write-ask`: nothing typed, ⌘J pressed. Where there is nothing to write from (`new`) the prompt line opens, the
 ///   capsule alone with no chips; elsewhere ⌘J writes, as in `write-written`;
@@ -34,7 +37,8 @@ import PaperDesign
 @MainActor
 enum WriteSnapshotStates {
     static let states = ["write-ghost-empty", "write-ghost-notes", "write-pill", "write-pill-start", "write-prompt", "write-writing", "write-written",
-                         "write-failed", "write-rewrite", "write-unavailable", "write-ask", "write-replies-only"]
+                         "write-failed", "write-rewrite", "write-rewrite-joined", "write-unavailable", "write-ask",
+                         "write-replies-only"]
 
     /// Typed with its curly apostrophe, as the text's smart quotes would leave it: their late substitution would move the
     /// caret and collapse a staged selection.
@@ -65,6 +69,12 @@ enum WriteSnapshotStates {
         case .forward: return forwardNotes
         }
     }
+
+    /// `write-rewrite-joined`: a paragraph whose middle sentence's subject is rewritten, and the scripted answer, whose
+    /// seam line names the request's own code (`DemoAIScript.answer`).
+    static let joinedNotes = "Thanks for the notes. John is coming tomorrow, I think, so we can start at ten."
+    static let joinedSelection = "John"
+    static let joinedAnswer = "Priya and Ben\n<<<AFTER {fence}>>>are coming tomorrow<<<END AFTER {fence}>>>"
 
     /// `write-writing` rests after this many chunks of the message. Every draft the render can write is longer (the
     /// scripted ones here and each of the demo's canned new messages and forward messages, whichever the ask picks), so
@@ -101,6 +111,8 @@ enum WriteSnapshotStates {
         guard let script = center.demoScript else { return }
         if state == "write-rewrite" {
             script.reply = "I\u{2019}ll bring the draft budget and the venue options."
+        } else if state == "write-rewrite-joined" {
+            script.reply = joinedAnswer
         } else if all.contains("new") {
             script.reply = newMessageDraft
         } else if all.contains("forward") {
@@ -112,6 +124,7 @@ enum WriteSnapshotStates {
         switch state {
         case "write-writing": script.holdsAfter = writingHold
         case "write-rewrite": script.holdsAfter = 4
+        case "write-rewrite-joined" where all.contains("held"): script.holdsAfter = 1
         case "write-failed":
             script.failure = .keyRefused
             script.failsAfter = 3
@@ -139,7 +152,9 @@ enum WriteSnapshotStates {
         let asksWhat = kind.hasNothingToWriteFrom(WriteAsk())
         let writes = ["write-writing", "write-written", "write-failed"].contains(state)
         let saysABrief = asksWhat && writes && !all.contains("notes")
-        if state != "write-ghost-empty", state != "write-ask", !saysABrief {
+        if state == "write-rewrite-joined" {
+            textView.insertText(joinedNotes, replacementRange: session.field.ownTextRange)
+        } else if state != "write-ghost-empty", state != "write-ask", !saysABrief {
             textView.insertText(notes(for: kind), replacementRange: session.field.ownTextRange)
         }
         session.refresh()
@@ -162,6 +177,9 @@ enum WriteSnapshotStates {
             session.write()
         case "write-rewrite":
             textView.setSelectedRange(secondHalf(of: textView, own: own))
+            session.write()
+        case "write-rewrite-joined":
+            textView.setSelectedRange((textView.string as NSString).range(of: joinedSelection, options: [], range: own))
             session.write()
         case "write-prompt":
             session.showPrompt()

@@ -658,6 +658,48 @@ final class HelpMeWriteEgressTests: XCTestCase {
         forward.closeWithoutSaving()
     }
 
+    /// A selection's rewrite reads the user's draft around it only as the user asks for the write (§5.56): a selection
+    /// in mid-sentence, its settled pill, the text's menu offering Rewrite Selection and the prompt line opened over it
+    /// reach nothing and build nothing. ⌘J then makes exactly one request, which carries the draft, and nothing follows.
+    func testARewriteReadsTheDraftAroundItOnlyOnTheUsersWrite() throws {
+        let log = try installFakeClaude()
+        let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
+        let harness = try MainWindowHarness(helpMeWrite: center)
+        defer { harness.close() }
+        var built: [AIWriteRequest] = []
+        WriteSession.requestObserver = { built.append($0) }
+        defer { WriteSession.requestObserver = nil }
+        settingsModel(harness).setProvider(.claudeAPI)
+        try select("thread-2", harness)
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let field = harness.reader.quickReplyBar.writingTextView
+        field.insertText("Thanks for the notes. John is coming tomorrow, I think.", replacementRange: NSRange(location: 0, length: 0))
+        let session = try XCTUnwrap(harness.reader.quickReplyWriteSession)
+        session.assumesKeyWindow = true
+        field.setSelectedRange((field.string as NSString).range(of: "John"))
+        session.selectionDidChange()
+        XCTAssertNotNil(session.layer.state.pill, "the settled pill")
+        XCTAssertEqual(session.contextMenuItems().first?.title, "Rewrite Selection", "the text's menu")
+        session.showPrompt()
+        XCTAssertTrue(session.isPromptShown, "the prompt line over the selection")
+        XCTAssertTrue(session.promptEscape())
+        ListTestSupport.spin(for: 0.3)
+        assertNoContact(log, "a selection, its pill, the text's menu and the prompt line")
+        XCTAssertTrue(built.isEmpty, "nothing was even built")
+
+        field.setSelectedRange((field.string as NSString).range(of: "John"))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { session.phase.isFailed }, timeout: 10), "the stub refuses the key")
+        XCTAssertEqual(contacts, ["write: POST api.anthropic.com/v1/messages"], "⌘J: one request")
+        XCTAssertEqual(built.count, 1)
+        XCTAssertTrue(built.first?.userTurn.contains("<<<DRAFT \(built.first?.fence ?? "-")>>>") == true, "carrying the draft around it")
+        XCTAssertEqual(built.first?.rewrite?.lead, "Thanks ", "the draft before the selection")
+        XCTAssertEqual(built.first?.rewrite?.before, "for the notes.", "and its few words beside it")
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(contacts.count, 1, "and no second request follows")
+        XCTAssertEqual(launches(log), [], "no CLI for the API")
+    }
+
     // MARK: One gate in code
 
     private var root: URL {

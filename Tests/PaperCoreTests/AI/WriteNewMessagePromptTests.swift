@@ -143,28 +143,33 @@ final class WriteNewMessagePromptTests: XCTestCase {
         """)
     }
 
-    /// A rewrite keeps the selection's meaning and greets no one: the subject, the names and the user's name stay home.
-    func testARewriteSendsTheSelectionAndTheInstructionOnly() {
+    /// A rewrite reads what the whole message reads (§5.56): its subject, the To first names and the user's first name,
+    /// under `rewrite-new-1`, and never asks for a subject.
+    func testARewriteSendsTheMessageBlockTheNameAndTheSelection() {
         let plain = request(context(ask: WriteAsk(draft: .selection("see u thurs")), wantsSubject: true))
         XCTAssertEqual(plain?.userTurn, """
-        Part of my message, to rewrite:
+        The message I'm writing:
+        <<<MESSAGE 1a2b3c4d>>>
+        Subject: Offsite in March
+        To: Priya, Ben
+        <<<END MESSAGE 1a2b3c4d>>>
+
+        My first name: Alex
+
+        Part of my message, to rewrite (the rest of my message isn't given):
         <<<SELECTION 1a2b3c4d>>>
         see u thurs
         <<<END SELECTION 1a2b3c4d>>>
 
-        Rewrite this part so it reads well, keeping its meaning and language. Return only the rewritten part.
+        Rewrite this part so it reads well, keeping its meaning and language. Answer with the rewritten part alone.
         """)
         XCTAssertEqual(plain?.isRewrite, true)
         XCTAssertEqual(plain?.wantsSubject, false, "a part of the body brings no subject")
-        XCTAssertEqual(plain?.instructions, WritePrompt.newMessageInstructions(appendsSignature: false, wantsSubject: false))
+        XCTAssertEqual(plain?.instructions, WritePrompt.rewriteInstructions(for: .newMessage))
 
         let instructed = request(context(ask: WriteAsk(instruction: "More formal.", draft: .selection("see u thurs"))))
-        XCTAssertEqual(instructed?.userTurn.hasSuffix("Rewrite this part: More formal. Keep its language. Return only the rewritten part."), true)
-        for turn in [plain?.userTurn, instructed?.userTurn] {
-            XCTAssertEqual(turn?.contains("Offsite"), false)
-            XCTAssertEqual(turn?.contains("Priya"), false)
-            XCTAssertEqual(turn?.contains("Alex"), false)
-        }
+        XCTAssertEqual(instructed?.userTurn.hasSuffix("Rewrite this part: More formal. Keep its language. Answer with the rewritten part alone."),
+                       true)
     }
 
     // MARK: The request
@@ -210,8 +215,9 @@ final class WriteNewMessagePromptTests: XCTestCase {
                     let request = request(context(subject: "SUBJECTMARK", names: ["Namemark"], name: "Usermark", ask: ask,
                                                   signature: signature, wantsSubject: subject))
                     let wanted = subject && !ask.isRewrite
-                    XCTAssertEqual(request?.instructions, WritePrompt.newMessageInstructions(appendsSignature: signature, wantsSubject: wanted),
-                                   "a function of two booleans, whatever the context holds")
+                    XCTAssertEqual(request?.instructions, ask.isRewrite ? WritePrompt.rewriteInstructions(for: .newMessage)
+                                       : WritePrompt.newMessageInstructions(appendsSignature: signature, wantsSubject: wanted),
+                                   "a function of two booleans (a rewrite's of none), whatever the context holds")
                     for mark in marks + [fence] {
                         XCTAssertEqual(request?.instructions.contains(mark), false, mark)
                     }

@@ -9,7 +9,7 @@ final class AIErrorTests: XCTestCase {
         .unsupportedVersion(found: "2.1.322 (Claude Code)"), .newerVersion(found: "3.0.1"), .toolsStayOn(found: "codex-cli 0.163.0"),
         .otherSignIn, .timedOut, .offline, .cancelled, .badResponse(code: 0),
         .badResponse(code: 529), .busy, .emptyReply, .unavailable, .consentRequired, .tooLong(selection: true),
-        .tooLong(selection: false), .instructionTooLong,
+        .tooLong(selection: false), .instructionTooLong, .rewriteRepeated,
     ]
 
     // MARK: Words
@@ -50,6 +50,9 @@ final class AIErrorTests: XCTestCase {
         XCTAssertEqual(AIError.instructionTooLong.message(for: .claudeAPI), "Your instruction is too long. Shorten it.")
         XCTAssertEqual(AIError.instructionTooLong.lineMessage(for: .claudeCode), "Your instruction is too long. Shorten it.")
         XCTAssertFalse(AIError.instructionTooLong.needsSettings)
+        XCTAssertEqual(AIError.rewriteRepeated.message(for: .claudeAPI), "The rewrite repeated the rest of your draft. Try again.")
+        XCTAssertEqual(AIError.rewriteRepeated.lineMessage(for: .claudeCode), "The rewrite repeated the rest of your draft")
+        XCTAssertFalse(AIError.rewriteRepeated.needsSettings)
         XCTAssertEqual(AIError.badResponse(code: 529).message(for: .claudeAPI), "Unexpected answer from Anthropic (code 529)")
         XCTAssertEqual(AIError.badResponse(code: 1).message(for: .claudeCode), "Unexpected answer from Claude Code (code 1)")
         XCTAssertEqual(AIError.timedOut.message(for: .codex), "Codex took too long to answer")

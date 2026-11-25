@@ -242,19 +242,49 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// A subject was asked for with the message. Whether one came back and was set is not known as the signal is
         /// made, so it is not said.
         var subject: Bool
+        /// For a selection's rewrite only: whether the user's draft around the selection went with it, or the selection
+        /// alone. Nil for every other write.
+        var around: WriteAround?
+        /// For a rewrite that sent the draft around it and finished only: how the words beside the selection came out
+        /// (the writer's milestone says, as the write ends). Nil otherwise.
+        var join: WriteJoinResult?
 
-        init(draft: WriteDraft, instruction: Bool, retry: Bool, source: SendSource, kind: ComposeKind, subject: Bool) {
+        init(draft: WriteDraft, instruction: Bool, retry: Bool, source: SendSource, kind: ComposeKind, subject: Bool,
+             around: WriteAround? = nil, join: WriteJoinResult? = nil) {
             self.draft = draft
             self.instruction = instruction
             self.retry = retry
             self.source = source
             self.kind = kind
             self.subject = subject
+            self.around = around
+            self.join = join
         }
 
         init(_ ask: WriteAsk, retry: Bool, source: SendSource, kind: ComposeKind, subject: Bool) {
             self.init(draft: WriteDraft(ask.draft), instruction: !ask.instruction.isEmpty, retry: retry, source: source,
-                      kind: kind, subject: subject)
+                      kind: kind, subject: subject, around: ask.isRewrite ? (ask.around == nil ? .alone : .draft) : nil)
+        }
+    }
+
+    /// What a selection's rewrite sent besides the selection (§5.56): the user's draft around it, or nothing of it.
+    enum WriteAround: String, CaseIterable, Sendable {
+        case draft, alone
+    }
+
+    /// How the words beside a rewritten selection came out (`WriteJoinOutcome`): no seam line came; the words before
+    /// it, after it, or both were changed; or seam lines came and none passed the writer's checks.
+    enum WriteJoinResult: String, CaseIterable, Sendable {
+        case none, before, after, both, refused
+
+        init(_ outcome: WriteJoinOutcome) {
+            switch outcome {
+            case .none: self = .none
+            case .before: self = .before
+            case .after: self = .after
+            case .both: self = .both
+            case .refused: self = .refused
+            }
         }
     }
 
@@ -543,6 +573,8 @@ enum AnalyticsSignal: Equatable, Sendable {
             "instruction": Toggle.allCases.map(\.rawValue),
             "retry": Toggle.allCases.map(\.rawValue),
             "subject": Toggle.allCases.map(\.rawValue),
+            "around": WriteAround.allCases.map(\.rawValue),
+            "join": WriteJoinResult.allCases.map(\.rawValue),
             "readerLine": ReaderLine.allCases.map(\.rawValue),
             "trackers": CountBuckets.trackers.labels,
             "attachmentAction": AttachmentAction.allCases.map(\.rawValue),
@@ -666,6 +698,8 @@ enum AnalyticsSignal: Equatable, Sendable {
                 parameters["source"] = details.source.rawValue
                 parameters["kind"] = details.kind.rawValue
                 parameters["subject"] = Toggle(details.subject).rawValue
+                if let around = details.around { parameters["around"] = around.rawValue }
+                if let join = details.join { parameters["join"] = join.rawValue }
             }
             return parameters
         case .readerModeSwitched(let on, let trigger):

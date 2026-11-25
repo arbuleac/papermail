@@ -10,8 +10,8 @@ public struct AIWriteRequest: Sendable, Hashable {
     /// Paper's fixed instructions (the system prompt). Never contains mail, nor anything the user typed.
     public var instructions: String
     /// What the draft is written from, fenced and redacted: a reply's conversation (`WritePrompt.transcript`), a new
-    /// message's subject and To first names, a forward's forwarded message. Empty when there is none to send (a new
-    /// message with neither subject nor names, and a selection's rewrite in a new message or a forward).
+    /// message's subject and To first names, a forward's forwarded message; a selection's rewrite sends the same as a
+    /// write of its kind. Empty only for a new message with neither a subject nor names.
     public var transcript: String
     /// The user's part: their instruction, and their notes or the selection to rewrite, fenced (`WritePrompt.task`).
     public var task: String
@@ -29,10 +29,15 @@ public struct AIWriteRequest: Sendable, Hashable {
     /// The code on this request's fence lines (`WritePrompt.newFence`), kept so a subject that repeats it is dropped.
     /// It travels only inside `transcript` and `task`.
     public var fence: String
+    /// What a rewrite sent of the user's draft around the selection (the DRAFT form), piece by piece, so the writer
+    /// reads the answer against it (`WriteRewriteAnswer`): the words it offered to change, and the text an answer must
+    /// not repeat. Nil for every other request, the ALONE form included. Stays on this Mac; it travels only inside
+    /// `task`.
+    public var rewrite: WriteRewriteFrame?
 
     public init(kind: WriteKind, instructions: String, transcript: String, task: String, model: String? = nil,
                 maxOutputTokens: Int? = nil, deadline: Duration = AIWriteRequest.defaultDeadline, wantsSubject: Bool = false,
-                isRewrite: Bool = false, fence: String = "") {
+                isRewrite: Bool = false, fence: String = "", rewrite: WriteRewriteFrame? = nil) {
         self.kind = kind
         self.instructions = instructions
         self.transcript = transcript
@@ -43,14 +48,19 @@ public struct AIWriteRequest: Sendable, Hashable {
         self.wantsSubject = wantsSubject
         self.isRewrite = isRewrite
         self.fence = fence
+        self.rewrite = rewrite
     }
 
     /// Two minutes: the CLIs' hard limit, and far beyond a short reply on any API.
     public static let defaultDeadline: Duration = .seconds(120)
 
     /// The prompt's version, for the debug log and tests: always the kind's own, so nothing a new message or a forward
-    /// sends is ever logged as the reply's prompt.
-    public var promptVersion: String { kind.promptVersion }
+    /// sends is ever logged as the reply's prompt; a rewrite's is its kind's rewrite prompt.
+    public var promptVersion: String { isRewrite ? kind.rewritePromptVersion : kind.promptVersion }
+
+    /// Whether the answer is read as a rewrite in the DRAFT form: the part, then a BEFORE or AFTER line for the words
+    /// beside it (`WriteRewriteAnswer`). A rewrite that sent the selection alone passes as it comes.
+    public var readsRewriteAnswer: Bool { isRewrite && rewrite != nil }
 
     /// Whether the answer's first line may be a subject line, to be taken off it: a new message's full write, and no
     /// other. Asked for (`wantsSubject`), it becomes the proposed subject; not asked for, a model that sent one anyway

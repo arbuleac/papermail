@@ -118,7 +118,12 @@ public enum WritePrompt {
     }
 
     /// The user's part (`AIWriteRequest.task`): their first name, then their notes or the selection, then the instruction.
+    /// A selection's is the rewrite's own (`rewriteTask`).
     public static func task(for context: ReplyContext, fence: String) -> String {
+        if context.ask.isRewrite {
+            return rewriteTask(kind: .reply, firstName: context.userFirstName, ask: context.ask,
+                               frame: rewriteFrame(of: context.ask, redacts: false, fence: fence), fence: fence)
+        }
         var parts: [String] = []
         if let name = context.userFirstName { parts.append("My first name: \(strip(name, fence: fence))") }
         let instruction = strip(context.ask.instruction, fence: fence)
@@ -128,20 +133,24 @@ public enum WritePrompt {
         case .notes(let notes):
             parts.append("My notes so far, the brief for the reply:\n" + fenced("NOTES", notes, fence: fence))
             parts.append(instruction.isEmpty ? "Write my reply from these notes." : "Write my reply from these notes. \(instruction)")
-        case .selection(let selection):
-            parts.append("Part of my reply, to rewrite:\n" + fenced("SELECTION", selection, fence: fence))
-            parts.append(instruction.isEmpty
-                ? "Rewrite this part so it reads well, keeping its meaning and language. Return only the rewritten part."
-                : "Rewrite this part: \(instruction) Keep its language. Return only the rewritten part.")
+        case .selection:
+            // Answered above: a selection's rewrite has its own prompt.
+            break
         }
         return parts.joined(separator: "\n\n")
     }
 
     /// The whole request for `configuration`, with a fresh fence. The output cap and the deadline are the providers'
-    /// and the writer's defaults.
+    /// and the writer's defaults. A selection's rewrite is `rewrite-reply-1`'s, with the same conversation.
     public static func request(for context: ReplyContext, appendsSignature: Bool, configuration: AIProviderConfiguration,
                                fence: String = WritePrompt.newFence(), timeZone: TimeZone = .current) -> AIWriteRequest {
-        AIWriteRequest(
+        if context.ask.isRewrite {
+            // Replies never redact the user's own text.
+            return rewriteRequest(kind: .reply, transcript: transcript(of: context, fence: fence, timeZone: timeZone),
+                                  firstName: context.userFirstName, ask: context.ask, redacts: false,
+                                  configuration: configuration, fence: fence)
+        }
+        return AIWriteRequest(
             kind: .reply,
             instructions: instructions(appendsSignature: appendsSignature),
             transcript: transcript(of: context, fence: fence, timeZone: timeZone),

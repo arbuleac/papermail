@@ -139,23 +139,26 @@ final class WriteForwardPromptTests: XCTestCase {
         XCTAssertEqual(request?.transcript.contains("The venue sent the contract."), true, "the forwarded message is the notes' background")
     }
 
-    /// A rewrite of a selection sends the selection and the instruction only: not the forwarded message.
-    func testARewriteSendsTheSelectionAndTheInstructionOnly() {
-        for context in [context(ask: WriteAsk(draft: .selection("pls look"))),
-                        ForwardContext(message: nil, ask: WriteAsk(draft: .selection("pls look")))] {
-            let request = request(context)
-            XCTAssertEqual(request?.userTurn, """
-            Part of my message, to rewrite:
-            <<<SELECTION 1a2b3c4d>>>
-            pls look
-            <<<END SELECTION 1a2b3c4d>>>
+    /// A rewrite of a selection reads what a whole forward reads (the message block and the forwarded message), with
+    /// the user's first name, under `rewrite-forward-1` (§5.56).
+    func testARewriteSendsTheForwardedMessageAndTheSelection() {
+        let request = request(context(ask: WriteAsk(draft: .selection("pls look"))))
+        XCTAssertEqual(request?.transcript, self.request(context())?.transcript, "the transcript a whole forward sends")
+        XCTAssertEqual(request?.task, """
+        My first name: Alex
 
-            Rewrite this part so it reads well, keeping its meaning and language. Return only the rewritten part.
-            """)
-            XCTAssertEqual(request?.transcript, "")
-            XCTAssertEqual(request?.isRewrite, true)
-            XCTAssertEqual(request?.kind, .forward)
-        }
+        Part of my message, to rewrite (the rest of my message isn't given):
+        <<<SELECTION 1a2b3c4d>>>
+        pls look
+        <<<END SELECTION 1a2b3c4d>>>
+
+        Rewrite this part so it reads well, keeping its meaning and language. Answer with the rewritten part alone.
+        """)
+        XCTAssertEqual(request?.isRewrite, true)
+        XCTAssertEqual(request?.kind, .forward)
+        XCTAssertEqual(request?.instructions, WritePrompt.rewriteInstructions(for: .forward))
+        let bare = self.request(ForwardContext(message: nil, ask: WriteAsk(draft: .selection("pls look"))))
+        XCTAssertEqual(bare?.transcript, "", "a context made by hand without a message sends none")
     }
 
     // MARK: The request
@@ -194,12 +197,13 @@ final class WriteForwardPromptTests: XCTestCase {
                                                        attachmentCount: 7)
                 let request = request(context(subject: "SUBJECTMARK", message: forwarded, names: ["Namemark"], name: "Usermark", ask: ask,
                                               signature: signature))
-                XCTAssertEqual(request?.instructions, WritePrompt.forwardInstructions(appendsSignature: signature),
-                               "a function of one boolean, whatever the context holds")
+                XCTAssertEqual(request?.instructions, ask.isRewrite ? WritePrompt.rewriteInstructions(for: .forward)
+                                   : WritePrompt.forwardInstructions(appendsSignature: signature),
+                               "a function of one boolean (a rewrite's of none), whatever the context holds")
                 for mark in marks + [fence, "2026", "7 attachments"] {
                     XCTAssertEqual(request?.instructions.contains(mark), false, mark)
                 }
-                XCTAssertEqual(request?.userTurn.contains("MAILMARK"), !ask.isRewrite, "it travels in the user turn, or not at all")
+                XCTAssertEqual(request?.userTurn.contains("MAILMARK"), true, "it travels in the user turn")
             }
         }
     }

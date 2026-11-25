@@ -61,6 +61,9 @@ final class WriteSession {
         var isRewrite: Bool
         /// The reply as it landed.
         var reply: String
+        /// Where the landed part ends in the field: the afterline and the prompt line hang under its line. A rewrite
+        /// whose neighbour words changed length lands its part somewhere else than `range` says.
+        var partEnd: Int
         /// The field's whole text with the reply in it.
         var textAfter: String
         /// The field's whole text before the reply (the notes): ⌘Z brings it back, ⌘⇧Z the reply, and neither is the
@@ -89,9 +92,51 @@ final class WriteSession {
         /// A subject was asked for with the draft.
         var wantsSubject: Bool
         var brief: String?
+        /// A rewrite that sent the draft around its selection: where its gaps and windows are in the field, so the
+        /// words the writer accepts for them land with the part.
+        var seams: SeamRanges?
     }
 
     private var running: Running?
+
+    /// The gaps and windows beside a selection whose rewrite sent the draft around it (`WriteAsk.Around`), in the
+    /// field's text as it was asked, with each window's words.
+    struct SeamRanges {
+        var gapBefore: NSRange
+        var before: NSRange
+        var beforeText: String
+        var gapAfter: NSRange
+        var after: NSRange
+        var afterText: String
+
+        /// Nil for a rewrite that sent the selection alone, or for anything else.
+        init?(core: NSRange, around: WriteAsk.Around?) {
+            guard let around else { return nil }
+            let beforeText = around.before as NSString
+            let afterText = around.after as NSString
+            guard around.beforeGap >= 0, around.beforeWindow >= 0, around.afterGap >= 0, around.afterWindow >= 0,
+                  around.beforeGap + around.beforeWindow <= beforeText.length,
+                  around.afterGap + around.afterWindow <= afterText.length,
+                  core.location >= around.beforeGap + around.beforeWindow else { return nil }
+            gapBefore = NSRange(location: core.location - around.beforeGap, length: around.beforeGap)
+            before = NSRange(location: gapBefore.location - around.beforeWindow, length: around.beforeWindow)
+            self.beforeText = beforeText.substring(with: NSRange(location: beforeText.length - around.beforeGap - around.beforeWindow,
+                                                                 length: around.beforeWindow))
+            gapAfter = NSRange(location: NSMaxRange(core), length: around.afterGap)
+            after = NSRange(location: NSMaxRange(gapAfter), length: around.afterWindow)
+            self.afterText = afterText.substring(with: NSRange(location: around.afterGap, length: around.afterWindow))
+        }
+
+        /// What lands beside the part for `join`, the words the writer accepted: each changed window in its own style.
+        @MainActor func edits(for join: WriteJoin?, field: WriteField) -> WriteStreamEdit.Seams {
+            func side(_ range: NSRange, _ text: String, _ words: String?) -> WriteStreamEdit.Seams.Side? {
+                guard let words, range.length > 0 else { return nil }
+                return .init(range: range, original: text, replacement: words, attributes: field.seamAttributes(at: range.location))
+            }
+            return WriteStreamEdit.Seams(gapBefore: gapBefore, gapAfter: gapAfter, before: side(before, beforeText, join?.before),
+                                         after: side(after, afterText, join?.after))
+        }
+    }
 
     /// What the last write that did not go through was asked, kept while its reason shows under the caret's line: Try
     /// again asks the same again (§5.56), the same notes and the same instruction.
@@ -107,6 +152,9 @@ final class WriteSession {
     /// is set only as the draft lands, in the draft's one undo step, so Stop, a failure, a close or an autosave
     /// mid-write leave the Subject as it was.
     private var proposedSubject: String?
+    /// The new words for the words beside a rewritten selection, as the writer accepted them: held, never shown while
+    /// the part streams, and landed with it in its one step.
+    private var proposedJoin: WriteJoin?
     private var configuration: AIProviderConfiguration?
     private var edit: WriteStreamEdit?
     private var writeTask: Task<Void, Never>?
@@ -215,8 +263,8 @@ final class WriteSession {
         } else if let promptAnchor {
             state.block = .prompt(promptAnchor, chips: canWriteAtOnce)
         } else if phase == .written, let lastDraft, textView.string == lastDraft.textAfter {
-            let end = lastDraft.range.location + (lastDraft.reply as NSString).length
-            state.block = .afterline(.end(end), .written(writer: lastDraft.writer, rewrite: lastDraft.isRewrite, source: lastDraft.source))
+            state.block = .afterline(.end(lastDraft.partEnd),
+                                     .written(writer: lastDraft.writer, rewrite: lastDraft.isRewrite, source: lastDraft.source))
         } else if case .failed(let reason, let settings) = phase {
             state.block = .afterline(failureAnchor, .failed(reason: reason, offersSettings: settings))
         } else if case .notice(let words) = phase {
@@ -620,8 +668,10 @@ final class WriteSession {
         if let range = rewritableSelection {
             // The selection's own leading and trailing space and line breaks stay where they are (a triple-clicked
             // paragraph keeps its line break): the reply, trimmed, replaces what lies between them. A selection of blanks
-            // alone is none: ⌘J then writes from the notes.
-            let ask = WriteAsk(instruction: instruction ?? "", draft: .selection(text.substring(with: range)))
+            // alone is none: ⌘J then writes from the notes. The user's own text around it is read now, as they asked,
+            // and never before.
+            let ask = WriteAsk(instruction: instruction ?? "", draft: .selection(text.substring(with: range)),
+                               around: around(range, in: text))
             start(ask: ask, range: range, isRewrite: true, previous: nil, configuration: configuration)
             return
         }
@@ -642,6 +692,22 @@ final class WriteSession {
         }
         start(ask: fresh.ask, range: fresh.range, isRewrite: false, previous: nil, configuration: configuration,
               brief: Self.brief(of: fresh.ask))
+    }
+
+    /// The user's own text around the selection `core` (the DRAFT form of a rewrite, §5.56), with the gaps and the
+    /// windows of words beside it that the rewrite may change (`WriteSeamWindows`); nil where that text may not be the
+    /// user's own (a body the composer did not write) or the selection reaches outside it (into or below the
+    /// signature), so the selection goes alone. Read only here, at the user's ⌘J, the pill, Rewrite Selection or the
+    /// prompt line's ↩ or chip.
+    func around(_ core: NSRange, in text: NSString) -> WriteAsk.Around? {
+        guard field.textAroundSelectionIsOwn else { return nil }
+        let own = field.ownTextRange
+        guard own.location <= core.location, NSMaxRange(core) <= NSMaxRange(own), NSMaxRange(own) <= text.length else { return nil }
+        let windows = WriteSeamWindows.find(in: text, core: core, own: own, blocked: { [field] in field.blocksSeam(at: $0) })
+        return WriteAsk.Around(before: text.substring(with: NSRange(location: own.location, length: core.location - own.location)),
+                               after: text.substring(with: NSRange(location: NSMaxRange(core), length: NSMaxRange(own) - NSMaxRange(core))),
+                               beforeGap: windows.beforeGap, beforeWindow: windows.beforeWindow,
+                               afterGap: windows.afterGap, afterWindow: windows.afterWindow)
     }
 
     /// The instruction a draft is written from when it is all there is: its brief.
@@ -764,9 +830,12 @@ final class WriteSession {
         generation += 1
         let mine = generation
         written = ""
+        flushScheduled = false
         proposedSubject = nil
+        proposedJoin = nil
         lastDraft = nil
-        running = Running(ask: ask, isRewrite: isRewrite, kind: kind, wantsSubject: wantsSubject, brief: brief)
+        running = Running(ask: ask, isRewrite: isRewrite, kind: kind, wantsSubject: wantsSubject, brief: brief,
+                          seams: isRewrite ? SeamRanges(core: range, around: ask.around) : nil)
         // A whole draft in a new message or a forward never takes a picture away: what it keeps follows it.
         let attributes = field.writeAttributes(at: range)
         let trailing = isRewrite || kind == .reply ? NSAttributedString() : picturesKept(after: range, attributes: attributes)
@@ -784,6 +853,7 @@ final class WriteSession {
         // line's ↩ or a chip, Try again or Shorter.
         let action = AIUserAction(userPressed: .write)
         // `subject` says one was asked for with the draft, never that one was set.
+        // `around` says whether a rewrite sent the draft around its selection, never what it held.
         center.writeDetails[fieldID] = AnalyticsSignal.WriteDetails(ask, retry: retry,
                                                                     source: field is ComposerWriteField ? .composer : .quickReply,
                                                                     kind: field.analyticsKind, subject: wantsSubject)
@@ -817,6 +887,9 @@ final class WriteSession {
                     case .subject(let subject):
                         // Held until the draft lands: a Stop can still follow it.
                         self.proposedSubject = subject
+                    case .join(let join):
+                        // Held until the part lands, and landed with it: a Stop can still follow it.
+                        self.proposedJoin = join
                     case .finished(.done), .finished(.maxTokens):
                         self.finish()
                         return
@@ -915,6 +988,7 @@ final class WriteSession {
         writeTask = nil
         running = nil
         proposedSubject = nil
+        proposedJoin = nil
         center.writer.stop(AIFieldID(textView))
         if let edit, !edit.isFinished {
             edit.rollback()
@@ -954,7 +1028,7 @@ final class WriteSession {
             if let selection = rewritableSelection {
                 promptAnchor = .end(NSMaxRange(selection))
             } else if phase == .written, let lastDraft, textView.string == lastDraft.textAfter {
-                promptAnchor = .end(lastDraft.range.location + (lastDraft.reply as NSString).length)
+                promptAnchor = .end(lastDraft.partEnd)
             } else {
                 promptAnchor = .caret(textView.selectedRange().location)
             }
@@ -1006,8 +1080,14 @@ final class WriteSession {
     private func scheduleFlush() {
         guard !flushScheduled else { return }
         flushScheduled = true
+        // A frame's flush belongs to the write that asked for it: one still pending as that write lands must not write
+        // into the next (Try again pressed within the frame would see its old draft, kept in pencil, cleared).
+        let mine = generation
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.flush() }
+            MainActor.assumeIsolated {
+                guard let self, self.generation == mine else { return }
+                self.flush()
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
     }
@@ -1046,10 +1126,14 @@ final class WriteSession {
         self.running = nil
         let subject = running.wantsSubject && !running.isRewrite ? proposedSubject : nil
         proposedSubject = nil
+        let join = proposedJoin
+        proposedJoin = nil
         let reply = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A rewrite that sent the draft around it lands the words beside it the writer accepted, in the same step.
+        let seams = running.isRewrite ? running.seams?.edits(for: join, field: field) : nil
         var setSubject = false
         isChangingText = true
-        let committed = edit.commit(reply) { [field] undo in
+        let committed = edit.commit(reply, seams: seams) { [field] undo in
             guard let subject else { return }
             setSubject = field.commitSubject(subject, undo: undo)
         }
@@ -1073,6 +1157,7 @@ final class WriteSession {
         }
         let writer = configuration.map { center.writerName(for: $0.kind) } ?? "Claude"
         lastDraft = Draft(ask: running.ask, range: edit.originalRange, isRewrite: running.isRewrite, reply: reply,
+                          partEnd: edit.landedPartEnd ?? edit.originalRange.location + (reply as NSString).length,
                           textAfter: textView.string, textBefore: edit.textBefore, selection: edit.originalSelection,
                           writer: writer, source: configuration.map { center.sourceLine(for: $0) }, kind: running.kind,
                           brief: running.brief)
@@ -1080,7 +1165,8 @@ final class WriteSession {
         if keyboardWasHere { field.focusText() }
         phase = .written
         render()
-        QuireAccessibility.announce(WriteWords.landed(running.kind, by: writer, rewrite: running.isRewrite, withSubject: setSubject),
+        QuireAccessibility.announce(WriteWords.landed(running.kind, by: writer, rewrite: running.isRewrite, withSubject: setSubject,
+                                                      joined: edit.landedJoin),
                                     from: textView)
         Self.logger.debug("Help Me Write committed \(reply.count, privacy: .public) characters")
     }

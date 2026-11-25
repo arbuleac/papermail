@@ -38,7 +38,8 @@ public struct ForwardContext: Sendable, Hashable {
 
     /// The forward's own subject (“Fwd: …”): redacted, one line, at most 300 characters.
     public var subject: String
-    /// The forwarded message; nil for a selection's rewrite, which sends the selection and the instruction alone.
+    /// The forwarded message, for a whole write and a selection's rewrite alike; nil only where a context is made by
+    /// hand without one.
     public var message: Message?
     /// The first names of the To recipients, at most four; never Cc, never Bcc, never an address.
     public var recipientFirstNames: [String]
@@ -47,15 +48,19 @@ public struct ForwardContext: Sendable, Hashable {
     public var ask: WriteAsk
     /// The body ends in the account's signature, so the model leaves out a sign-off name.
     public var appendsSignature: Bool
+    /// The body is still what a mail link or a Service filled in: the text around a selection to rewrite is redacted,
+    /// cut only at blanks (`WriteRewriteFrame`).
+    public var redactsAround: Bool
 
     public init(subject: String = "", message: Message?, recipientFirstNames: [String] = [], userFirstName: String? = nil,
-                ask: WriteAsk, appendsSignature: Bool = false) {
+                ask: WriteAsk, appendsSignature: Bool = false, redactsAround: Bool = false) {
         self.subject = subject
         self.message = message
         self.recipientFirstNames = recipientFirstNames
         self.userFirstName = userFirstName
         self.ask = ask
         self.appendsSignature = appendsSignature
+        self.redactsAround = redactsAround
     }
 
     /// What a write of `ask` sends from what the composer holds; nil when `inputs` holds no forwarded message (it is
@@ -66,10 +71,6 @@ public struct ForwardContext: Sendable, Hashable {
         let ask = inputs.cleaned(ask)
         // A selection of pictures alone has nothing to rewrite, and is never written over as a whole message.
         guard ask.isRewrite == asked.isRewrite else { return nil }
-        guard !ask.isRewrite else {
-            self.init(message: nil, ask: ask, appendsSignature: inputs.appendsSignature)
-            return
-        }
         // No address-to-name directory: the composer holds the forwarded message's author as shown, not its headers.
         let redactor = AIRedactor()
         let (own, quoted) = Self.text(of: forwarded.text, redactor: redactor)
@@ -77,7 +78,7 @@ public struct ForwardContext: Sendable, Hashable {
                   message: Message(author: Self.author(forwarded.author, redactor: redactor), date: forwarded.date, text: own,
                                    quoted: quoted, attachmentCount: max(0, forwarded.attachmentCount)),
                   recipientFirstNames: inputs.recipientFirstNames, userFirstName: inputs.userFirstName, ask: ask,
-                  appendsSignature: inputs.appendsSignature)
+                  appendsSignature: inputs.appendsSignature, redactsAround: inputs.redactsOwnText)
     }
 
     /// The forwarded message's text as it is sent. Its writer's own words come first, cleaned as a reply's target

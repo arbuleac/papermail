@@ -72,6 +72,8 @@ final class AIWriterTests: XCTestCase {
     }
 
     private var milestones: [String] = []
+    /// The join outcome each milestone carried, in order.
+    private var joins: [WriteJoinOutcome?] = []
     private var consented: Set<AIProviderKind> = [.claudeAPI, .codex]
     /// What the user allowed to be written, and what the writer asked about, in order.
     private var consentedWrites = Set(WriteKind.allCases)
@@ -87,7 +89,10 @@ final class AIWriterTests: XCTestCase {
                      self.consentAsked.append(writing)
                      return self.consented.contains(kind) && self.consentedWrites.contains(writing)
                  },
-                 milestones: { [unowned self] milestone, kind, _ in self.milestones.append("\(milestone.breadcrumbName) \(kind.rawValue)") })
+                 milestones: { [unowned self] milestone, kind, _, join in
+                     self.milestones.append("\(milestone.breadcrumbName) \(kind.rawValue)")
+                     self.joins.append(join)
+                 })
     }
 
     private func collect(_ stream: AsyncThrowingStream<AIWriteEvent, Error>) async -> ([AIWriteEvent], AIError?) {
@@ -442,6 +447,110 @@ final class AIWriterTests: XCTestCase {
             let written = await write(events, as: request)
             XCTAssertEqual(written.events, events, "\(request.kind) rewrite \(request.isRewrite)")
         }
+    }
+
+    // MARK: A rewrite that sent the draft around its selection
+
+    /// “John is coming tomorrow.” with “John” selected: its after window offered.
+    private let john = WriteRewriteFrame(selection: "John", gapAfter: " ", after: "is coming tomorrow", trail: ".")
+    private let seamed = "Priya and Ben\n<<<AFTER 1a2b3c4d>>>are coming tomorrow<<<END AFTER 1a2b3c4d>>>"
+
+    private func rewriting(_ frame: WriteRewriteFrame?, kind: WriteKind = .reply) -> AIWriteRequest {
+        AIWriteRequest(kind: kind, instructions: "fixed", transcript: "", task: "the draft, marked", isRewrite: true,
+                       fence: "1a2b3c4d", rewrite: frame)
+    }
+
+    private func neverShowsAMarker(_ written: Written, file: StaticString = #filePath, line: UInt = #line) {
+        for event in written.events {
+            switch event {
+            case .text(let text), .replaceAll(let text):
+                XCTAssertFalse(text.contains("<"), "never a marker: \(text)", file: file, line: line)
+                XCTAssertFalse(text.contains("AFTER"), file: file, line: line)
+            default:
+                break
+            }
+        }
+    }
+
+    func testARewritesSeamLineNeverReachesTheReaderHoweverItArrives() async {
+        let join = AIWriteEvent.join(WriteJoin(after: "are coming tomorrow"))
+        // One character at a time.
+        let deltas = await write(Array(seamed).map { .text(String($0)) } + [.finished(.done)], as: rewriting(john))
+        XCTAssertNil(deltas.error)
+        XCTAssertEqual(deltas.text, "Priya and Ben\n")
+        XCTAssertEqual(Array(deltas.events.suffix(2)), [join, .finished(.done)], "the join comes once, just before the end")
+        XCTAssertFalse(deltas.replacedText, "the part only grew")
+        neverShowsAMarker(deltas)
+        // Deltas, then the same whole text: nothing more; then a different one: one replacement.
+        let same = await write([.text("Priya and "), .text("Ben\n<<<AF"), .replaceAll(seamed), .finished(.done)], as: rewriting(john))
+        XCTAssertEqual(same.events, [.text("Priya and "), .text("Ben"), .text("\n"), join, .finished(.done)])
+        let other = await write([.text("Priya and Ben"), .replaceAll("Priya, Ben\n<<<AFTER 1a2b3c4d>>>are coming tomorrow"
+                                                                      + "<<<END AFTER 1a2b3c4d>>>"), .finished(.done)],
+                                as: rewriting(john))
+        XCTAssertEqual(other.events, [.text("Priya and Ben"), .replaceAll("Priya, Ben"), .text("\n"), join, .finished(.done)])
+        neverShowsAMarker(other)
+        // The whole text at the end, as Codex sends it.
+        let whole = await write([.replaceAll(seamed), .finished(.done)], as: rewriting(john))
+        XCTAssertEqual(whole.events, [.text("Priya and Ben"), .text("\n"), join, .finished(.done)],
+                       "a line break the part ends on shows only once the answer has ended")
+    }
+
+    func testASeamLineAloneIsNothingWritten() async {
+        let written = await write([.text("<<<AFTER 1a2b3c4d>>>are coming tomorrow<<<END AFTER 1a2b3c4d>>>"), .finished(.done)],
+                                  as: rewriting(john))
+        XCTAssertEqual(written.error, .emptyReply)
+        XCTAssertFalse(written.events.contains(.join(WriteJoin(after: "are coming tomorrow"))))
+    }
+
+    func testAnAnswerThatCopiesTheDraftFails() async {
+        let frame = WriteRewriteFrame(lead: "We met on Monday to go over the plan for the spring offsite, and everyone agreed that "
+                                          + "the venue by the river is the best choice for the whole team. ",
+                                      selection: "we can has the garden", trail: "")
+        let copy = "We can have the garden, since everyone agreed that the venue by the river is the best choice for the whole team."
+        let written = await write([.text(copy), .finished(.done)], as: rewriting(frame))
+        XCTAssertEqual(written.error, .rewriteRepeated)
+        let echo = await write([.text("the whole team. "), .finished(.done)], as: rewriting(frame))
+        XCTAssertEqual(echo.error, .rewriteRepeated, "an answer that was the draft's end and nothing else")
+        let stripped = await write([.text("the whole team. We can have the garden"), .finished(.done)], as: rewriting(frame))
+        XCTAssertNil(stripped.error)
+        XCTAssertEqual(stripped.text, "We can have the garden", "a restated edge is taken off before the part lands")
+        XCTAssertTrue(stripped.replacedText)
+    }
+
+    func testAProvidersOwnJoinIsDropped() async {
+        let written = await write([.join(WriteJoin(before: "x")), .text("Priya and Ben"), .finished(.done)], as: rewriting(john))
+        XCTAssertEqual(written.events, [.text("Priya and Ben"), .finished(.done)])
+        let whole = await write([.join(WriteJoin(before: "x")), .text("Hi"), .finished(.done)], as: writing(.reply))
+        XCTAssertEqual(whole.events, [.text("Hi"), .finished(.done)])
+    }
+
+    func testTheMilestoneSaysHowTheWordsBesideTheSelectionCameOut() async {
+        let both = WriteRewriteFrame(before: "40 people and", gapBefore: " ", selection: "we can has", gapAfter: "",
+                                     after: ", so the March", trail: " dates work.")
+        let cases: [(String, WriteRewriteFrame, WriteJoinOutcome)] = [
+            ("we can have the garden", both, .none),
+            ("we can have\n<<<BEFORE 1a2b3c4d>>>40 people, and<<<END BEFORE 1a2b3c4d>>>", both, .before),
+            ("we can have\n<<<AFTER 1a2b3c4d>>>; so the March<<<END AFTER 1a2b3c4d>>>", both, .after),
+            ("we can have\n<<<BEFORE 1a2b3c4d>>>40 people, and<<<END BEFORE 1a2b3c4d>>>\n"
+                + "<<<AFTER 1a2b3c4d>>>; so the March<<<END AFTER 1a2b3c4d>>>", both, .both),
+            ("we can have\n<<<BEFORE 1a2b3c4d>>>I think that maybe<<<END BEFORE 1a2b3c4d>>>", both, .refused),
+            ("we can have\n<<<AFTER 1a2b3c4d>>>are coming", both, .refused),
+            ("Priya and Ben\n<<<BEFORE 1a2b3c4d>>>so<<<END BEFORE 1a2b3c4d>>>", john, .refused),
+        ]
+        for (answer, frame, outcome) in cases {
+            joins = []
+            _ = await write([.text(answer), .finished(.done)], as: rewriting(frame))
+            XCTAssertEqual(joins, [nil, outcome], answer)
+        }
+        for request in [writing(.reply), writing(.newMessage, wantsSubject: true), rewriting(nil)] {
+            joins = []
+            _ = await write([.text("we can have"), .finished(.done)], as: request)
+            XCTAssertEqual(joins, [nil, nil], "whole writes and the ALONE form carry none")
+        }
+        joins = []
+        let failing = ScriptedProvider(script: [.event(.text("we can have")), .fail(AIErrorTestsFailure(AIError.overloaded))])
+        _ = await collect(makeWriter(failing).write(rewriting(both), using: configuration, in: field, action: pressedWrite))
+        XCTAssertEqual(joins, [nil, nil], "a failed write carries none")
     }
 
     func testACutAnswerKeepsItsSubject() async {

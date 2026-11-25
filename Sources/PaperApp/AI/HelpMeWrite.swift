@@ -54,12 +54,16 @@ final class HelpMeWrite {
     private(set) lazy var writer = AIWriter(
         resolve: resolve,
         hasConsent: { [weak self] kind, writing in self?.hasConsent(for: kind, writing: writing) ?? false },
-        milestones: { [weak self] milestone, kind, field in
+        milestones: { [weak self] milestone, kind, field, join in
             // Names from the code only: what happened, and with which kind of provider.
             CrashReporting.breadcrumb(.ai, milestone.breadcrumbName)
             CrashReporting.breadcrumb(.ai, kind.breadcrumbName)
             guard let self else { return }
-            if let signal = self.analyticsSignal(milestone, kind, details: self.writeDetails[field]) { Analytics.send(signal) }
+            var details = self.writeDetails[field]
+            // How the words beside a rewritten selection came out: said only of a rewrite that sent the draft around it
+            // and finished.
+            if milestone == .finished, details?.around == .draft, let join { details?.join = AnalyticsSignal.WriteJoinResult(join) }
+            if let signal = self.analyticsSignal(milestone, kind, details: details) { Analytics.send(signal) }
             if milestone != .started { self.writeDetails[field] = nil }
         }
     )

@@ -3,7 +3,8 @@ import Foundation
 /// `write-forward-1`: the prompt for the message above a forwarded one. This is the one write whose answer can come
 /// wholly from a stranger's text and still goes, in the user's voice, to the user's own contacts, so the instructions
 /// do more than call the forwarded message data: they take away what such a message would want written (a vouching
-/// for it, a call to act, a link). Bump `forwardVersion` whenever the words change.
+/// for it, a call to act, a link). Bump `forwardVersion` whenever the words change. A selection's rewrite has its own
+/// prompt, `rewrite-forward-1` (`WritePrompt+Rewrite`), with the same transcript.
 extension WritePrompt {
     public static let forwardVersion = "write-forward-1"
 
@@ -65,10 +66,10 @@ extension WritePrompt {
 
     /// What a forward is written from besides the ask (`AIWriteRequest.transcript`): the user's own message (its
     /// subject and To first names) when there is anything to say of it, then the forwarded message in a fence of its
-    /// own, under a first line that says who wrote it, when, and how many attachments go with it. Empty for a
-    /// selection's rewrite, which sends the selection and the instruction alone.
+    /// own, under a first line that says who wrote it, when, and how many attachments go with it. The same for a whole
+    /// write and a selection's rewrite.
     public static func transcript(of context: ForwardContext, fence: String, timeZone: TimeZone = .current) -> String {
-        guard !context.ask.isRewrite, let message = context.message else { return "" }
+        guard let message = context.message else { return "" }
         var header = "--- From \(message.author)"
         if let date = message.date { header += " · " + dateFormatter(timeZone, "EEE d MMM yyyy HH:mm").string(from: date) }
         if message.attachmentCount > 0 {
@@ -88,8 +89,12 @@ extension WritePrompt {
     }
 
     /// The user's part of a forward's request (`AIWriteRequest.task`): their first name, then their notes or the
-    /// selection, then the instruction.
+    /// selection, then the instruction. A selection's is the rewrite's own (`rewriteTask`).
     public static func task(for context: ForwardContext, fence: String) -> String {
+        if context.ask.isRewrite {
+            return rewriteTask(kind: .forward, firstName: context.userFirstName, ask: context.ask,
+                               frame: rewriteFrame(of: context.ask, redacts: context.redactsAround, fence: fence), fence: fence)
+        }
         let instruction = strip(context.ask.instruction, fence: fence)
         var parts: [String] = []
         if let name = context.userFirstName { parts.append("My first name: \(strip(name, fence: fence))") }
@@ -98,8 +103,9 @@ extension WritePrompt {
             parts.append(instruction.isEmpty ? "Write my message." : "Write my message. \(instruction)")
         case .notes(let notes):
             parts.append(notesPart(notes, instruction: instruction, fence: fence))
-        case .selection(let selection):
-            return rewritePart(selection, instruction: instruction, fence: fence)
+        case .selection:
+            // Answered above: a selection's rewrite has its own prompt.
+            break
         }
         return parts.joined(separator: "\n\n")
     }
@@ -112,13 +118,17 @@ extension WritePrompt {
         guard context.message != nil || context.ask.isRewrite, WriteKind.forward.lengthRefusal(of: context.ask) == nil else {
             return nil
         }
+        if context.ask.isRewrite {
+            return rewriteRequest(kind: .forward, transcript: transcript(of: context, fence: fence, timeZone: timeZone),
+                                  firstName: context.userFirstName, ask: context.ask, redacts: context.redactsAround,
+                                  configuration: configuration, fence: fence)
+        }
         return AIWriteRequest(
             kind: .forward,
             instructions: forwardInstructions(appendsSignature: context.appendsSignature),
             transcript: transcript(of: context, fence: fence, timeZone: timeZone),
             task: task(for: context, fence: fence),
             model: configuration.resolvedModel,
-            isRewrite: context.ask.isRewrite,
             fence: fence
         )
     }

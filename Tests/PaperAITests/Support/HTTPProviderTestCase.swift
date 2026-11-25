@@ -40,7 +40,7 @@ class HTTPProviderTestCase: XCTestCase {
                 switch event {
                 case .text(let more): text += more
                 case .replaceAll(let all): text = all
-                case .usage, .finished, .subject: break
+                case .usage, .finished, .subject, .join: break
                 }
             }
             return text

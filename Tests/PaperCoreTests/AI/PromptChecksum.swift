@@ -16,6 +16,8 @@ enum PromptChecksum {
                                        12_317_037_392_151_788_502]
     /// `write-forward-1`: with a signature, without.
     static let forward: [UInt64] = [6_516_620_783_417_906_851, 4_764_829_903_582_001_647]
+    /// `rewrite-reply-1`, `rewrite-new-1`, `rewrite-forward-1`, in `WriteKind`'s order.
+    static let rewrite: [UInt64] = [11_051_039_532_571_471_939, 6_705_831_940_436_071_202, 10_144_674_203_355_303_240]
     /// `write-reply-2`: with a signature, without.
     static let reply: [UInt64] = [13_371_133_744_876_963_624, 8_037_769_901_995_102_638]
 }

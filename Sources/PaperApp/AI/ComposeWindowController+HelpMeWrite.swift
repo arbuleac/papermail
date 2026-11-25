@@ -174,6 +174,22 @@ final class ComposerWriteField: WriteField {
         return nil
     }
 
+    /// A provider's draft continued here, or a message rebuilt from the outbox, holds quoted mail and a signature in one
+    /// unmarked text: nothing around a selection is read there (§5.56). The window gone, nothing is.
+    var textAroundSelectionIsOwn: Bool { !(composer?.bodyIsOfUnknownOrigin ?? true) }
+
+    func blocksSeam(at index: Int) -> Bool {
+        guard let storage = editor?.textStorage, index >= 0, index < storage.length else { return true }
+        return storage.attribute(.link, at: index, effectiveRange: nil) != nil
+            || storage.attribute(.attachment, at: index, effectiveRange: nil) != nil
+    }
+
+    func seamAttributes(at index: Int) -> [NSAttributedString.Key: Any] {
+        guard let editor else { return [:] }
+        guard let storage = editor.textStorage, index >= 0, index < storage.length else { return editor.defaultTypingAttributes }
+        return ComposeTextView.typingSafe(storage.attributes(at: index, effectiveRange: nil))
+    }
+
     func commitSubject(_ subject: String, undo: UndoManager?) -> Bool {
         composer?.commitWrittenSubject(subject, undo: undo) ?? false
     }

@@ -39,8 +39,13 @@ struct DemoAIProvider: AIProvider {
                         continuation.yield(.text(chunk))
                     }
                     if let failure = plan.failure { throw failure }
+                    // A rewrite's seam lines, after the part, as a model writes them.
+                    for chunk in plan.tail {
+                        try await Task.sleep(for: plan.delay)
+                        continuation.yield(.text(chunk))
+                    }
                     continuation.yield(.usage(AIUsage(inputTokens: request.userTurn.count / 4,
-                                                      outputTokens: plan.subjectLine.count + plan.chunks.count)))
+                                                      outputTokens: plan.subjectLine.count + plan.chunks.count + plan.tail.count)))
                     continuation.yield(.finished(.done))
                     continuation.finish()
                 } catch {
@@ -62,6 +67,9 @@ final class DemoAIScript: @unchecked Sendable {
         /// The message, in chunks: `failsAfter` and `holdsAfter` count these, so a write fails or rests as far into the
         /// message as it is asked to, whether or not a subject line came first.
         var chunks: [String]
+        /// A rewrite's seam lines (from the scripted answer's first line that starts with “<<<”), in chunks, streamed
+        /// after the part; none for anything else.
+        var tail: [String] = []
         var delay: Duration
         var failure: AIError?
         var failsAfter: Int
@@ -121,8 +129,10 @@ final class DemoAIScript: @unchecked Sendable {
         lock.withLock {
             _requests.append(request)
             let answer = Self.answer(_reply, for: request)
-            return Plan(subjectLine: Self.chunks(of: answer.subjectLine), chunks: Self.chunks(of: answer.message), delay: _delay,
-                        failure: _failure, failsAfter: _failsAfter, holdsAfter: _holdsAfter)
+            let (part, tail) = request.isRewrite ? Self.seamTail(of: answer.message) : (answer.message, "")
+            return Plan(subjectLine: Self.chunks(of: answer.subjectLine), chunks: Self.chunks(of: part),
+                        tail: Self.chunks(of: tail), delay: _delay, failure: _failure, failsAfter: _failsAfter,
+                        holdsAfter: _holdsAfter)
         }
     }
 
@@ -131,14 +141,29 @@ final class DemoAIScript: @unchecked Sendable {
     /// is: where the writer would read its first line as a subject line (a new message's full write), that line is the
     /// first part, found by the split the writer itself uses.
     static func answer(_ scripted: String?, for request: AIWriteRequest) -> (subjectLine: String, message: String) {
-        guard let scripted else {
+        guard var scripted else {
             let draft = DemoAIReplies.draft(for: request)
             return (draft.subjectLine ?? "", draft.body)
         }
+        // A scripted rewrite's seam lines name the request's own code, which is new on every request.
+        if request.isRewrite { scripted = scripted.replacingOccurrences(of: "{fence}", with: request.fence) }
         guard request.readsSubjectLine else { return ("", scripted) }
         let split = WriteSubjectLine.split(scripted, final: true)
         guard split.subject != nil, !split.body.isEmpty, scripted.hasSuffix(split.body) else { return ("", scripted) }
         return (String(scripted.dropLast(split.body.count)), split.body)
+    }
+
+    /// `message` cut before its first line that starts with “<<<”: the part, and the seam lines from there on.
+    static func seamTail(of message: String) -> (part: String, tail: String) {
+        var lineStart = message.startIndex
+        while lineStart < message.endIndex {
+            if message[lineStart...].hasPrefix("<<<") {
+                return (String(message[..<lineStart]), String(message[lineStart...]))
+            }
+            guard let lineEnd = message[lineStart...].firstIndex(of: "\n") else { break }
+            lineStart = message.index(after: lineEnd)
+        }
+        return (message, "")
     }
 
     /// Two words at a time, each with the space or line break after it, as a model's deltas come.

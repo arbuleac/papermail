@@ -2,7 +2,8 @@ import Foundation
 
 /// What Help Me Write writes in demo mode, the snapshots and the app tests: the demo's own canned drafts, so the
 /// feature can be shown with nothing leaving the Mac. The app's demo writer streams one of these, picked by what the
-/// request writes: a reply, a new message (each with its subject) or the message above a forward.
+/// request writes: a reply, a new message (each with its subject), the message above a forward, or a selection's
+/// rewrite.
 public enum DemoAIReplies {
     /// A canned draft: its message, and for a new message whose request asked for one, its subject.
     public struct Draft: Sendable, Hashable {
@@ -63,6 +64,17 @@ public enum DemoAIReplies {
         "Hi,\n\nForwarding the message below for your records, so you have it to hand when you need it.",
     ]
 
+    /// Rewrites of a selection: one short sentence each, standing alone. A made-up rewrite never offers new words for
+    /// the user's text beside the selection: only a scripted answer does (tests and renders).
+    public static let rewrites: [String] = [
+        "I'll send the revised plan by Friday.",
+        "Could we move this to Thursday instead?",
+        "Thanks again for pulling this together so quickly.",
+        "Let me know if anything here needs a second look.",
+        "I can bring the numbers to the meeting.",
+        "That works for me, as long as we keep to the budget.",
+    ]
+
     /// The draft for `request`, the same on every run for the same request (a snapshot must not change), different
     /// across asks. A subject comes with it only when the request asked for one.
     public static func draft(for request: AIWriteRequest) -> Draft {
@@ -75,6 +87,7 @@ public enum DemoAIReplies {
             hash = hash &* 0x0000_0100_0000_01B3
         }
         func pick<Element>(_ list: [Element]) -> Element { list[Int(hash % UInt64(list.count))] }
+        if request.isRewrite { return Draft(body: pick(rewrites)) }
         switch request.kind {
         case .reply:
             return Draft(body: pick(replies))

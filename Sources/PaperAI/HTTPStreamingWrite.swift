@@ -131,7 +131,7 @@ struct HTTPStreamingWrite<Decoder: HTTPStreamDecoding>: Sendable {
                 switch event {
                 case .text(let text), .replaceAll(let text):
                     if !text.isEmpty { shownText = true }
-                case .usage, .finished, .subject:
+                case .usage, .finished, .subject, .join:
                     break
                 }
                 continuation.yield(event)

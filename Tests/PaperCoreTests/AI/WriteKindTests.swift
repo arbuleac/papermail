@@ -12,6 +12,23 @@ final class WriteKindTests: XCTestCase {
         XCTAssertEqual(WritePrompt.version, "write-reply-2", "the reply's prompt is the one it was")
     }
 
+    /// A selection's rewrite has its own prompt per kind, and the request names it (§5.56).
+    func testEachKindHasItsOwnRewritePromptVersion() {
+        XCTAssertEqual(WriteKind.reply.rewritePromptVersion, "rewrite-reply-1")
+        XCTAssertEqual(WriteKind.newMessage.rewritePromptVersion, "rewrite-new-1")
+        XCTAssertEqual(WriteKind.forward.rewritePromptVersion, "rewrite-forward-1")
+        let versions = WriteKind.allCases.flatMap { [$0.promptVersion, $0.rewritePromptVersion] }
+        XCTAssertEqual(Set(versions).count, versions.count)
+        for kind in WriteKind.allCases {
+            let rewrite = AIWriteRequest(kind: kind, instructions: "i", transcript: "t", task: "k", isRewrite: true)
+            XCTAssertEqual(rewrite.promptVersion, kind.rewritePromptVersion)
+            XCTAssertFalse(rewrite.readsRewriteAnswer, "a rewrite that sent no draft around it passes as it comes")
+            var drafted = rewrite
+            drafted.rewrite = WriteRewriteFrame(selection: "x")
+            XCTAssertTrue(drafted.readsRewriteAnswer)
+        }
+    }
+
     /// The reply's prompt is as it was: people's permission was given for what it sends, so its words do not change
     /// without a new version (`PromptChecksum`).
     func testTheReplysWordsAreTheOnesTheyWere() {

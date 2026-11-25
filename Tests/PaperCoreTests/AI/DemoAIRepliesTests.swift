@@ -35,6 +35,28 @@ final class DemoAIRepliesTests: XCTestCase {
         XCTAssertTrue(Set(DemoAIReplies.forwardMessages).isDisjoint(with: bodies))
     }
 
+    /// A selection's rewrite is one of the demo's short sentences, whatever is being written, the same for the same ask.
+    func testARewritePicksFromTheRewrites() {
+        for kind in WriteKind.allCases {
+            var picks: Set<String> = []
+            for index in 0..<40 {
+                let rewrite = AIWriteRequest(kind: kind, instructions: "i", transcript: "t", task: "part \(index)", isRewrite: true,
+                                             fence: "1a2b3c4d")
+                let draft = DemoAIReplies.draft(for: rewrite)
+                XCTAssertTrue(DemoAIReplies.rewrites.contains(draft.body), "\(kind)")
+                XCTAssertNil(draft.subject)
+                XCTAssertEqual(draft, DemoAIReplies.draft(for: rewrite), "the same on every run")
+                var refenced = rewrite
+                refenced.task = rewrite.task.replacingOccurrences(of: "1a2b3c4d", with: "9f8e7d6c")
+                refenced.fence = "9f8e7d6c"
+                XCTAssertEqual(DemoAIReplies.draft(for: refenced), draft)
+                picks.insert(draft.body)
+            }
+            XCTAssertGreaterThan(picks.count, 2, "\(kind): different parts, different rewrites")
+        }
+        XCTAssertFalse(DemoAIReplies.rewrites.contains { $0.contains("<<<") }, "a made-up rewrite never changes the user's words")
+    }
+
     /// The fence code is new on every request, so it plays no part in the pick: the same notes, written twice, get the
     /// same draft (a render must not change from run to run), for every kind.
     func testTheFenceCodeDoesNotChangeThePick() throws {

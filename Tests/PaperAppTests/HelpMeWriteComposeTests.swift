@@ -854,7 +854,8 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertFalse(request.instructions.contains("LATEST"), "the fixed instructions hold no mail")
         XCTAssertTrue(sheets.isEmpty)
 
-        // With notes: from the notes, the forwarded message as context. A selection: it and the instruction alone.
+        // With notes: from the notes, the forwarded message as context. A selection: the same forwarded message, and the
+        // notes around it, marked (§5.56).
         composer.bodyEditor.insertText("fyi before thursday", replacementRange: NSRange(location: 0, length: (composer.bodyText as NSString).length))
         commandJ(composer)
         until({ script.requests.count == 2 && session.phase == .written })
@@ -865,8 +866,11 @@ final class HelpMeWriteComposeTests: XCTestCase {
         commandJ(composer)
         until({ script.requests.count == 3 && session.phase == .written })
         XCTAssertTrue(script.requests[2].isRewrite)
-        XCTAssertEqual(script.requests[2].transcript, "", "a rewrite sends the selection and the instruction only")
-        XCTAssertFalse(script.requests[2].userTurn.contains("LATEST"))
+        XCTAssertEqual(script.requests[2].transcript.replacingOccurrences(of: script.requests[2].fence, with: ""),
+                       script.requests[1].transcript.replacingOccurrences(of: script.requests[1].fence, with: ""),
+                       "a rewrite sends what the whole forward sends")
+        XCTAssertTrue(script.requests[2].task.contains("<<<DRAFT"))
+        XCTAssertFalse(script.requests[2].userTurn.contains("EARLIEST"), "never the rest of its conversation")
     }
 
     /// While the forwarded message is still loading there is nothing to write from yet: no ghost, and ⌘J without a
@@ -1482,6 +1486,10 @@ final class HelpMeWriteComposeTests: XCTestCase {
             XCTAssertFalse(request.wantsSubject, "\(name): no subject is proposed")
             XCTAssertTrue(request.task.contains("see you thursday"))
             XCTAssertFalse(request.task.contains("the offsite"), "\(name): only the selection goes")
+            XCTAssertFalse(request.userTurn.contains("On Monday Ada wrote"), "\(name): nothing of the text around it")
+            XCTAssertFalse(request.userTurn.contains("ada@example.test"), name)
+            XCTAssertFalse(request.userTurn.contains("<<<DRAFT"), "\(name): the selection alone")
+            XCTAssertNil(request.rewrite, name)
             XCTAssertEqual(composer.subjectText, kept.subject, "\(name): the Subject is as it was")
             XCTAssertTrue(composer.bodyText.hasSuffix("\n\nOn Monday Ada wrote:\n> the offsite, ada@example.test"), "\(name): the rest stands")
 
@@ -1493,8 +1501,101 @@ final class HelpMeWriteComposeTests: XCTestCase {
         }
         XCTAssertEqual(script.requests.map(\.kind), [.newMessage, .newMessage, .reply, .reply, .newMessage, .newMessage],
                        "a reply's rewrite goes as a reply's; a forward without its original as a new message's")
-        XCTAssertEqual(script.requests.filter { $0.kind == .newMessage }.map(\.transcript), ["", "", "", ""],
-                       "and a rewrite there sends the selection and the instruction alone")
+        // A rewrite there sends what a write of its kind sends (§5.56: the window's own Subject and To first names), and
+        // of the body the selection alone.
+        for request in script.requests where request.kind == .newMessage {
+            XCTAssertTrue(request.transcript.contains("To: Priya"), request.transcript)
+            XCTAssertFalse(request.transcript.contains("see you thursday"))
+            XCTAssertFalse(request.transcript.contains("Ada"))
+        }
+    }
+
+    // MARK: A selection's rewrite reads the draft around it
+
+    /// A new message's rewrite reads what its whole write reads (§5.56): the Subject and the To first names, and the
+    /// user's first name where Paper knows it (a Microsoft account's), with the draft around the selection, marked.
+    func testANewMessagesRewriteSendsItsMessageItsNameAndTheDraft() throws {
+        let (harness, script) = try harness(reply: "whether we can meet on Thursday")
+        defer { harness.close() }
+        let composer = newMessage(harness, link: MailtoLink(to: [priya], subject: "Offsite"), from: 1)
+        let session = try session(composer)
+        type("Hi Priya,\n\nI wonder if we can meet on the 3rd to plan it.", in: composer)
+        composer.bodyEditor.setSelectedRange((composer.bodyText as NSString).range(of: "if we can meet on the 3rd"))
+        commandJ(composer)
+        until({ session.phase == .written })
+        let request = try XCTUnwrap(script.requests.last)
+        XCTAssertEqual(request.kind, .newMessage)
+        XCTAssertEqual(request.promptVersion, "rewrite-new-1")
+        XCTAssertTrue(request.transcript.contains("<<<MESSAGE \(request.fence)>>>\nSubject: Offsite\nTo: Priya\n"))
+        XCTAssertTrue(request.task.hasPrefix("My first name: Alex\n\n"), "a Microsoft account's display name")
+        XCTAssertTrue(request.task.contains("<<<DRAFT \(request.fence)>>>\nHi Priya,\n\n"))
+        XCTAssertEqual(request.rewrite?.before, "I wonder")
+        XCTAssertFalse(request.userTurn.contains("@"))
+        XCTAssertFalse(request.wantsSubject)
+        XCTAssertTrue(composer.bodyText.hasPrefix("Hi Priya,\n\nI wonder whether we can meet on Thursday to plan it."), composer.bodyText)
+    }
+
+    /// A forward's rewrite reads the forwarded message, as a whole forward does; one still loading it is written as a
+    /// new message is, from what the window holds.
+    func testAForwardsRewriteSendsItsForwardedMessage() throws {
+        let (harness, script) = try harness(reply: "have a look")
+        defer { harness.close() }
+        let composer = try forward(harness)
+        let session = try session(composer)
+        type("Hi Ben, pls look at this before Friday.", in: composer)
+        composer.bodyEditor.setSelectedRange((composer.bodyText as NSString).range(of: "pls look"))
+        commandJ(composer)
+        until({ session.phase == .written })
+        let request = try XCTUnwrap(script.requests.last)
+        XCTAssertEqual(request.kind, .forward)
+        XCTAssertTrue(request.transcript.contains("<<<FORWARDED \(request.fence)>>>"))
+        XCTAssertTrue(request.transcript.contains("LATEST"), "the forwarded message")
+        XCTAssertFalse(request.transcript.contains("EARLIEST"), "never the rest of its conversation")
+        XCTAssertTrue(request.task.contains("<<<DRAFT"))
+        composer.closeWithoutSaving()
+
+        try saveBody("The venue is booked for the ninth. LATEST", for: "msg-2-2", harness)
+        let loading = present(.forward(MessageID(accountID: a.id, providerID: "msg-2-2")), harness)
+        XCTAssertTrue(loading.isLoadingForwardedMessage)
+        let loadingSession = try self.session(loading)
+        type("fyi pls look", in: loading)
+        loading.bodyEditor.setSelectedRange((loading.bodyText as NSString).range(of: "pls look"))
+        commandJ(loading)
+        until({ script.requests.count == 2 && loadingSession.phase == .written })
+        let early = try XCTUnwrap(script.requests.last)
+        XCTAssertEqual(early.kind, .newMessage, "still loading: a new message's request")
+        XCTAssertFalse(early.userTurn.contains("FORWARDED"))
+        XCTAssertFalse(early.userTurn.contains("LATEST"))
+    }
+
+    /// A body a mail link filled in, untouched: the text around the selection goes too, but redacted in pieces cut only
+    /// between words, so no address and no fragment of a link goes beside the selection. Edited, it is the user's.
+    func testAnUntouchedLinkBodysRewriteSendsItsTextRedacted() throws {
+        let (harness, script) = try harness(reply: "regarding the bill")
+        defer { harness.close() }
+        let filled = "Call me back at ada@example.test about the invoice https://example.test/pay?t=SECRETTOKEN today."
+        let composer = newMessage(harness, link: MailtoLink(to: [priya], body: filled))
+        XCTAssertTrue(composer.bodyIsUntouchedPrefill)
+        let session = try session(composer)
+        composer.bodyEditor.setSelectedRange((composer.bodyText as NSString).range(of: "about the invoice"))
+        commandJ(composer)
+        until({ session.phase == .written })
+        let redacted = try XCTUnwrap(script.requests.last)
+        XCTAssertTrue(redacted.task.contains("<<<DRAFT"))
+        XCTAssertFalse(redacted.userTurn.contains("ada@example.test"))
+        XCTAssertFalse(redacted.userTurn.contains("SECRETTOKEN"))
+        XCTAssertFalse(redacted.userTurn.contains("example.test/pay"))
+        XCTAssertTrue(redacted.task.contains("an address at example.test"))
+        XCTAssertTrue(redacted.task.contains("[link: example.test]"))
+
+        composer.window?.undoManager?.undo()
+        XCTAssertTrue(composer.bodyIsUntouchedPrefill)
+        composer.bodyEditor.insertText("!", replacementRange: NSRange(location: (filled as NSString).length - 1, length: 1))
+        XCTAssertFalse(composer.bodyIsUntouchedPrefill)
+        composer.bodyEditor.setSelectedRange((composer.bodyText as NSString).range(of: "about the invoice"))
+        commandJ(composer)
+        until({ script.requests.count == 2 && session.phase == .written })
+        XCTAssertTrue(try XCTUnwrap(script.requests.last).task.contains("ada@example.test"), "the user's own text goes as typed")
     }
 
     /// The outbox's rebuilt draft says what it is, and a kept draft remembers it: the flag is in the record, absent
@@ -1667,7 +1768,8 @@ final class HelpMeWriteComposeTests: XCTestCase {
         }
         XCTAssertEqual(script.requests[0].instructions, script.requests[1].instructions)
 
-        // A rewrite sends the selection and the instruction only: no subject, no names, no first name.
+        // A rewrite sends what the whole message sends (§5.56): the subject, the To first names and the first name, with
+        // the draft around the selection. Still no address, no Cc or Bcc name.
         let composer = newMessage(harness, link: link, from: 1)
         let session = try session(composer)
         type("numbers are in", in: composer)
@@ -1675,8 +1777,13 @@ final class HelpMeWriteComposeTests: XCTestCase {
         commandJ(composer)
         until({ session.phase == .written })
         let rewrite = try XCTUnwrap(script.requests.last)
-        XCTAssertEqual(rewrite.transcript, "")
-        for absent in ["Q3 budget", "Priya", "Alex", "@"] { XCTAssertFalse(rewrite.userTurn.contains(absent), absent) }
+        XCTAssertEqual(rewrite.transcript.replacingOccurrences(of: rewrite.fence, with: ""),
+                       script.requests[1].transcript.replacingOccurrences(of: script.requests[1].fence, with: ""))
+        XCTAssertTrue(rewrite.userTurn.contains("My first name: Alex"))
+        XCTAssertTrue(rewrite.task.contains("<<<DRAFT"))
+        for absent in ["@", "Linus", "Carol", "Danvers", "Dave", "Bowman", "Raman", "Carter", "bare", "DRESSED", "example.test", "Morgan"] {
+            XCTAssertFalse(rewrite.userTurn.contains(absent), absent)
+        }
     }
 
     /// The forwarded message's files go as a count of what is on the strip as the user asks, never as names.

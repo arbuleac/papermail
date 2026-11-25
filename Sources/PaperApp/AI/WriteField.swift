@@ -49,11 +49,29 @@ protocol WriteField: AnyObject {
     func setHeldOpen(_ held: Bool)
     /// Puts the keyboard in the text.
     func focusText()
+    /// Whether the text around a selection inside `ownTextRange` is the user's own, so a rewrite may read it (spec
+    /// §5.56): false in a body the composer did not write, where it may be quoted mail. Read only as the user asks for a
+    /// rewrite.
+    var textAroundSelectionIsOwn: Bool { get }
+    /// Whether a window of words a rewrite may change must not hold `index`: a link or a picture, which a rewrite never
+    /// touches.
+    func blocksSeam(at index: Int) -> Bool
+    /// The attributes new words take in place of a window starting at `index`: the window's own style.
+    func seamAttributes(at index: Int) -> [NSAttributedString.Key: Any]
 }
 
 extension WriteField {
     /// A field whose whole text is the user's own and always there to write from.
     var selectionOnlyReason: String? { nil }
+
+    /// A field whose own text is all the user's (the quick reply).
+    var textAroundSelectionIsOwn: Bool { true }
+
+    /// Plain text has no links or pictures.
+    func blocksSeam(at index: Int) -> Bool { false }
+
+    /// Plain text is in one style: typing's.
+    func seamAttributes(at index: Int) -> [NSAttributedString.Key: Any] { writeTextView.typingAttributes }
 
     /// A field with no Subject of its own takes none.
     func commitSubject(_ subject: String, undo: UndoManager?) -> Bool { false }

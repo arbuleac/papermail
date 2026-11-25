@@ -151,13 +151,24 @@ final class ComposeWriteInputsTests: XCTestCase {
         XCTAssertEqual(request(ComposeWriteInputs(), selection)?.task.contains("call dana@example.test"), true)
     }
 
-    func testARewriteLeavesTheSubjectTheNamesAndTheUsersNameHome() {
-        let inputs = ComposeWriteInputs(subject: "Offsite in March", to: [priya], account: outlook, appendsSignature: true, wantsSubject: true)
+    /// A rewrite reads what a whole write reads, so the part fits its message (§5.56): the subject, the To first names
+    /// and the user's first name. Never Cc or Bcc, never an address, and never a subject asked for.
+    func testARewriteSendsTheSubjectTheNamesAndTheUsersName() {
+        let inputs = ComposeWriteInputs(subject: "Offsite in March", to: [priya, ben], account: outlook, appendsSignature: true,
+                                        wantsSubject: true)
         let context = NewMessageContext(inputs, ask: WriteAsk(instruction: "Warmer", draft: .selection("see u thurs")))
-        XCTAssertEqual(context, NewMessageContext(ask: WriteAsk(instruction: "Warmer", draft: .selection("see u thurs")), appendsSignature: true))
-        let turn = request(inputs, WriteAsk(draft: .selection("see u thurs")))?.userTurn ?? ""
-        XCTAssertTrue(turn.hasPrefix("Part of my message, to rewrite:\n"))
-        for never in ["Offsite", "Priya", "Alex", "MESSAGE"] { XCTAssertFalse(turn.contains(never), never) }
+        XCTAssertEqual(context, NewMessageContext(subject: "Offsite in March", recipientFirstNames: ["Priya", "Ben"], userFirstName: "Alex",
+                                                  ask: WriteAsk(instruction: "Warmer", draft: .selection("see u thurs")),
+                                                  appendsSignature: true, wantsSubject: false))
+        let request = request(inputs, WriteAsk(draft: .selection("see u thurs")))
+        let turn = request?.userTurn ?? ""
+        XCTAssertTrue(turn.hasPrefix("The message I'm writing:\n<<<MESSAGE 1a2b3c4d>>>\nSubject: Offsite in March\nTo: Priya, Ben\n"))
+        XCTAssertTrue(turn.contains("\n\nMy first name: Alex\n\n"))
+        XCTAssertTrue(turn.contains("Part of my message, to rewrite (the rest of my message isn't given):\n"))
+        XCTAssertEqual(request?.wantsSubject, false)
+        for never in ["@", "Shah", "Carter", "example.test", "contoso"] { XCTAssertFalse(turn.contains(never), never) }
+        XCTAssertEqual(NewMessageContext(ComposeWriteInputs(redactsOwnText: true), ask: WriteAsk(draft: .selection("x")))?.redactsAround,
+                       true, "a body a link filled in redacts the text around the selection too")
     }
 
     func testNothingToWriteFromOrTooLongIsNoRequest() {
@@ -363,19 +374,26 @@ final class ComposeWriteInputsTests: XCTestCase {
         XCTAssertEqual(small.own, "one two" + ReplyContextBuilder.cutMarker)
     }
 
-    func testARewriteInAForwardSendsNothingOfTheForwardedMessage() {
+    /// A rewrite in a forward reads the forwarded message as a whole forward does, with the forward's own subject and
+    /// To names and the user's first name: never an address, never Cc or Bcc.
+    func testARewriteInAForwardSendsTheForwardedMessage() {
         let inputs = ComposeWriteInputs(subject: "Fwd: Venue contract", to: [priya], account: outlook,
-                                        forwarded: forwarded("FORWARDEDMARK and more", author: "Authormark"))
+                                        forwarded: forwarded("FORWARDEDMARK and more, from ben@contoso.test", author: "Authormark"))
         let context = ForwardContext(inputs, ask: WriteAsk(draft: .selection("pls look")))
-        XCTAssertNil(context?.message)
-        XCTAssertEqual(context?.subject, "")
-        XCTAssertEqual(context?.recipientFirstNames, [])
-        XCTAssertNil(context?.userFirstName)
-        let turn = request(inputs, WriteAsk(instruction: "Warmer", draft: .selection("pls look")))?.userTurn ?? ""
-        for never in ["FORWARDEDMARK", "Authormark", "Venue", "Priya", "Alex", "FORWARDED", "MESSAGE"] {
-            XCTAssertFalse(turn.contains(never), never)
+        XCTAssertEqual(context?.message?.author, "Authormark")
+        XCTAssertEqual(context?.subject, "Fwd: Venue contract")
+        XCTAssertEqual(context?.recipientFirstNames, ["Priya"])
+        XCTAssertEqual(context?.userFirstName, "Alex")
+        let request = request(inputs, WriteAsk(instruction: "Warmer", draft: .selection("pls look")))
+        let turn = request?.userTurn ?? ""
+        for expected in ["FORWARDEDMARK", "--- From Authormark", "Subject: Fwd: Venue contract", "To: Priya", "My first name: Alex",
+                         "<<<FORWARDED 1a2b3c4d>>>", "<<<MESSAGE 1a2b3c4d>>>"] {
+            XCTAssertTrue(turn.contains(expected), expected)
         }
-        XCTAssertTrue(turn.hasSuffix("Rewrite this part: Warmer Keep its language. Return only the rewritten part."))
+        XCTAssertFalse(turn.contains("@"), "the forwarded message's addresses are redacted, as a whole forward's are")
+        XCTAssertTrue(turn.hasSuffix("Rewrite this part: Warmer Keep its language. Answer with the rewritten part alone."))
+        XCTAssertEqual(request?.kind, .forward)
+        XCTAssertEqual(request?.promptVersion, "rewrite-forward-1")
     }
 
     /// Whatever the composer holds, nothing typed or read reaches the instructions, which the CLIs carry in their
@@ -391,7 +409,8 @@ final class ComposeWriteInputsTests: XCTestCase {
                                                 account: account, forwarded: forwarded)
                 guard let request = request(inputs, ask) else { return XCTFail("a request was expected") }
                 for mark in marks + [fence] { XCTAssertFalse(request.instructions.contains(mark), mark) }
-                XCTAssertEqual(request.instructions, forwarded == nil
+                let kind: WriteKind = forwarded == nil ? .newMessage : .forward
+                XCTAssertEqual(request.instructions, ask.isRewrite ? WritePrompt.rewriteInstructions(for: kind) : forwarded == nil
                     ? WritePrompt.newMessageInstructions(appendsSignature: false, wantsSubject: false)
                     : WritePrompt.forwardInstructions(appendsSignature: false))
                 XCTAssertTrue(request.userTurn.contains("Instructionmark"))

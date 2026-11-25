@@ -21,6 +21,15 @@ public enum WriteKind: Sendable, Hashable, CaseIterable {
         }
     }
 
+    /// The version of this kind's prompt for rewriting a selection (`WritePrompt+Rewrite`). Never sent to a provider.
+    public var rewritePromptVersion: String {
+        switch self {
+        case .reply: return WritePrompt.rewriteReplyVersion
+        case .newMessage: return WritePrompt.rewriteNewMessageVersion
+        case .forward: return WritePrompt.rewriteForwardVersion
+        }
+    }
+
     /// Whether a write of this kind would have nothing to write from: such a write never sends. A reply has its
     /// conversation and a forward its forwarded message; a new message has only what the user gave, so it needs notes,
     /// a selection or an instruction that still says something once cleaned. A subject alone is not a brief, and
