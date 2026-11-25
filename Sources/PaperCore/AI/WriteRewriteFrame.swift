@@ -92,16 +92,24 @@ public struct WriteRewriteFrame: Sendable, Hashable {
     /// few words of it) and a card number spaced out in groups, which a piece cut at a blank may not hold: “Your
     /// verification code is [selected]” then “481516. Please enter”, or a card number's groups on both sides of the
     /// selection's edge. Where that context is cut, nothing around the selection is sent (the ALONE form), as before
-    /// the draft around a selection was read at all. The run of characters a selection's edge cuts, which the frame
-    /// never sends, is read with the selection here, so it neither hides a code's label from the text before it nor
-    /// counts as a difference of its own.
+    /// the draft around a selection was read at all.
+    ///
+    /// Two readings must agree. The whole own text: the run of characters a selection's edge cuts, which the frame
+    /// never sends, is read with the selection, so it neither hides a code's label from the text before it nor counts
+    /// as a difference of its own. And what is sent, the cut runs left out: the selection redacted alone must not be a
+    /// code that the words sent beside it would label (“verification code:[481516]” sends “verification ” before it).
     static func redactsInPiecesAsAWhole(_ around: WriteAsk.Around, selection: String) -> Bool {
         let pieces = Pieces(around, redacts: true, fence: "")
-        let parts = [clean(pieces.lead, fence: ""), pieces.windowBefore, pieces.gapBefore,
-                     pieces.cutBefore + selection + pieces.cutAfter,
-                     pieces.gapAfter, pieces.windowAfter, clean(pieces.trail, fence: "")]
         let redactor = AIRedactor()
-        return redactor.redact(parts.joined()) == parts.map(redactor.redact).joined()
+        func agree(_ parts: [String]) -> Bool {
+            redactor.redact(parts.joined()) == parts.map(redactor.redact).joined()
+        }
+        func parts(_ middle: String) -> [String] {
+            [clean(pieces.lead, fence: ""), pieces.windowBefore, pieces.gapBefore, middle, pieces.gapAfter, pieces.windowAfter,
+             clean(pieces.trail, fence: "")]
+        }
+        let whole = pieces.cutBefore + selection + pieces.cutAfter
+        return agree(parts(whole)) && (whole == selection || agree(parts(selection)))
     }
 
     /// `around` cut as the frame sends it, before cleaning and redaction: the text before the selection up to its

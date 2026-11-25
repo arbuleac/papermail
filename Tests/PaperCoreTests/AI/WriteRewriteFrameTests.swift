@@ -125,6 +125,9 @@ final class WriteRewriteFrameTests: XCTestCase {
             XCTAssertFalse(WriteRewriteFrame.redactsInPiecesAsAWhole(card.around, selection: card.selection),
                            "each piece too short for the card check: \(marked)")
         }
+        let labelled = around("Your verification code:[481516] expires soon")
+        XCTAssertFalse(WriteRewriteFrame.redactsInPiecesAsAWhole(labelled.around, selection: labelled.selection),
+                       "the selection is the code: the words sent before it, its run's start left out, still label it")
         let cutLabel = around("Use 481516 to verif[y it] please")
         XCTAssertFalse(WriteRewriteFrame.redactsInPiecesAsAWhole(cutLabel.around, selection: cutLabel.selection),
                        "the label's start, which the selection cuts and the frame never sends, is read with the selection")
