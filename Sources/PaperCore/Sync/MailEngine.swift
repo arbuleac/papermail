@@ -565,6 +565,90 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         try perform(.answerInvitation(answer), on: [message])
     }
 
+    @discardableResult
+    public func answerCalendarEvent(_ response: InvitationResponse, eventID: String, span asked: AnswerSpan,
+                                    invitationMessage: MessageID?) throws -> AnswerRoute? {
+        guard response.isAnswer else { throw StoreError.conflict("Not an answer") }
+        guard let event = try store.calendarEvent(id: eventID) else { throw StoreError.notFound }
+        guard event.sync == .synced, let providerID = event.providerID, event.response != .organizer, !event.isSetAside,
+              event.kind == nil else {
+            throw StoreError.conflict("This event can't be answered")
+        }
+        var span = asked
+        if event.seriesID == nil { span = .single } else if span == .single { span = .occurrence }
+
+        if let message = invitationMessage {
+            switch try answerThroughMail(response, event: event, span: span, message: message) {
+            case .queued: return .mail
+            case .alreadySaid: return nil
+            case .notThisRoute: break
+            }
+        }
+
+        let rows = span == .series
+            ? try store.calendarEvents(seriesID: event.seriesID ?? "", accountID: event.accountID)
+            : [event]
+        let answerable = rows.filter { $0.sync == .synced && $0.response != .organizer }
+        guard let wanted = CalendarEvent.Response(rawValue: response.rawValue),
+              !answerable.allSatisfy({ $0.response == wanted }) else { return nil }
+        guard let account = try store.accounts().first(where: { $0.id == event.accountID }) else { throw StoreError.notFound }
+        let target = span == .series ? (event.seriesID ?? providerID) : providerID
+        let organizerAddress = try store.calendarEventDetails(id: event.id)?.details.organizer?.address ?? ""
+        var answer = InvitationAnswer(
+            response: response, previous: InvitationResponse(rawValue: event.response.rawValue),
+            uid: event.invitationUID ?? "", sequence: 0, recurrenceID: nil,
+            title: event.title, start: event.start, end: event.end, isAllDay: event.isAllDay, isFloating: event.isAllDay,
+            organizer: EmailAddress(name: event.organizer, address: organizerAddress),
+            attendee: EmailAddress(name: account.displayName.isEmpty ? nil : account.displayName, address: account.email),
+            graphEventID: account.kind == .microsoft ? target : nil,
+            replyID: UUID().uuidString.lowercased())
+        answer.calendar = CalendarCopies(scope: span == .series ? .series(id: event.seriesID ?? "") : .event(id: event.id),
+                                         providerEventID: target)
+        try store.enqueue([Operation(accountID: event.accountID, change: .answerInvitation(answer), targets: [])])
+        registry.context(for: event.accountID)?.syncer.wake(.operations)
+        return .calendar
+    }
+
+    private enum MailRouteOutcome {
+        case queued
+        /// The message already carries this answer: nothing to queue.
+        case alreadySaid
+        /// The message cannot carry this answer; the calendar route takes it.
+        case notThisRoute
+    }
+
+    /// The mail route of `answerCalendarEvent`: not taken when the message's invitation does not name exactly this span
+    /// of the event or no longer describes it (an update whose mail is not here moved it, and an iMIP reply with the old
+    /// SEQUENCE may be ignored), or a later revision in its conversation replaces it.
+    private func answerThroughMail(_ response: InvitationResponse, event: CalendarEvent, span: AnswerSpan,
+                                   message: MessageID) throws -> MailRouteOutcome {
+        guard message.accountID == event.accountID, let invitation = try store.invitation(for: message),
+              invitation.method == .request, invitation.isAnswerable,
+              InvitationUID.matches(invitation.uid, event.invitationUID) else { return .notThisRoute }
+        let length = event.end.timeIntervalSince(event.start)
+        let sameLength = abs(invitation.end.timeIntervalSince(invitation.start) - length) <= 60
+        switch span {
+        case .single:
+            guard invitation.recurrenceID == nil, invitation.repeats == nil, sameLength,
+                  abs(invitation.start.timeIntervalSince(event.start)) <= 60 else { return .notThisRoute }
+        case .series:
+            guard invitation.repeats != nil, invitation.recurrenceID == nil, sameLength else { return .notThisRoute }
+        case .occurrence:
+            guard let recurrence = invitation.recurrenceID,
+                  abs(recurrence.timeIntervalSince(event.originalStart ?? event.start)) <= 1, sameLength else {
+                return .notThisRoute
+            }
+        }
+        if try store.message(message)?.invitationReply == response { return .alreadySaid }
+        do {
+            try answerInvitation(response, to: message)
+        } catch let error as StoreError {
+            guard case .conflict = error else { throw error }
+            return .notThisRoute
+        }
+        return .queued
+    }
+
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {
         try sendRunner.enqueue(message, undoWindow: undoWindow)
     }

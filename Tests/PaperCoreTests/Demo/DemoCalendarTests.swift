@@ -206,6 +206,23 @@ final class DemoCalendarTests: XCTestCase {
         XCTAssertEqual(events.first { $0.invitationUID == DemoInvitations.dinnerUID }?.response, .accepted)
     }
 
+    /// An answer given from the calendar names the provider's event, not a message: the demo's calendar takes it.
+    func testAnAnswerWithNoMessageReachesTheEventItNames() async throws {
+        let service = service()
+        let provider = service.provider(for: gmail)
+        let calendarProvider = try calendarProvider(gmail, in: service)
+        let before = try await calendarProvider.calendarEvents(in: CalendarWindow.around(reference, calendar: calendar)).events
+        let dinner = try XCTUnwrap(before.first { $0.invitationUID == DemoInvitations.dinnerUID })
+        var answer = InvitationAnswer(response: .tentative, uid: "", title: dinner.title, start: dinner.start, end: dinner.end,
+                                      organizer: DemoCatalog.sam.email, attendee: DemoProfile.gmail.me)
+        answer.calendar = CalendarCopies(scope: .event(id: dinner.id), providerEventID: dinner.providerID)
+
+        try await provider.apply(.answerInvitation(answer), to: [])
+
+        let events = try await calendarProvider.calendarEvents(in: CalendarWindow.around(reference, calendar: calendar)).events
+        XCTAssertEqual(events.first { $0.id == dinner.id }?.response, .tentative)
+    }
+
     // MARK: Mail that names a time
 
     /// Each demo mailbox has a recent mail whose words name a time on a working day ahead, which the detector finds.

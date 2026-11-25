@@ -290,4 +290,61 @@ enum GoogleCalendarFixtures {
     static let backendError = #"""
     {"error": {"code": 500, "message": "Backend Error", "errors": [{"domain": "global", "reason": "backendError", "message": "Backend Error"}]}}
     """#
+
+    // MARK: An answer given from the calendar (`maxAttendees=1`: only the participant's own entry comes back)
+
+    /// An instance of a weekly series, the user not answered yet.
+    static let answerGetSelf = #"""
+    {
+     "id": "standup_20261119T080000Z",
+     "status": "confirmed",
+     "iCalUID": "standup@contoso.test",
+     "sequence": 3,
+     "summary": "Standup",
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+     "end": {"dateTime": "2026-11-19T09:15:00+01:00", "timeZone": "Europe/Berlin"},
+     "recurringEventId": "standup",
+     "originalStartTime": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [{"email": "ada@example.com", "displayName": "Ada L.", "self": true, "responseStatus": "needsAction"}],
+     "attendeesOmitted": true
+    }
+    """#
+
+    /// The series itself: no instance, so no RECURRENCE-ID.
+    static let answerGetSeries = #"""
+    {
+     "id": "standup",
+     "status": "confirmed",
+     "iCalUID": "standup@contoso.test",
+     "sequence": 3,
+     "summary": "Standup",
+     "start": {"dateTime": "2026-11-02T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+     "end": {"dateTime": "2026-11-02T09:15:00+01:00", "timeZone": "Europe/Berlin"},
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [{"email": "ada@example.com", "self": true, "responseStatus": "needsAction"}],
+     "attendeesOmitted": true
+    }
+    """#
+
+    /// The same instance, already answered (a retry after a send whose reply was lost, or the phone).
+    static let answerGetSelfAnswered = answerGetSelf.replacingOccurrences(of: "\"needsAction\"", with: "\"accepted\"")
+
+    /// An event on the calendar that does not list the user.
+    static let answerGetNoSelf = #"""
+    {"id": "standup_20261119T080000Z", "status": "confirmed", "iCalUID": "standup@contoso.test", "summary": "Standup",
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00"}, "end": {"dateTime": "2026-11-19T09:15:00+01:00"},
+     "organizer": {"email": "erin@contoso.test"}, "attendeesOmitted": true}
+    """#
+
+    /// A cancelled instance.
+    static let answerGetCancelled = #"{"id": "standup_20261119T080000Z", "status": "cancelled"}"#
+
+    /// An event a group calendar organizes: nobody to mail.
+    static let answerGetGroupOrganizer = answerGetSelf.replacingOccurrences(
+        of: #""organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"}"#,
+        with: #""organizer": {"email": "c_1a2b3c@group.calendar.google.com", "displayName": "Team calendar"}"#)
+
+    /// What the patch answers under `fields=id`.
+    static let patchReply = #"{"id": "standup_20261119T080000Z"}"#
 }

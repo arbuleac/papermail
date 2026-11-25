@@ -296,24 +296,40 @@ struct OperationRunner: Sendable {
     ///
     /// The newest is saved first and the dropped ones deleted after it: an interruption in between leaves an outbox
     /// the next drain prunes the same way, never a lone stale answer. A write that fails keeps that operation queued.
-    private func droppingReplacedAnswers(from operations: [Operation]) -> [Operation] {
-        var newest: [MessageID: Int] = [:]
-        for (index, operation) in operations.enumerated() where operation.change.kind == .answerInvitation {
-            guard operation.targets.count == 1 else { continue }
-            newest[operation.targets[0]] = index
+    /// What an answer answers, for `droppingReplacedAnswers`: its one message, or with none (given from the calendar)
+    /// the provider's event. Nil for an answer neither names, which is never dropped.
+    static func answerKey(of operation: Operation) -> String? {
+        guard case .answerInvitation(let answer) = operation.change else { return nil }
+        if operation.targets.count == 1 {
+            let target = operation.targets[0]
+            return "mail|" + target.accountID.rawValue + "|" + target.providerID
         }
-        // By the index of the answer that replaces them: the answer the first replaced one replaced, and whether none
-        // of them was ever tried.
-        var takenOver: [Int: (previous: InvitationResponse?, untried: Bool)] = [:]
+        if operation.targets.isEmpty, let event = answer.calendar?.providerEventID {
+            return "calendar|" + event
+        }
+        return nil
+    }
+
+    private func droppingReplacedAnswers(from operations: [Operation]) -> [Operation] {
+        var newest: [String: Int] = [:]
+        for (index, operation) in operations.enumerated() {
+            guard let key = Self.answerKey(of: operation) else { continue }
+            newest[key] = index
+        }
+        // By the index of the answer that replaces them: the answer the first replaced one replaced, what each calendar
+        // row said before the first answer that recorded it, and whether none of them was ever tried.
+        var takenOver: [Int: (previous: InvitationResponse?, rows: [String: CalendarEvent.Response], untried: Bool)] = [:]
         var replaced: [Int: [Operation]] = [:]
         for (index, operation) in operations.enumerated() {
-            guard case .answerInvitation(let answer) = operation.change, operation.targets.count == 1,
-                  let latest = newest[operation.targets[0]], latest > index else { continue }
+            guard case .answerInvitation(let answer) = operation.change, let key = Self.answerKey(of: operation),
+                  let latest = newest[key], latest > index else { continue }
             let untried = operation.attempts == 0
-            if let carried = takenOver[latest] {
-                takenOver[latest] = (carried.previous, carried.untried && untried)
+            if var carried = takenOver[latest] {
+                for (row, said) in answer.calendar?.previous ?? [:] where carried.rows[row] == nil { carried.rows[row] = said }
+                carried.untried = carried.untried && untried
+                takenOver[latest] = carried
             } else {
-                takenOver[latest] = (answer.previous, untried)
+                takenOver[latest] = (answer.previous, answer.calendar?.previous ?? [:], untried)
             }
             replaced[latest, default: []].append(operation)
         }
@@ -325,6 +341,11 @@ struct OperationRunner: Sendable {
             guard case .answerInvitation(var answer) = operations[latest].change else { continue }
             var survivor = operations[latest]
             answer.previous = carried.previous
+            if var copies = answer.calendar {
+                // A give-up puts back what each row said before this run of changes, not what a dropped answer wrote.
+                for (row, said) in carried.rows { copies.previous[row] = said }
+                answer.calendar = copies
+            }
             survivor.change = .answerInvitation(answer)
             do {
                 try store.updateOperation(survivor)
@@ -378,6 +399,15 @@ struct OperationRunner: Sendable {
 
     private func apply(_ group: [Operation], calls: inout Int) async -> GroupResult {
         guard let change = group.first?.change else { return .applied }
+        // An answer given from the calendar names no message: it is sent once, on the provider's event, as an
+        // unsubscribe is sent with no target. Any other operation with no target (one queued before 1.22) is done.
+        if group.allSatisfy({ $0.targets.isEmpty }) {
+            guard case .answerInvitation(let answer) = change, answer.calendar?.providerEventID != nil else {
+                confirm(group)
+                return .applied
+            }
+            return await applyCalendarAnswer(group, change: change, calls: &calls)
+        }
         var providerIDs: [String] = []
         var seen: Set<String> = []
         for operation in group {
@@ -480,6 +510,33 @@ struct OperationRunner: Sendable {
         // rest: a store that cannot write waits out the write-ahead's backoff instead of being drained again at once.
         guard persisted else { return .deferred(writtenAhead ?? Date()) }
         return .paused
+    }
+
+    /// Sends an answer with no message: one provider call, written ahead as every apply is, its failure recorded as an
+    /// apply's (a gone event is given up at once and its rows put back; a throttle or the network waits).
+    private func applyCalendarAnswer(_ group: [Operation], change: MetadataChange, calls: inout Int) async -> GroupResult {
+        guard calls > 0 else { return .paused }
+        var marked: [Operation] = []
+        for var operation in group {
+            operation.status = .uncertain
+            operation.attempts += 1
+            operation.nextAttemptAt = Date().addingTimeInterval(backoff(for: operation))
+            do {
+                try store.updateOperation(operation)
+            } catch {
+                SyncLog.logger.error("outbox: could not mark an answer in flight: \(String(describing: error), privacy: .private)")
+            }
+            marked.append(operation)
+        }
+        calls -= 1
+        do {
+            try await provider.apply(change, to: [])
+        } catch {
+            return record(error, for: marked)
+        }
+        confirm(marked)
+        SyncLog.logger.debug("outbox: answered an event with no message")
+        return .applied
     }
 
     private func confirm(_ operations: [Operation]) {

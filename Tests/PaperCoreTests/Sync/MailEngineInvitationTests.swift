@@ -398,6 +398,25 @@ final class MailEngineInvitationTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// An answer with no message is never settled by a poll either: with no target, "every target reported" would be
+    /// true of any poll at all.
+    func testAPollNeverSettlesAnAnswerWithNoMessage() async throws {
+        let harness = try await harness { $0.backoffBase = 3000; $0.backoffCap = 3600 }
+        let triedAt = Date().addingTimeInterval(-700)
+        var accepted = try XCTUnwrap(InvitationAnswer(.accepted, to: invitation(), accountEmail: "me@example.com",
+                                                      accountName: nil, previous: nil))
+        accepted.calendar = CalendarCopies(scope: .event(id: "acct|evt"), providerEventID: "evt")
+        let answer = Operation(accountID: Fixtures.accountID, change: .answerInvitation(accepted), targets: [],
+                               createdAt: triedAt, status: .uncertain, attempts: 8, nextAttemptAt: triedAt.addingTimeInterval(3600))
+        try harness.store.updateOperation(answer)
+
+        harness.provider.enqueueChanges(.success(Fixtures.changes(upserts: [Fixtures.message(2)], cursor: "c1")))
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("poll applied") { try harness.store.syncCursor(for: Fixtures.accountID) == "c1" }
+        XCTAssertEqual(try harness.store.pendingOperations(accountID: Fixtures.accountID, limit: 10).map(\.id), [answer.id])
+        await harness.shutdown()
+    }
+
     /// While an answer waits for the permission, perhaps for good, the message's other work still reaches the server:
     /// an archive of several conversations that includes it, a trash, and a read change behind them.
     func testAnAnswerWaitingForPermissionHoldsBackNoOtherChangeToItsMessage() async throws {

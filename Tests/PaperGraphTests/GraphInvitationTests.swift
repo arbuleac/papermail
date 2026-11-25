@@ -323,13 +323,15 @@ final class GraphInvitationTests: GraphTestCase {
         XCTAssertEqual(readOnly, .calendar, "reading the calendar is not answering")
     }
 
-    /// The event's own answer, as `GET /me/events/{id}?$select=responseStatus` returns it.
-    private func eventStatus(_ response: String) -> Reply {
-        .json(#"{"@odata.etag": "W/\"x\"", "id": "AAMkEVENT=", "responseStatus": {"response": "\#(response)", "time": "0001-01-01T00:00:00Z"}}"#)
+    /// The event's own answer, as `GET /me/events/{id}?$select=responseStatus,responseRequested` returns it.
+    private func eventStatus(_ response: String, responseRequested: Bool? = true) -> Reply {
+        let requested = responseRequested.map { #", "responseRequested": \#($0)"# } ?? ""
+        return .json(#"{"@odata.etag": "W/\"x\"", "id": "AAMkEVENT=", "responseStatus": {"response": "\#(response)", "time": "0001-01-01T00:00:00Z"}\#(requested)}"#)
     }
 
-    private func isStatusRead(_ request: Request) -> Bool {
-        request.method == "GET" && request.path == "/v1.0/me/events/AAMkEVENT=" && request.query["$select"] == "responseStatus"
+    private func isStatusRead(_ request: Request, event: String = "AAMkEVENT=") -> Bool {
+        request.method == "GET" && request.path == "/v1.0/me/events/" + event
+            && request.query["$select"] == "responseStatus,responseRequested"
     }
 
     func testEachAnswerIsItsOwnCallOnTheEventAndSendsTheResponse() async throws {
@@ -345,7 +347,7 @@ final class GraphInvitationTests: GraphTestCase {
         XCTAssertEqual(posts.map(\.path), [
             "/v1.0/me/events/AAMkEVENT=/accept", "/v1.0/me/events/AAMkEVENT=/tentativelyAccept", "/v1.0/me/events/AAMkEVENT=/decline",
         ])
-        XCTAssertEqual(requests.filter(isStatusRead).count, 3, "the event's own answer is read before each")
+        XCTAssertEqual(requests.filter { self.isStatusRead($0) }.count, 3, "the event's own answer is read before each")
         for request in posts {
             XCTAssertEqual(request.json()["sendResponse"] as? Bool, true, "Exchange answers the organizer")
             XCTAssertEqual(request.header("Content-Type"), "application/json")
@@ -411,6 +413,51 @@ final class GraphInvitationTests: GraphTestCase {
             return nil
         }
         try await makeProvider().apply(.answerInvitation(answer(.declined)), to: ["M-EV"])
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    /// An organizer who asked for no replies gets none: the answer still lands on the user's calendar, on both routes.
+    func testAnOrganizerWhoAskedForNoRepliesGetsNone() async throws {
+        for requested in [false, true, nil] as [Bool?] {
+            StubURLProtocol.reset()
+            route { request in
+                if self.isStatusRead(request) { return self.eventStatus("notResponded", responseRequested: requested) }
+                if request.method == "POST", request.path == "/v1.0/me/events/AAMkEVENT=/accept" { return .status(202) }
+                return nil
+            }
+            try await makeProvider().apply(.answerInvitation(answer(.accepted)), to: ["M-EV"])
+            let post = try XCTUnwrap(requests.first { $0.method == "POST" })
+            XCTAssertEqual(post.json()["sendResponse"] as? Bool, requested != false, "responseRequested \(String(describing: requested))")
+        }
+    }
+
+    /// An answer given from the calendar names no message: it answers the occurrence, or the series master for All
+    /// Events, by the id it carries.
+    func testAnAnswerFromTheCalendarAnswersTheEventItNames() async throws {
+        for event in ["AAMkOCCURRENCE=", "AAMkMASTER="] {
+            StubURLProtocol.reset()
+            route { request in
+                if self.isStatusRead(request, event: event) { return self.eventStatus("notResponded", responseRequested: false) }
+                if request.method == "POST", request.path == "/v1.0/me/events/\(event)/tentativelyAccept" { return .status(202) }
+                return nil
+            }
+            var queued = answer(.tentative, eventID: nil)
+            queued.calendar = CalendarCopies(scope: .event(id: "acct|x"), providerEventID: event)
+            try await makeProvider().apply(.answerInvitation(queued), to: [])
+            XCTAssertEqual(requests.map(\.path), ["/v1.0/me/events/\(event)", "/v1.0/me/events/\(event)/tentativelyAccept"])
+            XCTAssertEqual(requests.last?.json()["sendResponse"] as? Bool, false)
+        }
+    }
+
+    /// A decline from the calendar of an event Exchange already took off (it removes what a decline answers) is done.
+    func testADeclineFromTheCalendarOfAnEventThatIsGoneIsDone() async throws {
+        route { request in
+            if self.isStatusRead(request, event: "AAMkGONE=") { return .json(Fixtures.notFoundError, status: 404) }
+            return nil
+        }
+        var queued = answer(.declined, eventID: nil)
+        queued.calendar = CalendarCopies(scope: .event(id: "acct|x"), providerEventID: "AAMkGONE=")
+        try await makeProvider().apply(.answerInvitation(queued), to: [])
         XCTAssertEqual(requests.count, 1)
     }
 

@@ -76,6 +76,21 @@ public protocol MailClient: AnyObject {
     /// (`AccountSyncStatus.permissionsNeeded`); once granted, the answer goes out.
     func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws
 
+    /// Answers an event of the calendar from its details (docs/ARCHITECTURE.md, "Calendar invitations" › Answering):
+    /// through `invitationMessage` when that message's invitation names exactly this span and still describes the
+    /// event, otherwise on the calendar with no message (`InvitationAnswer.calendar`). Store first, one transaction,
+    /// queued; never waits on the network. `span` is the user's choice on a repeating event (This Event, All Events);
+    /// a single event is answered as one. Returns the route taken, nil when nothing was queued (every row it covers
+    /// already says this answer). Throws `StoreError.notFound` for an event that is gone and `StoreError.conflict` for
+    /// one that cannot be answered (the user's own, time set aside, a kind, one not on the provider yet).
+    @discardableResult
+    func answerCalendarEvent(_ response: InvitationResponse, eventID: String, span: AnswerSpan,
+                             invitationMessage: MessageID?) throws -> AnswerRoute?
+
+    /// Asks the event's account to read its details (notes, guests, the call's numbers) when the stored ones are
+    /// missing, stale or older than ten minutes. Returns at once; what it reads lands in the store.
+    func readCalendarEventDetails(eventID: String)
+
     /// Queue a send held for `undoWindow` seconds. Returns the pending send id.
     func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String
     /// True when the send was still held (in its undo window, or waiting for its Send Later time) and is now cancelled.
@@ -167,6 +182,14 @@ public protocol MailClient: AnyObject {
 }
 
 extension MailClient {
+    @discardableResult
+    public func answerCalendarEvent(_ response: InvitationResponse, eventID: String, span: AnswerSpan,
+                                    invitationMessage: MessageID?) throws -> AnswerRoute? {
+        throw StoreError.notFound
+    }
+
+    public func readCalendarEventDetails(eventID: String) {}
+
     public func addCalendarEvent(_ event: CalendarEvent) throws {
         try store.addCalendarEvent(event)
     }
