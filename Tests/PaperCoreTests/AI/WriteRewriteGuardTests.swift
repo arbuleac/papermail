@@ -40,6 +40,36 @@ final class WriteRewriteGuardTests: XCTestCase {
                        "the selection began with them")
     }
 
+    /// Words that match the draft beside the part across a sentence's end may play another part in the answer: they are
+    /// its words, not an echo.
+    func testWordsThatMatchAcrossASentencesEndAreKept() {
+        let named = WriteRewriteFrame(lead: "I spoke to John Smith. ", selection: "He said yes.")
+        XCTAssertEqual(WriteRewriteAnswer.stripEchoes("John Smith said yes.", frame: named), "John Smith said yes.",
+                       "“use his name”: the name begins the part, after the sentence that ended in it")
+        let asked = WriteRewriteFrame(selection: "Ask him.", gapAfter: " ", trail: "Ben Lee knows the venue.")
+        XCTAssertEqual(WriteRewriteAnswer.stripEchoes("Ask Ben Lee.", frame: asked), "Ask Ben Lee.",
+                       "the name ends the part, before the sentence that begins with it")
+        let line = WriteRewriteFrame(lead: "Best wishes to Ana Ruiz\n", selection: "and to the team")
+        XCTAssertEqual(WriteRewriteAnswer.stripEchoes("Ana Ruiz and the team", frame: line), "Ana Ruiz and the team",
+                       "a line break ends what is before as a sentence's end does")
+    }
+
+    func testARestatedSentenceBesideThePartIsStillTakenOff() {
+        let before = WriteRewriteFrame(lead: "Thanks for the notes. I checked the venue. ", selection: "it are big.")
+        XCTAssertEqual(WriteRewriteAnswer.stripEchoes("I checked the venue. It is big.", frame: before), "It is big.",
+                       "the words begin a sentence before the part")
+        let named = WriteRewriteFrame(lead: "I spoke to John Smith. ", selection: "He said yes.")
+        XCTAssertEqual(WriteRewriteAnswer.stripEchoes("John Smith. He said yes, he'll come.", frame: named),
+                       "He said yes, he'll come.", "the answer ends the sentence after them, as the draft does")
+        let after = WriteRewriteFrame(selection: "it are big.", gapAfter: " ", trail: "The garden is too. Thanks.")
+        XCTAssertEqual(WriteRewriteAnswer.stripEchoes("It is big. The garden is too.", frame: after), "It is big.",
+                       "the words end a sentence after the part")
+        let asked = WriteRewriteFrame(selection: "Ask him.", gapAfter: " ", trail: "Ben Lee knows the venue.")
+        XCTAssertEqual(WriteRewriteAnswer.stripEchoes("Ask him. Ben Lee knows", frame: asked), "Ask him.",
+                       "the answer begins a sentence with them, as the draft does")
+        XCTAssertNil(WriteRewriteAnswer.stripEchoes("Ben Lee knows the venue.", frame: asked), "all of the text after")
+    }
+
     private let long = WriteRewriteFrame(
         lead: "We met on Monday to go over the plan for the spring offsite, and everyone agreed that the venue by the "
             + "river is the best choice for the whole team this year. ", selection: "we can has the garden",

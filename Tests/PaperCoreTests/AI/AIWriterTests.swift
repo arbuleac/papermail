@@ -517,6 +517,24 @@ final class AIWriterTests: XCTestCase {
         XCTAssertTrue(stripped.replacedText)
     }
 
+    /// A seam line whose markers the model wrote wrongly holds the request's code, which nothing it was given holds:
+    /// it never lands in the draft, and counts as a seam line that did not pass.
+    func testAMiswrittenSeamLineNeverReachesTheDraft() async {
+        joins = []
+        let written = await write([.text("Priya and Ben\n<<<AFTER 1a2b3c4d>>are coming tomorrow<<<END AFTER 1a2b3c4d>>"),
+                                   .finished(.done)], as: rewriting(john))
+        XCTAssertNil(written.error)
+        XCTAssertEqual(written.text, "Priya and Ben\n")
+        XCTAssertFalse(written.text.contains("1a2b3c4d"))
+        neverShowsAMarker(written)
+        XCTAssertEqual(joins, [nil, .refused], "a seam line came, and none passed")
+        for spaced in ["<<< AFTER 1a2b3c4d >>>are coming<<< END AFTER 1a2b3c4d >>>", "<<<AFTER: 1A2B3C4D>>>are coming"] {
+            let deltas = await write(Array(spaced).map { .text(String($0)) } + [.finished(.done)], as: rewriting(john))
+            XCTAssertEqual(deltas.error, .emptyReply, "a miswritten seam line alone is nothing written: \(spaced)")
+            neverShowsAMarker(deltas)
+        }
+    }
+
     func testAProvidersOwnJoinIsDropped() async {
         let written = await write([.join(WriteJoin(before: "x")), .text("Priya and Ben"), .finished(.done)], as: rewriting(john))
         XCTAssertEqual(written.events, [.text("Priya and Ben"), .finished(.done)])

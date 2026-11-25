@@ -109,7 +109,7 @@ public enum WriteRewriteAnswer {
                             proposed.insert(side)
                             proposals[side] = words
                         }
-                        position = next.end
+                        position = Self.endOfSeamLine(in: bytes, from: next.end, limit: limit, kept: kept)
                         at += 2
                         continue reading
                     }
@@ -127,7 +127,7 @@ public enum WriteRewriteAnswer {
                     break reading
                 }
                 malformed = true
-                position = lineEnd
+                position = Self.endOfSeamLine(in: bytes, from: lineEnd, limit: limit, kept: kept)
                 at += 1
                 while at < markers.count, markers[at].start < lineEnd { at += 1 }
             case .selection:
@@ -153,7 +153,14 @@ public enum WriteRewriteAnswer {
                 part = kept[open...]
             }
         }
+        let cut = cuttingMiswrittenMarkers(Array(part), code: code)
+        part = cut.bytes[...]
+        if cut.found { malformed = true }
         if !final {
+            // A “<<<” on the line still coming may be a marker written wrongly, whose code has not come yet: it shows
+            // once its line ends, or at the end.
+            let lineStart = (part.lastIndex(where: isLineBreak) ?? part.startIndex - 1) + 1
+            if let open = firstIndex(of: markerOpening, in: part, from: lineStart) { part = part[..<open] }
             // A line break the part ends on may be the one before a seam line: it shows once more comes after it, and
             // the session trims the part's ends at landing anyway.
             while let last = part.last, last == lineFeed || last == carriageReturn { part = part.dropLast() }
@@ -162,37 +169,166 @@ public enum WriteRewriteAnswer {
                      proposed: proposed, conflicted: conflicted, malformed: malformed)
     }
 
+    /// Where reading goes on after a seam block ending at `end` (or a malformed seam line, whose rest of the line goes,
+    /// ending at its line break). A block that stands on a line of its own (nothing but blanks before it on its line, in
+    /// what is `kept`, and after it up to its line break) takes the rest of that line and its line break with it, so a
+    /// seam line the model wrote first leaves the part to start on its own first line, in place, as it streams.
+    /// Otherwise `end`.
+    private static func endOfSeamLine(in bytes: [UInt8], from end: Int, limit: Int, kept: [UInt8]) -> Int {
+        let lineStart = (kept.lastIndex(where: isLineBreak) ?? -1) + 1
+        guard kept[lineStart...].allSatisfy({ $0 == space || $0 == tab }) else { return end }
+        var index = end
+        while index < limit, bytes[index] == space || bytes[index] == tab { index += 1 }
+        guard index < limit else { return index }
+        if bytes[index] == carriageReturn {
+            index += 1
+            if index < limit, bytes[index] == lineFeed { index += 1 }
+            return index
+        }
+        return bytes[index] == lineFeed ? index + 1 : end
+    }
+
+    /// `part` without the markers the model wrote wrongly (“<<<AFTER code>>” with two “>”, “<<< AFTER code >>>”,
+    /// “<<<AFTER: code>>>”), which `parseMarker` does not take for markers. The request's code comes only in its markers:
+    /// every piece of the request was stripped of it, so text that holds it is a marker. From the run of “<” before the
+    /// code on its line (or the line's start when there is none) to the line's end goes; a line that held nothing else
+    /// goes with its line break. `found` says that one was cut: a seam line that was malformed.
+    static func cuttingMiswrittenMarkers(_ part: [UInt8], code: [UInt8]) -> (bytes: [UInt8], found: Bool) {
+        guard !code.isEmpty else { return (part, false) }
+        var bytes = part
+        var found = false
+        var from = 0
+        while let at = firstIndex(ofCaseless: code, in: bytes, from: from) {
+            found = true
+            var lineStart = at
+            while lineStart > 0, !isLineBreak(bytes[lineStart - 1]) { lineStart -= 1 }
+            var lineEnd = at + code.count
+            while lineEnd < bytes.count, !isLineBreak(bytes[lineEnd]) { lineEnd += 1 }
+            var start = lineStart
+            if let less = bytes[lineStart..<at].lastIndex(of: lessThan) {
+                start = less
+                while start > lineStart, bytes[start - 1] == lessThan { start -= 1 }
+            }
+            if bytes[lineStart..<start].allSatisfy({ $0 == space || $0 == tab }) {
+                start = lineStart
+                if lineEnd < bytes.count {
+                    let crlf = bytes[lineEnd] == carriageReturn && lineEnd + 1 < bytes.count && bytes[lineEnd + 1] == lineFeed
+                    lineEnd += crlf ? 2 : 1
+                }
+            }
+            bytes.removeSubrange(start..<lineEnd)
+            from = start
+        }
+        return (bytes, found)
+    }
+
+    /// The first place from `from` where `word` (lowercase ASCII) stands in `bytes`, in any letter case.
+    private static func firstIndex(ofCaseless word: [UInt8], in bytes: [UInt8], from: Int) -> Int? {
+        guard word.count <= bytes.count else { return nil }
+        var index = from
+        while index + word.count <= bytes.count {
+            if match(word, in: bytes, at: index) == true { return index }
+            index += 1
+        }
+        return nil
+    }
+
+    /// The first place from `from` where `run` stands in `bytes`.
+    private static func firstIndex(of run: [UInt8], in bytes: ArraySlice<UInt8>, from: Int) -> Int? {
+        var index = from
+        while index + run.count <= bytes.endIndex {
+            if bytes[index..<(index + run.count)].elementsEqual(run) { return index }
+            index += 1
+        }
+        return nil
+    }
+
     // MARK: Guards
 
     /// `part` without the draft it restates at either end: where its first words are the last words sent before the
     /// selection (two or more), or its last words the first sent after it, those words go, with the punctuation and
-    /// blanks that join them to the rest. A whole draft given back with the rewrite in place comes back to the part.
-    /// Words the selection itself begins or ends with are its own, never an echo. Nil when nothing but blanks would be
-    /// left: the answer was the draft.
+    /// blanks that join them to the rest (but for the mark that ends a sentence the selection ended). A whole draft
+    /// given back with the rewrite in place comes back to the part. Words the selection itself begins or ends with are
+    /// its own, never an echo. Nil when nothing but blanks would be left: the answer was the draft.
+    ///
+    /// Words that match across a sentence's end may play another part there: in “I spoke to John Smith. [He said
+    /// yes.]”, the answer “John Smith said yes.” names him, and restates nothing. So at the start, matching words are an
+    /// echo only where the selection carries on the sentence before it (no sentence end or line break between the last
+    /// word before it and its first word), where they begin a sentence or a line of the text before, where they are all
+    /// of the text before, or where the answer ends a sentence after them as the text before does (“the whole team. We
+    /// can have …”); the end mirrors it.
     public static func stripEchoes(_ part: String, frame: WriteRewriteFrame) -> String? {
         var ids = TokenIDs()
         let tokens = Self.tokens(of: part)
         guard !tokens.isEmpty else { return part }
         let partIDs = tokens.map { ids.id($0.word) }
-        let before = Self.tokens(of: frame.sentBefore).map { ids.id($0.word) }
-        let after = Self.tokens(of: frame.sentAfter).map { ids.id($0.word) }
-        let selection = Self.tokens(of: frame.selection).map { ids.id($0.word) }
+        let sentBefore = frame.sentBefore
+        let sentAfter = frame.sentAfter
+        let beforeTokens = Self.tokens(of: sentBefore)
+        let afterTokens = Self.tokens(of: sentAfter)
+        let selectionTokens = Self.tokens(of: frame.selection)
+        let before = beforeTokens.map { ids.id($0.word) }
+        let after = afterTokens.map { ids.id($0.word) }
+        let selection = selectionTokens.map { ids.id($0.word) }
+
+        // What lies between the last word before the selection and its first, and between its last and the first after.
+        let joinBefore = String(sentBefore[(beforeTokens.last?.range.upperBound ?? sentBefore.startIndex)...])
+            + frame.selection[..<(selectionTokens.first?.range.lowerBound ?? frame.selection.endIndex)]
+        let joinAfter = String(frame.selection[(selectionTokens.last?.range.upperBound ?? frame.selection.startIndex)...])
+            + sentAfter[..<(afterTokens.first?.range.lowerBound ?? sentAfter.endIndex)]
+        let continuesBefore = !holdsSentenceBoundary(joinBefore)
+        let continuesAfter = !holdsSentenceBoundary(joinAfter)
 
         var first = 0
-        if let k = longestEcho(prefixOf: partIDs[...], suffixOf: before, own: selection[...]) { first = k }
+        if let k = longestEcho(prefixOf: partIDs[...], suffixOf: before, own: selection[...], allowed: { k in
+            // The echo is the last k words before: they begin a sentence or a line there, are all of them, or end a
+            // sentence in the answer as they do there.
+            let start = before.count - k
+            let next = k < tokens.count ? tokens[k].range.lowerBound : part.endIndex
+            return continuesBefore || start == 0
+                || holdsSentenceBoundary(sentBefore[beforeTokens[start - 1].range.upperBound..<beforeTokens[start].range.lowerBound])
+                || holdsSentenceBoundary(part[tokens[k - 1].range.upperBound..<next])
+        }) {
+            first = k
+        }
         var last = tokens.count
         if first < tokens.count,
            let k = longestEcho(prefixOf: ArraySlice(partIDs[first...].reversed()), suffixOf: Array(after.reversed()),
-                               own: ArraySlice(selection.reversed())) {
+                               own: ArraySlice(selection.reversed()), allowed: { k in
+                                   // The echo is the first k words after: they end a sentence or a line there, are all
+                                   // of them, or begin a sentence in the answer as they do there.
+                                   let echoStart = tokens.count - k
+                                   let previous = echoStart > 0 ? tokens[echoStart - 1].range.upperBound : part.startIndex
+                                   return continuesAfter || k == after.count
+                                       || holdsSentenceBoundary(sentAfter[afterTokens[k - 1].range.upperBound..<afterTokens[k].range.lowerBound])
+                                       || holdsSentenceBoundary(part[previous..<tokens[echoStart].range.lowerBound])
+                               }) {
             last = tokens.count - k
         }
         guard first < last else { return nil }
         let start = first == 0 ? part.startIndex : tokens[first].range.lowerBound
-        let end = last == tokens.count ? part.endIndex : tokens[last - 1].range.upperBound
+        var end = last == tokens.count ? part.endIndex : tokens[last - 1].range.upperBound
+        if last < tokens.count {
+            // A selection that ended a sentence keeps its end: “It is big. The garden is too.” is “It is big.”, while
+            // “too, so the March dates work.” is “too”, the comma being the text after's.
+            let mark = part[end..<tokens[last].range.lowerBound].prefix { !$0.isWhitespace }
+            let selectionEnd = frame.selection[(selectionTokens.last?.range.upperBound ?? frame.selection.startIndex)...]
+            if holdsSentenceBoundary(selectionEnd), holdsSentenceBoundary(mark) { end = mark.endIndex }
+        }
         let kept = part[start..<end]
         guard kept.contains(where: { !$0.isWhitespace }) else { return nil }
         return String(kept)
     }
+
+    /// Whether `text`, what lies between two words, ends a sentence or a line.
+    static func holdsSentenceBoundary<S: StringProtocol>(_ text: S) -> Bool {
+        text.unicodeScalars.contains { sentenceBoundaries.contains($0) }
+    }
+
+    private static let sentenceBoundaries: Set<Unicode.Scalar> = [
+        ".", "!", "?", "\u{2026}", "\u{3002}", "\u{FF01}", "\u{FF1F}",
+        "\n", "\r", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}",
+    ]
 
     /// The fewest consecutive words of the draft an answer may repeat before it is taken for a copy of it.
     public static let repeatRun = 12
@@ -261,10 +397,11 @@ public enum WriteRewriteAnswer {
         return grams
     }
 
-    /// The largest k ≥ 2 such that the first k words of `pattern` are the last k of `text`, and are not also the first
-    /// k words of `own`; nil when there is none. Linear: the longest such overlap is the state a Knuth–Morris–Pratt
-    /// match of `pattern` ends `text` in, and every shorter one is a border of it.
-    static func longestEcho(prefixOf pattern: ArraySlice<Int>, suffixOf text: [Int], own: ArraySlice<Int>) -> Int? {
+    /// The largest k ≥ 2 such that the first k words of `pattern` are the last k of `text`, are not also the first k
+    /// words of `own`, and are `allowed`; nil when there is none. Linear: the longest such overlap is the state a
+    /// Knuth–Morris–Pratt match of `pattern` ends `text` in, and every shorter one is a border of it.
+    static func longestEcho(prefixOf pattern: ArraySlice<Int>, suffixOf text: [Int], own: ArraySlice<Int>,
+                            allowed: (Int) -> Bool = { _ in true }) -> Int? {
         let pattern = Array(pattern)
         let own = Array(own)
         guard pattern.count >= 2, text.count >= 2 else { return nil }
@@ -284,7 +421,7 @@ public enum WriteRewriteAnswer {
         var k = state
         while k >= 2 {
             let isOwn = k <= own.count && own[0..<k] == pattern[0..<k]
-            if !isOwn { return k }
+            if !isOwn, allowed(k) { return k }
             k = failure[k - 1]
         }
         return nil
@@ -324,6 +461,8 @@ public enum WriteRewriteAnswer {
     }
 
     private static let lessThan = UInt8(ascii: "<")
+    private static let markerOpening = Array("<<<".utf8)
+    private static let tab = UInt8(ascii: "\t")
     private static let greaterThan = UInt8(ascii: ">")
     private static let space = UInt8(ascii: " ")
     private static let lineFeed = UInt8(ascii: "\n")
@@ -402,6 +541,10 @@ public enum WriteRewriteAnswer {
             at += 1
         }
         return nil
+    }
+
+    private static func isLineBreak(_ byte: UInt8) -> Bool {
+        byte == lineFeed || byte == carriageReturn
     }
 
     private static func isASCIIBlank(_ byte: UInt8) -> Bool {
