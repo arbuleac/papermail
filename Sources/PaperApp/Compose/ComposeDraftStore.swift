@@ -238,7 +238,7 @@ final class ComposeDraftStore {
             attachments: attachments, quoted: draft.quoted, threading: draft.threading, editedAt: Date(),
             sendFailure: draft.sendFailure, preview: ComposeDraftRecord.preview(of: draft.body.string),
             continuesDraft: draft.continuesDraft, images: images.isEmpty ? nil : images,
-            bodyIsAsSent: draft.bodyIsAsSent ? true : nil)
+            bodyIsAsSent: draft.bodyIsAsSent ? true : nil, filledInBodyDigest: draft.filledInDigest)
         return Package(record: record, body: archive(ComposeInlineImages.detached(draft.body)), parts: parts)
     }
 
@@ -292,7 +292,8 @@ final class ComposeDraftStore {
             id: record.id, mode: Self.mode(record.kind, original: record.originalMessageID), account: account,
             to: record.to, cc: record.cc, bcc: record.bcc, subject: record.subject,
             body: body, attachments: attachments, quoted: record.quoted, threading: record.threading,
-            sendFailure: record.sendFailure, continuesDraft: record.continuesDraft, bodyIsAsSent: record.bodyIsAsSent ?? false)
+            sendFailure: record.sendFailure, continuesDraft: record.continuesDraft, bodyIsAsSent: record.bodyIsAsSent ?? false,
+            filledInDigest: record.filledInBodyDigest)
         return (draft, record.editedAt)
     }
 

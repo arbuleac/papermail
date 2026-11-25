@@ -38,9 +38,10 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// The body is a Send Later message's text as it would have gone (`ComposeDraft.bodyIsAsSent`): what the user
     /// wrote, the quoted original and the signature as one unmarked text.
     private(set) var bodyIsAsSent = false
-    /// A mail link or a Service put text into the body (§5.20): until the user changes it, someone else may have
-    /// written it (`bodyIsUntouchedPrefill`).
-    private var bodyWasFilledIn = false
+    /// A mail link or a Service put text into the body (§5.20): the digest of that text (`ComposeDraft.filledInDigest`).
+    /// Until the user changes it, someone else may have written it (`bodyIsUntouchedPrefill`). Kept with the draft, so
+    /// a window reopened on it (a kept draft, Undo Send, a failed send) knows it too.
+    private var filledInDigest: String?
 
     /// The account the message is sent from.
     var accountID: AccountID { account.id }
@@ -924,7 +925,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             threading: threading,
             sendFailure: sendFailure,
             continuesDraft: continuesDraft,
-            bodyIsAsSent: bodyIsAsSent
+            bodyIsAsSent: bodyIsAsSent,
+            filledInDigest: filledInDigest
         )
     }
 
@@ -932,6 +934,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         draftID = draft.id
         continuesDraft = draft.continuesDraft
         bodyIsAsSent = draft.bodyIsAsSent
+        filledInDigest = draft.filledInDigest
         // The draft remembers the From the user chose, which `init` replaced with the original's owner.
         account = draft.account
         selectAccountInFromPopup()
@@ -968,7 +971,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         subjectField.stringValue = link.subject
         subjectField.updateFont()
         let bodyEnd = startBody(typed: link.body.isEmpty ? nil : ComposeTextView.plainBody(link.body))
-        bodyWasFilledIn = !link.body.isEmpty
+        filledInDigest = link.body.isEmpty ? nil : ComposeDraft.typedTextDigest(of: textView.attributedString())
         baseline = currentDraft().fingerprint
         updateTitle()
         updateSendEnabled()
@@ -981,7 +984,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         switch service {
         case .selection(let text):
             startBody(typed: text.isEmpty ? nil : ComposeTextView.plainBody(text))
-            bodyWasFilledIn = !text.isEmpty
+            filledInDigest = text.isEmpty ? nil : ComposeDraft.typedTextDigest(of: textView.attributedString())
         case .files(let urls):
             startBody(typed: nil)
             attach(urls)
@@ -1134,12 +1137,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     /// The body is still exactly the text a mail link or a Service filled in: someone else may have written it, so
     /// what is sent of it goes through the redactor as mail does. Once the user changes the body it is theirs. Only the
-    /// body is compared: a recipient added to a link's message does not make its text the user's.
+    /// body is compared: a recipient added to a link's message does not make its text the user's. Compared by the
+    /// digest the draft keeps, so it holds in a window reopened on the draft too; a fill puts no picture in the body,
+    /// so a body with one is the user's.
     var bodyIsUntouchedPrefill: Bool {
-        guard bodyWasFilledIn else { return false }
+        guard let filledInDigest else { return false }
         let body = textView.attributedString()
-        return ComposeSignature.typedText(of: body) == baseline.bodyText
-            && ComposeInlineImages.pictures(in: body).map(\.inlineImage.contentID) == baseline.pictureIDs
+        return ComposeInlineImages.pictures(in: body).isEmpty && ComposeDraft.typedTextDigest(of: body) == filledInDigest
     }
 
     /// Whether a draft written here may bring a subject with it: a new message whose body is the user's own to write

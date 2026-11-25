@@ -109,6 +109,12 @@ final class HelpMeWriteComposeTests: XCTestCase {
         return composer
     }
 
+    private func addressFields(in view: NSView?) -> [AddressTokenField] {
+        guard let view else { return [] }
+        if let field = view as? AddressTokenField { return [field] }
+        return view.subviews.flatMap { addressFields(in: $0) }
+    }
+
     /// The body's session with the keyboard in the body, its marks drawn as in the key window (the test window never is).
     private func session(_ composer: ComposeWindowController) throws -> WriteSession {
         composer.window?.makeFirstResponder(composer.bodyEditor)
@@ -1182,6 +1188,54 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertTrue(script.requests[3].transcript.contains("Subject: Invoice for"))
         XCTAssertFalse(script.requests[3].userTurn.contains("ada@example.test"), "and travels redacted")
         XCTAssertEqual(subjected.subjectText, "Invoice for ada@example.test")
+    }
+
+    /// The filled-in fact goes with the draft: a link's body kept as a draft and reopened (Continue Editing, as Undo
+    /// Send and a failed send reopen one) is still redacted while it is exactly what the link filled in, and still asks
+    /// for no subject; one character changed makes it the user's. The draft keeps a digest of the text, not the text.
+    func testABodyFilledInByALinkStaysRedactedWhenItsDraftIsReopened() throws {
+        let (harness, script) = try harness(reply: lunch)
+        defer { harness.close() }
+        let accounts = harness.controller.accounts
+        let filled = "Call me back at ada@example.test about the invoice."
+        let composer = newMessage(harness, link: MailtoLink(to: [priya], body: filled))
+        let digest = try XCTUnwrap(composer.contents.filledInDigest)
+        XCTAssertEqual(digest.count, 64, "SHA-256 in hex")
+        XCTAssertFalse(digest.contains("invoice"))
+        // A recipient added (the body untouched) makes the window worth keeping; closing keeps it.
+        let to = try XCTUnwrap(addressFields(in: composer.window?.contentView).first { $0.addresses == [priya] })
+        to.addresses = [priya, EmailAddress(name: "Ben Carter", address: "ben@example.test")]
+        let id = composer.draftID
+        try XCTUnwrap(composer.window).performClose(nil)
+        ComposeDraftStore.shared.waitForWrites()
+        let kept = try XCTUnwrap(ComposeDraftStore.shared.draft(id: id, accounts: accounts), "kept")
+        XCTAssertEqual(kept.filledInDigest, digest)
+
+        XCTAssertTrue(ComposeWindowController.reopenKeptDraft(id: id, client: harness.environment.engine, accounts: accounts))
+        let reopened = try XCTUnwrap(ComposeWindowRegistry.shared.openControllers.first { $0.draftID == id })
+        XCTAssertEqual(reopened.bodyText.hasPrefix(filled), true)
+        XCTAssertTrue(reopened.bodyIsUntouchedPrefill, "still exactly what the link filled in")
+        let session = try session(reopened)
+        commandJ(reopened)
+        until({ session.phase == .written })
+        let first = try XCTUnwrap(script.requests.last)
+        XCTAssertFalse(first.userTurn.contains("ada@example.test"), "an address someone else wrote is still not sent")
+        XCTAssertTrue(first.task.contains("about the invoice"))
+        XCTAssertFalse(first.wantsSubject, "and no subject is asked for")
+        XCTAssertEqual(reopened.subjectText, "")
+
+        // Undo brings the link's text back, still redacted; one character changed makes it the user's.
+        reopened.window?.undoManager?.undo()
+        XCTAssertTrue(reopened.bodyText.hasPrefix(filled))
+        XCTAssertTrue(reopened.bodyIsUntouchedPrefill)
+        reopened.bodyEditor.insertText("!", replacementRange: NSRange(location: (filled as NSString).length - 1, length: 1))
+        XCTAssertFalse(reopened.bodyIsUntouchedPrefill)
+        let sentBefore = script.requests.count
+        commandJ(reopened)
+        until({ script.requests.count == sentBefore + 1 && session.phase == .written })
+        let edited = try XCTUnwrap(script.requests.last)
+        XCTAssertTrue(edited.task.contains("ada@example.test"), "the user's own text goes as typed")
+        XCTAssertTrue(edited.wantsSubject)
     }
 
     // MARK: What is sent

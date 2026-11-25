@@ -75,4 +75,18 @@ final class LocalDraftConversationTests: XCTestCase {
         rebuilt.bodyIsAsSent = true
         XCTAssertEqual(try ComposeDraftRecord.decode(try rebuilt.encoded()).bodyIsAsSent, true)
     }
+
+    /// A body a mail link or a Service filled in is kept as the digest of that text, never a second copy of it; a body
+    /// the user began writes no such key, and a record written before it was kept decodes without one.
+    func testTheRecordKeepsOnlyTheDigestOfAFilledInBody() throws {
+        var filled = record()
+        XCTAssertNil(filled.filledInBodyDigest)
+        let plain = try JSONSerialization.jsonObject(with: try filled.encoded()) as? [String: Any] ?? [:]
+        XCTAssertNil(plain["filledInBodyDigest"], "a body the user began writes no such key")
+        XCTAssertNil(try ComposeDraftRecord.decode(try JSONSerialization.data(withJSONObject: plain)).filledInBodyDigest,
+                     "and an older record decodes")
+        let digest = String(repeating: "ab", count: 32)
+        filled.filledInBodyDigest = digest
+        XCTAssertEqual(try ComposeDraftRecord.decode(try filled.encoded()).filledInBodyDigest, digest)
+    }
 }
