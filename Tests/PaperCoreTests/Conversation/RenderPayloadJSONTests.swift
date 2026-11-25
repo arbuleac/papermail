@@ -129,12 +129,26 @@ final class RenderPayloadJSONTests: XCTestCase {
         XCTAssertTrue(ConversationShellAssets.js.contains("window.webkit"))
         XCTAssertEqual(ConversationShellAssets.baseURL?.scheme, "ss-shell")
         XCTAssertEqual(ConversationShellAssets.baseURL?.host, "local")
-        XCTAssertTrue(ConversationShellAssets.js.contains("sandbox', 'allow-same-origin'"))
+        XCTAssertTrue(ConversationShellAssets.js.contains("var SS_BODY_SANDBOX = \"allow-same-origin allow-popups\";"))
+        XCTAssertTrue(ConversationShellAssets.js.contains("iframe.setAttribute('sandbox', SS_BODY_SANDBOX)"))
         XCTAssertTrue(ConversationShellAssets.css.hasPrefix(QuireCSS.head), "the Quire head comes first (spec §8.4)")
         XCTAssertTrue(ConversationShellAssets.css.contains("--ss-card: var(--q-sheet)"), "old variable names map onto Quire")
         XCTAssertTrue(ConversationShellAssets.bodyCSS.contains(".ss-quote { display: none; }"))
         let withSymbols = ConversationShellAssets.document(symbolCSS: ":root{--sym-star:url(data:x)}")
         XCTAssertTrue(withSymbols.contains(":root{--sym-star:url(data:x)}"))
+    }
+
+    /// A body frame keeps the shell's origin, so the shell can measure it, and allows popups, so a click on a link with a
+    /// target, or on a `mailto:` or `tel:` link, reaches the navigation policy instead of being dropped by WebKit
+    /// (`ReaderLinkClickTests`). Nothing else: no script runs in a body, a body never navigates the shell, and no window
+    /// is ever made that could leave the sandbox.
+    func testABodyFrameAllowsItsOriginAndPopupsAndNothingElse() {
+        // Exactly these: never `allow-scripts`, `allow-top-navigation…`, `allow-popups-to-escape-sandbox` or `allow-forms`.
+        XCTAssertEqual(ConversationShellAssets.bodyFrameSandbox.split(separator: " "), ["allow-same-origin", "allow-popups"])
+        let creates = ConversationShellAssets.js.components(separatedBy: "createElement('iframe')").count - 1
+        let sandboxes = ConversationShellAssets.js.components(separatedBy: "setAttribute('sandbox', SS_BODY_SANDBOX)").count - 1
+        XCTAssertEqual(creates, 1, "one place makes a body frame")
+        XCTAssertEqual(sandboxes, 1, "and sandboxes it so")
     }
 
     /// Spec §8.4: no hex colour is written by hand in the shell; every colour comes from a Quire variable.

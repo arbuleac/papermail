@@ -92,7 +92,7 @@ final class TrackerContentRulesTests: XCTestCase {
             var done = false
             // In a sandboxed srcdoc frame, as the reader puts every body.
             webView.evaluateJavaScript("""
-                (function () { var f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-same-origin');
+                (function () { var f = document.createElement('iframe'); f.setAttribute('sandbox', '\(ConversationShellAssets.bodyFrameSandbox)');
                 f.srcdoc = "\(tags)"; document.body.appendChild(f); return true; })()
                 """) { _, _ in done = true }
             ListTestSupport.spin(until: { done }, timeout: 5)

@@ -8,6 +8,10 @@ import WebKit
 /// `srcdoc` body frames are allowed, link clicks go to the app that opens them (the browser, the composer, FaceTime for a
 /// phone number), an in-message anchor scrolls the page to its place, and everything else is cancelled. A link a click does
 /// nothing with (`#`, an inline picture's `ss-cid:`) shows no pointing hand (`ConversationShellAssets.bodyCSS`).
+///
+/// A click on a link with a `target` (`_blank`, a name, `_top`, `_parent`) in a body arrives as a request for a new window,
+/// with no target frame, since the body frames allow popups and nothing else (`ConversationShellAssets.bodyFrameSandbox`);
+/// it is decided as a body's own link, so it opens or scrolls and is cancelled before WebKit would ask for a web view.
 @MainActor
 final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDelegate {
     enum Decision: Equatable {
@@ -69,6 +73,8 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         let url = navigationAction.request.url
+        // No target frame: a body's link with a target, asking for a new window. It is a body's link like any other,
+        // never the shell's own navigation.
         let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? false
         switch Self.decision(for: url, navigationType: navigationAction.navigationType, isMainFrame: isMainFrame) {
         case .allow:
@@ -90,7 +96,8 @@ final class ConversationNavigationPolicy: NSObject, WKNavigationDelegate, WKUIDe
 
     // MARK: WKUIDelegate
 
-    /// `target="_blank"` links ask for a new web view; there is never one, so they go to the browser.
+    /// A click on a body's link with a target never comes here: `decidePolicyFor` opens it and cancels the request for a
+    /// new window. Anything else that asks for a web view gets none, and its link goes where a click would send it.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
