@@ -336,6 +336,8 @@ final class HelpMeWriteRewriteTests: XCTestCase {
         let font = try XCTUnwrap(storage.attribute(.font, at: here.location, effectiveRange: nil) as? NSFont)
         storage.addAttribute(.font, value: NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask), range: here)
         editor.setSelectedRange((editor.string as NSString).range(of: "John"))
+        // Slow enough that the part streams into the text before it lands, where the after window's style was.
+        script.delay = .milliseconds(30)
         composer.helpMeWrite(nil)
         let session = try XCTUnwrap(composer.writeSession)
         until({ session.phase == .written })
@@ -348,6 +350,8 @@ final class HelpMeWriteRewriteTests: XCTestCase {
         let landed = (editor.string as NSString).range(of: "are here")
         let landedFont = try XCTUnwrap(storage.attribute(.font, at: landed.location, effectiveRange: nil) as? NSFont)
         XCTAssertTrue(NSFontManager.shared.traits(of: landedFont).contains(.boldFontMask), "the window's new words keep its bold")
+        XCTAssertNotEqual(storage.attribute(.foregroundColor, at: landed.location, effectiveRange: nil) as? NSColor, WriteStreamEdit.pencilInk,
+                          "and its ink: the style read before the part streamed in, never the pencil's")
         let part = try XCTUnwrap(storage.attribute(.font, at: (editor.string as NSString).range(of: "Priya").location,
                                                    effectiveRange: nil) as? NSFont)
         XCTAssertFalse(NSFontManager.shared.traits(of: part).contains(.boldFontMask), "and the part keeps the selection's")

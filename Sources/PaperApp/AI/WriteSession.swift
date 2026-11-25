@@ -100,7 +100,7 @@ final class WriteSession {
     private var running: Running?
 
     /// The gaps and windows beside a selection whose rewrite sent the draft around it (`WriteAsk.Around`), in the
-    /// field's text as it was asked, with each window's words.
+    /// field's text as it was asked, with each window's words and style.
     struct SeamRanges {
         var gapBefore: NSRange
         var before: NSRange
@@ -108,6 +108,10 @@ final class WriteSession {
         var gapAfter: NSRange
         var after: NSRange
         var afterText: String
+        /// Each window's own style, read as the write starts: once the part streams in, the field's text there is the
+        /// stream's, in pencil, until the edit puts it back at landing.
+        var beforeAttributes: [NSAttributedString.Key: Any] = [:]
+        var afterAttributes: [NSAttributedString.Key: Any] = [:]
 
         /// Nil for a rewrite that sent the selection alone, or for anything else.
         init?(core: NSRange, around: WriteAsk.Around?) {
@@ -127,14 +131,22 @@ final class WriteSession {
             self.afterText = afterText.substring(with: NSRange(location: around.afterGap, length: around.afterWindow))
         }
 
+        /// The windows' styles, read from `field` before anything streams into it.
+        @MainActor mutating func readStyle(of field: WriteField) {
+            if before.length > 0 { beforeAttributes = field.seamAttributes(at: before.location) }
+            if after.length > 0 { afterAttributes = field.seamAttributes(at: after.location) }
+        }
+
         /// What lands beside the part for `join`, the words the writer accepted: each changed window in its own style.
-        @MainActor func edits(for join: WriteJoin?, field: WriteField) -> WriteStreamEdit.Seams {
-            func side(_ range: NSRange, _ text: String, _ words: String?) -> WriteStreamEdit.Seams.Side? {
+        func edits(for join: WriteJoin?) -> WriteStreamEdit.Seams {
+            func side(_ range: NSRange, _ text: String, _ words: String?, _ attributes: [NSAttributedString.Key: Any])
+                -> WriteStreamEdit.Seams.Side? {
                 guard let words, range.length > 0 else { return nil }
-                return .init(range: range, original: text, replacement: words, attributes: field.seamAttributes(at: range.location))
+                return .init(range: range, original: text, replacement: words, attributes: attributes)
             }
-            return WriteStreamEdit.Seams(gapBefore: gapBefore, gapAfter: gapAfter, before: side(before, beforeText, join?.before),
-                                         after: side(after, afterText, join?.after))
+            return WriteStreamEdit.Seams(gapBefore: gapBefore, gapAfter: gapAfter,
+                                         before: side(before, beforeText, join?.before, beforeAttributes),
+                                         after: side(after, afterText, join?.after, afterAttributes))
         }
     }
 
@@ -834,8 +846,9 @@ final class WriteSession {
         proposedSubject = nil
         proposedJoin = nil
         lastDraft = nil
-        running = Running(ask: ask, isRewrite: isRewrite, kind: kind, wantsSubject: wantsSubject, brief: brief,
-                          seams: isRewrite ? SeamRanges(core: range, around: ask.around) : nil)
+        var seams = isRewrite ? SeamRanges(core: range, around: ask.around) : nil
+        seams?.readStyle(of: field)
+        running = Running(ask: ask, isRewrite: isRewrite, kind: kind, wantsSubject: wantsSubject, brief: brief, seams: seams)
         // A whole draft in a new message or a forward never takes a picture away: what it keeps follows it.
         let attributes = field.writeAttributes(at: range)
         let trailing = isRewrite || kind == .reply ? NSAttributedString() : picturesKept(after: range, attributes: attributes)
@@ -1130,7 +1143,7 @@ final class WriteSession {
         proposedJoin = nil
         let reply = written.trimmingCharacters(in: .whitespacesAndNewlines)
         // A rewrite that sent the draft around it lands the words beside it the writer accepted, in the same step.
-        let seams = running.isRewrite ? running.seams?.edits(for: join, field: field) : nil
+        let seams = running.isRewrite ? running.seams?.edits(for: join) : nil
         var setSubject = false
         isChangingText = true
         let committed = edit.commit(reply, seams: seams) { [field] undo in
