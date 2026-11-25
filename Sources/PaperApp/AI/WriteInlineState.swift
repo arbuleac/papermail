@@ -33,10 +33,23 @@ enum WritePhase: Equatable {
     /// The write could not start or failed: the reason under the caret's line, with Try again and, when the fix is
     /// there, Settings….
     case failed(reason: String, offersSettings: Bool)
+    /// Nothing failed, but ⌘J cannot write here as things stand (a forward still loading its forwarded message, a body
+    /// where only a selection can be rewritten): the words, quietly, under the caret's line, with no action. ⌘J under
+    /// them asks again.
+    case notice(String)
 
     var isFailed: Bool {
         if case .failed = self { return true }
         return false
+    }
+
+    /// A line under the text that goes as the user types, presses Esc or moves away: a draft's afterline, a failure's,
+    /// a notice.
+    var showsLine: Bool {
+        switch self {
+        case .written, .failed, .notice: return true
+        case .idle, .writing: return false
+        }
     }
 }
 

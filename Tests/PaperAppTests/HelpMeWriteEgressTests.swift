@@ -323,7 +323,7 @@ final class HelpMeWriteEgressTests: XCTestCase {
         let validate = composeItem
         XCTAssertTrue(composer.validateMenuItem(validate))
         composer.helpMeWrite(nil)
-        XCTAssertEqual(session.phase, .failed(reason: WriteWords.forwardLoading, offersSettings: false), "⌘J says it is loading")
+        XCTAssertEqual(session.phase, .notice(WriteWords.forwardLoading), "⌘J says it is loading")
         _ = composer.textView(editor, menu: NSMenu(), for: event, at: 0)
 
         XCTAssertTrue(ListTestSupport.spin(until: { composer.hasForwardedMessage }, timeout: 5), "the forwarded message folds in")

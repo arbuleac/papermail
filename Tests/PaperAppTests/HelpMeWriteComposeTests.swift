@@ -665,10 +665,14 @@ final class HelpMeWriteComposeTests: XCTestCase {
     }
 
     /// While the forwarded message is still loading there is nothing to write from yet: no ghost, and ⌘J without a
-    /// selection says so and sends nothing. When it lands the session reads the field again and the ghost appears.
+    /// selection says so, quietly, and sends nothing. Nothing failed: the line is a notice, the info glyph in `ink3`
+    /// and the words in `ink2` with no action, which VoiceOver reads alone. ⌘J under it asks again. When the message
+    /// lands the session reads the field again: the notice goes and the ghost appears.
     func testAForwardStillLoadingWaitsForItsForwardedMessage() throws {
         let (harness, script) = try harness()
         defer { harness.close() }
+        var announced: [String] = []
+        QuireAccessibility.observer = { _, text in if let text { announced.append(text) } }
         try saveBody("The venue is booked for the ninth. LATEST", for: "msg-2-2", harness)
         let composer = present(.forward(MessageID(accountID: a.id, providerID: "msg-2-2")), harness)
         // Prefill has not run yet: nothing is quoted.
@@ -678,15 +682,37 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertEqual(session.field.selectionOnlyReason, "The forwarded message is still loading")
         XCTAssertNil(composer.bodyWriteLayer.state.ghost, "no ghost while it loads")
         XCTAssertEqual(titles(composer), ["Help Me Write", "Help Me Write with Instructions\u{2026}"])
-        for shifted in [false, true] {
+        let loading = "The forwarded message is still loading"
+        for shifted in [false, true, false] {
             if shifted { composer.helpMeWriteWithInstructions(nil) } else { composer.helpMeWrite(nil) }
-            XCTAssertEqual(session.phase, .failed(reason: "The forwarded message is still loading", offersSettings: false),
-                           "said under the caret's line, with no Settings…")
+            XCTAssertEqual(session.phase, .notice(loading), "said under the caret's line, as a notice")
             XCTAssertFalse(session.isPromptShown)
             XCTAssertFalse(session.isWriting)
         }
-        XCTAssertEqual(composer.bodyWriteLayer.afterline.lineWords, "The forwarded message is still loading \u{00b7} Try again \u{2318}J")
+        let afterline = composer.bodyWriteLayer.afterline
+        XCTAssertEqual(composer.bodyWriteLayer.state.block, .afterline(.caret(0), .notice(loading)))
+        XCTAssertEqual(afterline.lineWords, loading, "no Try again, no Settings…")
+        afterline.layoutSubtreeIfNeeded()
+        XCTAssertEqual(afterline.shownWords, loading)
+        XCTAssertTrue(afterline.actions.values.allSatisfy(\.isHidden))
+        XCTAssertEqual(afterline.glyphName, Quire.Icon.info)
+        XCTAssertEqual(afterline.glyphColor, .qInk3)
+        XCTAssertEqual(afterline.wordsColor, .qInk2)
+        XCTAssertEqual(afterline.accessibilityLabel(), loading, "VoiceOver reads the words alone")
+        XCTAssertEqual(announced.last, loading)
+        XCTAssertFalse(announced.contains { $0.hasPrefix("Couldn") }, "nothing failed")
         XCTAssertTrue(script.requests.isEmpty)
+
+        // It goes as a failure's line goes: on Esc, and on typing.
+        XCTAssertTrue(session.escape())
+        XCTAssertEqual(session.phase, .idle)
+        composer.helpMeWrite(nil)
+        composer.bodyEditor.insertText("fyi ", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(session.phase, .idle, "typing takes it away")
+        composer.bodyEditor.undoManager?.undo()
+        composer.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        composer.helpMeWrite(nil)
+        XCTAssertEqual(session.phase, .notice(loading))
 
         until({ composer.hasForwardedMessage }, "the forwarded message lands")
         XCTAssertNil(session.field.selectionOnlyReason)
@@ -1228,9 +1254,13 @@ final class HelpMeWriteComposeTests: XCTestCase {
             XCTAssertEqual(titles(composer), ["Help Me Write", "Help Me Write with Instructions\u{2026}"], name)
             for shifted in [false, true] {
                 if shifted { composer.helpMeWriteWithInstructions(nil) } else { composer.helpMeWrite(nil) }
-                XCTAssertEqual(session.phase, .failed(reason: "Select the text to rewrite", offersSettings: false), name)
+                XCTAssertEqual(session.phase, .notice("Select the text to rewrite"), name)
+                XCTAssertEqual(composer.bodyWriteLayer.afterline.lineWords, "Select the text to rewrite", "\(name): a notice, no action")
                 XCTAssertFalse(session.isPromptShown, name)
             }
+            composer.window?.makeFirstResponder(try subjectField(composer))
+            XCTAssertEqual(session.phase, .idle, "\(name): the keyboard leaving takes the notice away")
+            composer.window?.makeFirstResponder(editor)
             ListTestSupport.spin(for: 0.1)
             XCTAssertEqual(script.requests.count, sentBefore, "\(name): nothing is sent")
             XCTAssertEqual(composer.bodyText, body, "\(name): and nothing replaced")

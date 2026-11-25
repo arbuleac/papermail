@@ -202,7 +202,7 @@ final class WriteSession {
     /// What the field can be written from changed without the user's doing (a forward's forwarded message arrived, or
     /// will not): the ghost follows, and the line that said it was still loading goes.
     func fieldDidChange() {
-        if case .failed(reason: WriteWords.forwardLoading, offersSettings: _) = phase { phase = .idle }
+        if phase == .notice(WriteWords.forwardLoading) { phase = .idle }
         refresh()
     }
 
@@ -219,6 +219,8 @@ final class WriteSession {
             state.block = .afterline(.end(end), .written(writer: lastDraft.writer, rewrite: lastDraft.isRewrite, source: lastDraft.source))
         } else if case .failed(let reason, let settings) = phase {
             state.block = .afterline(failureAnchor, .failed(reason: reason, offersSettings: settings))
+        } else if case .notice(let words) = phase {
+            state.block = .afterline(failureAnchor, .notice(words))
         }
         if !isWriting, canShowMarks {
             // Read once a keystroke: a composer finds its signature by walking the body's attributes.
@@ -360,7 +362,7 @@ final class WriteSession {
     /// Try again with it; the notes ghost waits for the next pause.
     func userDidEdit() {
         guard !isChangingText else { return }
-        if phase == .written || phase.isFailed { phase = .idle }
+        if phase.showsLine { phase = .idle }
         // ⌘Z back to the notes and ⌘⇧Z back to the reply keep Try again: a redone reply is tried again from its notes.
         if phase != .writing, let lastDraft, textView.string != lastDraft.textAfter, textView.string != lastDraft.textBefore {
             self.lastDraft = nil
@@ -587,7 +589,7 @@ final class WriteSession {
             return
         }
         if let selectionOnly {
-            refuse(selectionOnly)
+            notify(selectionOnly)
             return
         }
         let fresh = freshAsk(instruction: instruction ?? "")
@@ -615,12 +617,22 @@ final class WriteSession {
     }
 
     /// A reason no write runs here now, under the caret's line (a failure's afterline, with no Settings…): nothing was
-    /// asked, so nothing is sent.
+    /// asked, so nothing is sent, and Try again under it asks what ⌘J would ask now.
     private func refuse(_ reason: String) {
         failureAnchor = .caret(textView.selectedRange().location)
         lastFailure = nil
         phase = .failed(reason: reason, offersSettings: false)
         announceFailure(reason)
+    }
+
+    /// Why ⌘J cannot write here as things stand, where nothing failed (`WriteField.selectionOnlyReason`: a forward
+    /// still loading, a body where only a selection can be rewritten): a quiet notice under the caret's line, with no
+    /// action, which goes as a failure's line goes. Nothing is sent; ⌘J under it runs the rule again.
+    private func notify(_ words: String) {
+        failureAnchor = .caret(textView.selectedRange().location)
+        lastFailure = nil
+        phase = .notice(words)
+        QuireAccessibility.announce(words, from: textView)
     }
 
     /// Writes again from the notes the last draft came from, never from the draft: its step is undone first, so the new
@@ -647,7 +659,7 @@ final class WriteSession {
             }
         }
         if !draft.isRewrite, let reason = field.selectionOnlyReason {
-            refuse(reason)
+            notify(reason)
             return
         }
         guard let context = field.writeContext() else {
@@ -683,7 +695,7 @@ final class WriteSession {
         // A whole draft where only a selection can be rewritten (a forward still loading, a body that may hold quoted
         // mail) never starts, whatever asked for it.
         if !isRewrite, let reason = field.selectionOnlyReason {
-            refuse(reason)
+            notify(reason)
             return
         }
         // Read now, after Try again's undo: the Subject that undo emptied is asked for again.
@@ -815,7 +827,7 @@ final class WriteSession {
             closePrompt(focusText: true)
             return true
         }
-        if phase == .written || phase.isFailed {
+        if phase.showsLine {
             phase = .idle
             return true
         }
@@ -895,7 +907,7 @@ final class WriteSession {
         guard !isWriting else { return }
         // Where only a selection can be rewritten, there is nothing to say how to write without one.
         if !isPromptShown, rewritableSelection == nil, standingDraft?.isRewrite != true, let reason = field.selectionOnlyReason {
-            refuse(reason)
+            notify(reason)
             return
         }
         if !isPromptShown {
@@ -907,7 +919,7 @@ final class WriteSession {
                 promptAnchor = .caret(textView.selectedRange().location)
             }
             // One block at a time: the prompt takes the afterline's place; Try again stays a ⌘J away.
-            if phase == .written || phase.isFailed { phase = .idle }
+            if phase.showsLine { phase = .idle }
             field.setHeldOpen(true)
             render()
             QuireAccessibility.announce("Help Me Write instructions", from: layer.prompt)
@@ -1117,7 +1129,7 @@ final class WriteSession {
             promptAnchor = nil
             field.setHeldOpen(false)
         } else if let responder, responder !== window, !isHere(responder) {
-            if phase == .written || phase.isFailed { phase = .idle }
+            if phase.showsLine { phase = .idle }
             if isPromptShown, !isWriting {
                 promptAnchor = nil
                 field.setHeldOpen(false)

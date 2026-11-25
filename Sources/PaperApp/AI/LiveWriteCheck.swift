@@ -165,6 +165,11 @@ final class LiveWriteCheck {
             report["fieldAfter"] = field.string
             report["fieldRestored"] = field.string == Self.notes
             end()
+        case .notice(let words):
+            // The check writes a reply, which never stands still loading or for a selection alone; said if it ever does.
+            report["outcome"] = "notice"
+            report["notice"] = words
+            end()
         case .written:
             report["outcome"] = "inserted"
             report["inserted"] = field.string
