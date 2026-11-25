@@ -588,6 +588,25 @@ final class SQLiteMailStoreTests: XCTestCase {
         try store.verifyFullTextIndex()
     }
 
+    // MARK: A later build's values
+
+    /// A kind or a call service a later build wrote reads as none and keeps the row, unlike a response or a state the
+    /// build does not know, which leave the row out.
+    func testAnUnknownKindOrCallServiceReadsAsNoneAndKeepsTheRow() throws {
+        let store = try store()
+        let week = DateInterval(start: base, duration: 7 * 86_400)
+        let event = CalendarEvent(id: CalendarEvent.localID(accountID: accountA, providerID: "p"), accountID: accountA,
+                                  providerID: "p", title: "Standup", start: date(3_600), end: date(5_400),
+                                  kind: .focusTime, callService: .teams)
+        try store.replaceCalendarEvents([event], accountID: accountA, window: week)
+        try store.executeForTesting("UPDATE calendar_events SET kind = 'sabbatical', call_service = 'hologram'")
+
+        let read = try XCTUnwrap(try store.calendarEvents(in: week, accountIDs: nil).first)
+        XCTAssertEqual(read.id, event.id, "the row is kept")
+        XCTAssertNil(read.kind)
+        XCTAssertNil(read.callService)
+    }
+
     // MARK: Query plans
 
     /// The day column and the week read a range of the time index, in its order (docs/ARCHITECTURE.md budgets: D or W to

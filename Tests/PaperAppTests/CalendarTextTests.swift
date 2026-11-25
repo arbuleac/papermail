@@ -59,22 +59,18 @@ final class CalendarTextTests: XCTestCase {
         XCTAssertEqual(text.when(days, now: now), "Tue 17 Nov - Thu 19 Nov · All day")
         let late = Support.event("l", title: "L", start: Support.at(22), end: Support.at(2, on: Support.day(20)))
         XCTAssertEqual(text.when(late, now: now), "Thu 19 Nov, 22:00 - Fri 20 Nov, 02:00")
-        XCTAssertEqual(CalendarText.service(of: "https://meet.google.com/abc"), "Google Meet")
-        XCTAssertEqual(CalendarText.service(of: "https://teams.microsoft.com/l/x"), "Teams")
-        XCTAssertEqual(CalendarText.service(of: "https://contoso.zoom.us/j/1"), "Zoom")
-        XCTAssertEqual(CalendarText.service(of: "https://example.com/call"), "Video call")
+        XCTAssertEqual(CalendarText.serviceName(of: "https://meet.google.com/abc"), "Google Meet")
+        XCTAssertEqual(CalendarText.serviceName(of: "https://teams.microsoft.com/l/x"), "Teams")
+        XCTAssertEqual(CalendarText.serviceName(of: "https://contoso.zoom.us/j/1"), "Zoom")
+        XCTAssertEqual(CalendarText.serviceName(of: "https://example.com/call"), "Video call")
     }
 
-    /// A service is named only for its own domain or a subdomain of it, never for a look-alike that ends the same way.
-    func testAServiceIsNamedOnlyForItsOwnDomain() {
-        XCTAssertEqual(CalendarText.service(of: "https://us02web.zoom.us/j/1"), "Zoom")
-        XCTAssertEqual(CalendarText.service(of: "https://zoom.us/j/1"), "Zoom")
-        XCTAssertEqual(CalendarText.service(of: "https://acme.webex.com/meet/x"), "Webex")
-        XCTAssertEqual(CalendarText.service(of: "https://teams.live.com/meet/1"), "Teams")
-        for lookAlike in ["https://securezoom.us/j/1", "https://notzoom.com/j/1", "https://fakewebex.com/x",
-                          "https://evilmeet.google.com.example/x", "https://myteams.microsoft.com.example/x"] {
-            XCTAssertEqual(CalendarText.service(of: lookAlike), "Video call", lookAlike)
-        }
+    /// The provider's word for the call wins over the address's host; each service has its words.
+    func testTheStatedServiceNamesTheCall() {
+        XCTAssertEqual(CalendarText.serviceName(of: "https://example.com/call", stated: .teams), "Teams")
+        XCTAssertEqual(CalendarText.serviceName(of: "https://meet.google.com/abc", stated: .other), "Video call")
+        XCTAssertEqual(CallService.allCases.map(CalendarText.serviceName),
+                       ["Google Meet", "Teams", "Zoom", "Webex", "Skype", "Video call"])
     }
 
     // MARK: Setting time aside

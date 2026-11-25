@@ -57,7 +57,8 @@ extension MailStoreContractTests {
             title: "Design review", location: "Room 4", start: date(3_600), end: date(7_200), isAllDay: false, response: .tentative,
             isFree: true, joinURL: "https://meet.google.com/abc-defg-hij", webURL: "https://calendar.google.com/event?eid=1",
             organizer: "Ben Carter", invitationUID: "uid-7@google.com", clientKey: "0123456789abcdef0123456789abcdef",
-            updatedAt: date(30)
+            updatedAt: date(30), seriesID: "series-1", originalStart: date(3_000), timeZone: "America/Los_Angeles",
+            kind: .focusTime, callService: .meet, version: "\"3512345678901234\""
         )
         // Held floating: the start of its day as UTC, the end exclusive.
         let allDay = CalendarEvent(id: CalendarEvent.localID(accountID: accountA, providerID: "evt-day"), accountID: accountA,

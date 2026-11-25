@@ -32,6 +32,14 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
         case failed
     }
 
+    /// What an event of the user's own is for, when the provider says it is not an ordinary event (Google's
+    /// `eventType`, Graph's `showAs`): the kicker of its details says so, and nothing can answer it.
+    public enum Kind: String, Codable, Sendable, CaseIterable {
+        case outOfOffice
+        case focusTime
+        case workingElsewhere
+    }
+
     /// Stable local id, unique across accounts: what the UI keys by and the store's primary key. For an event read
     /// from the provider it is derived from the account and `providerID` (`CalendarEvent.localID(accountID:providerID:)`);
     /// for time set aside on this Mac it is made when it is set aside and kept once the provider has created it.
@@ -74,6 +82,19 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
     public var sync: Sync
     /// When the provider last changed it, when the provider says.
     public var updatedAt: Date?
+    /// The series this occurrence of a repeating event belongs to (Google's `recurringEventId`, Graph's
+    /// `seriesMasterId`): what All Events answers. Nil for a single event, time set aside and a pencil.
+    public var seriesID: String?
+    /// An occurrence's start as the series first had it (its RECURRENCE-ID), held as `start` is; nil otherwise.
+    public var originalStart: Date?
+    /// The IANA zone a timed event was written in, when the provider names one this Mac knows; nil for an all-day event.
+    /// The details say the time there when its offset differs from this Mac's.
+    public var timeZone: String?
+    public var kind: Kind?
+    /// The service the call runs on, as the provider names it or the join address says; nil without a call.
+    public var callService: CallService?
+    /// The provider's change tag (Google's `etag`, Graph's `changeKey`): details read at another tag are stale.
+    public var version: String?
 
     public init(
         id: String,
@@ -93,7 +114,13 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
         sourceMessage: MessageID? = nil,
         clientKey: String? = nil,
         sync: Sync = .synced,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        seriesID: String? = nil,
+        originalStart: Date? = nil,
+        timeZone: String? = nil,
+        kind: Kind? = nil,
+        callService: CallService? = nil,
+        version: String? = nil
     ) {
         self.id = id
         self.accountID = accountID
@@ -113,6 +140,12 @@ public struct CalendarEvent: Hashable, Codable, Sendable, Identifiable {
         self.clientKey = clientKey
         self.sync = sync
         self.updatedAt = updatedAt
+        self.seriesID = seriesID
+        self.originalStart = originalStart
+        self.timeZone = timeZone
+        self.kind = kind
+        self.callService = callService
+        self.version = version
     }
 
     /// The local id of an event read from the provider: the same for every read of it, so a refresh replaces the row

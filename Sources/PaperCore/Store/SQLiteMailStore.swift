@@ -720,6 +720,11 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try read { try CalendarEventTable.explainEvents(in: interval, accountIDs: accountIDs, in: $0) }
     }
 
+    /// Runs `sql` as it is, for a test that writes what a later build would.
+    func executeForTesting(_ sql: String, arguments: StatementArguments = []) throws {
+        try write { try $0.execute(sql: sql, arguments: arguments) }
+    }
+
     /// SQLite's plan for `inboxMessages(from:)`, so tests can pin it to the full-text index.
     func inboxMessagesQueryPlan(from address: String) throws -> [String] {
         try read { try MessageTable.explainInboxMessages(from: address, in: $0) }

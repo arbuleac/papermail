@@ -224,20 +224,22 @@ struct CalendarText {
         return url
     }
 
-    /// The call's service, read from its join address: “Google Meet”, “Teams”, “Zoom”, “Webex”, else “Video call”.
-    static func service(of joinURL: String) -> String {
-        let host = URL(string: joinURL)?.host?.lowercased() ?? ""
-        if isDomain(host, "meet.google.com") { return "Google Meet" }
-        if isDomain(host, "teams.microsoft.com") || isDomain(host, "teams.live.com") { return "Teams" }
-        if isDomain(host, "zoom.us") || isDomain(host, "zoom.com") { return "Zoom" }
-        if isDomain(host, "webex.com") { return "Webex" }
-        return "Video call"
+    /// The call's service as words: “Google Meet”, “Teams”, “Zoom”, “Webex”, “Skype”, else “Video call”.
+    static func serviceName(_ service: CallService) -> String {
+        switch service {
+        case .meet: return "Google Meet"
+        case .teams: return "Teams"
+        case .zoom: return "Zoom"
+        case .webex: return "Webex"
+        case .skype: return "Skype"
+        case .other: return "Video call"
+        }
     }
 
-    /// `host` is `domain` or one of its subdomains: a bare suffix would name a look-alike (`securezoom.us`, a link from
-    /// a stranger's invitation) after the service it imitates.
-    private static func isDomain(_ host: String, _ domain: String) -> Bool {
-        host == domain || host.hasSuffix("." + domain)
+    /// The service a call at `joinURL` runs on: the provider's word (`CalendarEvent.callService`) when it gave one, else
+    /// the address's host.
+    static func serviceName(of joinURL: String, stated: CallService? = nil) -> String {
+        serviceName(stated ?? CallService(joinURL: joinURL) ?? .other)
     }
 
     /// The provider's web calendar, for Open in … and the failed line.

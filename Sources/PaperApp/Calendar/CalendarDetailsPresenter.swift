@@ -130,7 +130,7 @@ final class CalendarDetailsPresenter {
             lines.append(.init(glyph: nil, text: location, role: .snippet, color: .qInk2))
         }
         if let join = event.joinURL, CalendarText.link(join) != nil {
-            lines.append(.init(glyph: nil, text: CalendarText.service(of: join), role: .snippet, color: .qInk2))
+            lines.append(.init(glyph: nil, text: CalendarText.serviceName(of: join, stated: event.callService), role: .snippet, color: .qInk2))
         }
         if event.sync == .failed {
             lines.append(.init(glyph: (Quire.Icon.failed, .qDanger),

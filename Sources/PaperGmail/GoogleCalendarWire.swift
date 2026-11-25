@@ -16,6 +16,8 @@ struct GoogleCalendarEvent: Decodable, Sendable {
     struct Time: Codable, Sendable {
         var date: String?
         var dateTime: String?
+        /// The IANA zone a timed event was written in; absent on an all-day one and on what this app writes.
+        var timeZone: String?
     }
 
     struct Person: Decodable, Sendable {
@@ -23,9 +25,13 @@ struct GoogleCalendarEvent: Decodable, Sendable {
         var displayName: String?
         var isSelf: Bool?
         var responseStatus: String?
+        /// Only in the details' attendee list: the organizer's own entry, a room or resource, an optional guest.
+        var organizer: Bool?
+        var resource: Bool?
+        var optional: Bool?
 
         private enum CodingKeys: String, CodingKey {
-            case email, displayName, responseStatus
+            case email, displayName, responseStatus, organizer, resource, optional
             case isSelf = "self"
         }
     }
@@ -33,9 +39,28 @@ struct GoogleCalendarEvent: Decodable, Sendable {
     struct EntryPoint: Decodable, Sendable {
         var entryPointType: String?
         var uri: String?
+        // Only in the details' read: what the card shows beside the call.
+        var label: String?
+        var pin: String?
+        var accessCode: String?
+        var meetingCode: String?
+        var passcode: String?
+        var password: String?
+        var regionCode: String?
+    }
+
+    struct ConferenceSolution: Decodable, Sendable {
+        struct Key: Decodable, Sendable {
+            /// `hangoutsMeet`, `addOn`, or the legacy `eventHangout` and `eventNamedHangout`.
+            var type: String?
+        }
+
+        var name: String?
+        var key: Key?
     }
 
     struct ConferenceData: Decodable, Sendable {
+        var conferenceSolution: ConferenceSolution?
         var entryPoints: [EntryPoint]?
     }
 
@@ -66,6 +91,18 @@ struct GoogleCalendarEvent: Decodable, Sendable {
     /// default, outOfOffice, focusTime, workingLocation, birthday or fromGmail.
     var eventType: String?
     var extendedProperties: ExtendedProperties?
+    /// The event's version: changes whenever the event does, so details read at another are stale.
+    var etag: String?
+    /// The series an instance of a repeating event belongs to.
+    var recurringEventId: String?
+    /// An instance's start as the series first had it.
+    var originalStartTime: Time?
+    // Only in the details' read (`GoogleCalendarDetailsMapper`) and the answer's look at the event.
+    var description: String?
+    var attendeesOmitted: Bool?
+    var guestsCanSeeOtherGuests: Bool?
+    var sequence: Int?
+    var recurrence: [String]?
 }
 
 /// The body of `events.insert` for time set aside for a mail: busy and private, with no attendees (so Google mails

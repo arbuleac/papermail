@@ -36,9 +36,16 @@ final class GraphCalendarTests: GraphTestCase {
                       response: String = "accepted", isOrganizer: Bool = false, showAs: String = "busy",
                       isCancelled: Bool = false, type: String = "singleInstance",
                       onlineMeeting: String = "null", onlineMeetingUrl: String = "null",
-                      transactionId: String? = nil, originalTimeZone: String? = nil) -> String {
+                      transactionId: String? = nil, originalTimeZone: String? = nil, seriesMasterId: String? = nil,
+                      originalStart: String? = nil, changeKey: String? = nil, onlineMeetingProvider: String? = nil,
+                      location: String = "Bay 4") -> String {
         let transaction = transactionId.map { #", "transactionId": "\#($0)""# } ?? ""
         let original = originalTimeZone.map { #", "originalStartTimeZone": "\#($0)", "originalEndTimeZone": "\#($0)""# } ?? ""
+        let series = seriesMasterId.map { #", "seriesMasterId": "\#($0)""# } ?? ""
+        let originalStartText = originalStart.map { #", "originalStart": "\#($0)""# } ?? ""
+        let change = changeKey.map { #", "changeKey": "\#($0)""# } ?? ""
+        let meetingProvider = onlineMeetingProvider.map { #", "onlineMeetingProvider": "\#($0)""# } ?? ""
+        let extra = transaction + original + series + originalStartText + change + meetingProvider
         return """
         {"@odata.etag": "W/\\"DwAAABYAAAA\\"", "id": "\(id)", "subject": "\(subject)", "isAllDay": \(isAllDay),
          "isCancelled": \(isCancelled), "isOrganizer": \(isOrganizer), "showAs": "\(showAs)", "type": "\(type)",
@@ -49,8 +56,8 @@ final class GraphCalendarTests: GraphTestCase {
          "responseStatus": {"response": "\(response)", "time": "2026-10-28T10:15:00Z"},
          "start": {"dateTime": "\(start)", "timeZone": "\(timeZone)"},
          "end": {"dateTime": "\(end)", "timeZone": "\(timeZone)"},
-         "location": {"displayName": "Bay 4", "locationType": "default", "uniqueIdType": "unknown"},
-         "organizer": {"emailAddress": {"name": "Rachel Kim", "address": "rachel.kim@northwind.test"}}\(transaction)\(original)}
+         "location": {"displayName": "\(location)", "locationType": "default", "uniqueIdType": "unknown"},
+         "organizer": {"emailAddress": {"name": "Rachel Kim", "address": "rachel.kim@northwind.test"}}\(extra)}
         """
     }
 
@@ -102,7 +109,7 @@ final class GraphCalendarTests: GraphTestCase {
         let first = try XCTUnwrap(sent.first)
         XCTAssertEqual(first.query["startDateTime"], "2026-10-18T00:00:00Z")
         XCTAssertEqual(first.query["endDateTime"], "2026-12-28T00:00:00Z")
-        XCTAssertEqual(first.query["$select"], "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId")
+        XCTAssertEqual(first.query["$select"], "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId,seriesMasterId,originalStart,changeKey,onlineMeetingProvider")
         XCTAssertEqual(first.query["$top"], "999", "Exchange's cap, as message lists ask: a busy window in one request")
         XCTAssertEqual(sent.last?.url.absoluteString, nextLink, "the second page is the nextLink as given")
         for request in sent {
@@ -328,6 +335,61 @@ final class GraphCalendarTests: GraphTestCase {
         XCTAssertEqual(events.map(\.joinURL), [
             "https://teams.microsoft.test/l/meetup-join/roadmap", "https://legacy.example.test/join/roadmap", nil, nil,
         ], "Join opens an https address only: the window refuses http, so it is never offered")
+    }
+
+    /// An occurrence or an exception names its series and original start; a single event or the master names neither,
+    /// even when Graph fills the fields.
+    func testOnlyAnOccurrenceKeepsItsSeriesAndOriginalStart() async throws {
+        let events = try await read([
+            Self.event(id: "AAMkOCC", type: "occurrence", seriesMasterId: "AAMkMASTER", originalStart: "2026-11-03T13:00:00Z"),
+            Self.event(id: "AAMkEXC", type: "exception", seriesMasterId: "AAMkMASTER", originalStart: "2026-11-10T13:00:00Z"),
+            Self.event(id: "AAMkONE", type: "singleInstance", seriesMasterId: "AAMkMASTER", originalStart: "2026-11-03T13:00:00Z"),
+        ])
+        XCTAssertEqual(events.map(\.seriesID), ["AAMkMASTER", "AAMkMASTER", nil])
+        XCTAssertEqual(events.map(\.originalStart), [date("2026-11-03T13:00:00Z"), date("2026-11-10T13:00:00Z"), nil])
+    }
+
+    /// The zone the event was made in, through Windows names; none for an all-day event, a custom zone or an unknown name.
+    func testTheZoneIsTheOneTheEventWasMadeIn() async throws {
+        let events = try await read([
+            Self.event(id: "AAMkWIN", originalTimeZone: "Pacific Standard Time"),
+            Self.event(id: "AAMkIANA", originalTimeZone: "Europe/Berlin"),
+            Self.event(id: "AAMkCUSTOM", originalTimeZone: "tzone://Microsoft/Custom"),
+            Self.event(id: "AAMkDAY", start: "2026-11-03T00:00:00.0000000", end: "2026-11-04T00:00:00.0000000",
+                       isAllDay: true, originalTimeZone: "Pacific Standard Time"),
+        ])
+        XCTAssertEqual(events.map(\.providerID), ["AAMkWIN", "AAMkIANA", "AAMkCUSTOM", "AAMkDAY"])
+        XCTAssertEqual(events.map(\.timeZone), ["America/Los_Angeles", "Europe/Berlin", nil, nil])
+    }
+
+    func testOutOfOfficeAndWorkingElsewhereAreKinds() async throws {
+        let events = try await read([
+            Self.event(id: "AAMkOOF", isOrganizer: true, showAs: "oof"),
+            Self.event(id: "AAMkELSE", isOrganizer: true, showAs: "workingElsewhere"),
+            Self.event(id: "AAMkBUSY", isOrganizer: true, showAs: "busy"),
+        ])
+        XCTAssertEqual(events.map(\.kind), [.outOfOffice, .workingElsewhere, nil])
+    }
+
+    /// Teams and Skype by Graph's own word, else the join address's host; no call, no service.
+    func testTheCallServiceIsGraphsWordOrTheJoinAddresss() async throws {
+        let events = try await read([
+            Self.event(id: "AAMkTEAMS", onlineMeeting: #"{"joinUrl": "https://teams.microsoft.test/l/x"}"#,
+                       onlineMeetingProvider: "teamsForBusiness"),
+            Self.event(id: "AAMkSKYPE", onlineMeeting: #"{"joinUrl": "https://join.skype.test/x"}"#,
+                       onlineMeetingProvider: "skypeForConsumer"),
+            Self.event(id: "AAMkZOOM", onlineMeetingUrl: #""https://acme.zoom.us/j/1""#, onlineMeetingProvider: "unknown"),
+            Self.event(id: "AAMkOTHER", onlineMeetingUrl: #""https://call.example.test/j/1""#),
+            Self.event(id: "AAMkNONE", onlineMeetingProvider: "teamsForBusiness"),
+            Self.event(id: "AAMkPLACE", location: "https://acme.zoom.us/j/2"),
+        ])
+        XCTAssertEqual(events.map(\.callService), [.teams, .skype, .zoom, .other, nil, .zoom])
+        XCTAssertEqual(events.last?.joinURL, "https://acme.zoom.us/j/2", "a place that is a call's address is the call")
+    }
+
+    func testTheVersionIsTheChangeKey() async throws {
+        let events = try await read([Self.event(id: "AAMkONE", changeKey: "DwAAABYAAAB"), Self.event(id: "AAMkTWO")])
+        XCTAssertEqual(events.map(\.version), ["DwAAABYAAAB", nil])
     }
 
     func testAnHttpWebLinkIsNotOffered() async throws {

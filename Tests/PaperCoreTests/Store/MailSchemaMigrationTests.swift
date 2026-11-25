@@ -113,6 +113,19 @@ final class MailSchemaMigrationTests: XCTestCase {
         DELETE FROM grdb_migrations WHERE identifier = 'v24-tracker-images';
         """
 
+    /// Takes v25 back out of a migrated file: a file from before it keeps no series, zone, kind, call, version or details.
+    private let withoutV25 = """
+        DROP TABLE calendar_event_details;
+        DROP INDEX calendar_events_by_series;
+        ALTER TABLE calendar_events DROP COLUMN series_id;
+        ALTER TABLE calendar_events DROP COLUMN original_start_ms;
+        ALTER TABLE calendar_events DROP COLUMN time_zone;
+        ALTER TABLE calendar_events DROP COLUMN kind;
+        ALTER TABLE calendar_events DROP COLUMN call_service;
+        ALTER TABLE calendar_events DROP COLUMN version;
+        DELETE FROM grdb_migrations WHERE identifier = 'v25-event-details';
+        """
+
     /// Twelve accounts, inserted out of creation order, two of them created in the same millisecond so the id
     /// has to break the tie.
     private let accounts: [(id: String, addedAt: Int64)] = [
@@ -364,7 +377,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.close()
         }
         // v9 to v15 came after v8, so a v7 file has none of them (`revertSQL` takes v12 and v13 back).
-        try execute(withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV25 + withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             DROP TABLE backfill_live_marks;
             DROP TABLE backfill_seen;
@@ -436,7 +449,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSyncCursor("cursor-8", for: a)
             try store.close()
         }
-        try execute(withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV25 + withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE accounts DROP COLUMN signature;
             DELETE FROM grdb_migrations WHERE identifier = 'v9-account-signature';
@@ -478,7 +491,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: a)
             try store.close()
         }
-        try execute(withoutV24 + withoutV23 + withoutV22, at: path)
+        try execute(withoutV25 + withoutV24 + withoutV23 + withoutV22, at: path)
         XCTAssertFalse(try query("SELECT name FROM pragma_table_info('accounts')", at: path).compactMap(\.first).contains("face"))
 
         let store = try SQLiteMailStore(path: path)
@@ -514,7 +527,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             try store.setSignature("<div><p>Alex</p></div>", for: AccountID("acct-a"))
             try store.close()
         }
-        try execute(withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
+        try execute(withoutV25 + withoutV24 + withoutV23 + withoutV22 + withoutV21 + withoutV20 + withoutV19 + withoutV18 + withoutV17 + withoutV16 + withoutV15 + withoutV14 + """
             \(FullTextVersion10.revertSQL)
             ALTER TABLE bodies DROP COLUMN evicted;
             DELETE FROM grdb_migrations WHERE identifier = 'v10-body-eviction';
@@ -891,7 +904,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try store.queuedLookups(accountID: account, limit: 10), ["m1": 0])
         try store.close()
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v24-tracker-images")
+                       "v25-event-details")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM queued_lookups", at: path), [["0"]], "an account's lookups go with it")
     }
@@ -931,7 +944,9 @@ final class MailSchemaMigrationTests: XCTestCase {
             ["join_url", "TEXT", "0", "0"], ["web_url", "TEXT", "0", "0"], ["organizer", "TEXT", "0", "0"],
             ["invitation_uid", "TEXT", "0", "0"], ["source_account_id", "TEXT", "0", "0"], ["source_provider_id", "TEXT", "0", "0"],
             ["client_key", "TEXT", "0", "0"], ["sync", "TEXT", "1", "0"], ["updated_ms", "INTEGER", "0", "0"],
-            ["queued_ms", "INTEGER", "0", "0"],
+            ["queued_ms", "INTEGER", "0", "0"], ["series_id", "TEXT", "0", "0"], ["original_start_ms", "INTEGER", "0", "0"],
+            ["time_zone", "TEXT", "0", "0"], ["kind", "TEXT", "0", "0"], ["call_service", "TEXT", "0", "0"],
+            ["version", "TEXT", "0", "0"],
         ])
         XCTAssertEqual(try query("SELECT name, type, \"notnull\", pk FROM pragma_table_info('mail_times') ORDER BY cid", at: path), [
             ["account_id", "TEXT", "1", "1"], ["provider_id", "TEXT", "1", "2"], ["ord", "INTEGER", "1", "3"],
@@ -951,9 +966,11 @@ final class MailSchemaMigrationTests: XCTestCase {
             SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('calendar_events', 'mail_times') AND sql IS NOT NULL
             ORDER BY name
             """, at: path).compactMap(\.first),
-                       ["calendar_events_by_client_key", "calendar_events_by_sync", "calendar_events_by_time", "mail_times_by_conversation"])
-        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(5),
-                       ["v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules", "v24-tracker-images"])
+                       ["calendar_events_by_client_key", "calendar_events_by_series", "calendar_events_by_sync",
+                        "calendar_events_by_time", "mail_times_by_conversation"])
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).suffix(6),
+                       ["v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules", "v24-tracker-images",
+                        "v25-event-details"])
 
         let reopened = try SQLiteMailStore(path: path)
         try reopened.wipeMailData(for: account)
@@ -1055,7 +1072,7 @@ final class MailSchemaMigrationTests: XCTestCase {
             ["acct-b", "deals@shop.example", nil, "creating"], ["acct-b", "promo@shop.example", nil, "creating"],
         ], "ids as a JSON array, NULL while the rule is not on the server")
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v24-tracker-images")
+                       "v25-event-details")
         try execute("PRAGMA foreign_keys = ON; DELETE FROM accounts WHERE id = 'acct-a';", at: path)
         XCTAssertEqual(try query("SELECT COUNT(*) FROM sender_rules WHERE account_id = 'acct-a'", at: path), [["0"]],
                        "a rule still goes with its account")
@@ -1089,19 +1106,105 @@ final class MailSchemaMigrationTests: XCTestCase {
         try execute("UPDATE bodies SET html = NULL, text = NULL, rendered_html = X'', evicted = 1", at: path)
         XCTAssertEqual(try query("SELECT tracker_images FROM bodies", at: path), [["2"]], "a fact an eviction keeps")
         XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
-                       "v24-tracker-images")
+                       "v25-event-details")
     }
 
-    /// The nine migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
+    /// v25 adds six NULL columns to `calendar_events`, the partial series index and the empty `calendar_event_details`,
+    /// and nothing else. The file is a real v24 one holding mail, an invitation's body, a queued answer and a calendar
+    /// with an invitation and a block; opened by the current build every row reads as before with the new fields nil,
+    /// nothing is backfilled, the queued answer is kept, and the table's rows go with their event by the cascade.
+    func testVersion24DatabaseGainsEventDetailsAndKeepsItsCalendar() throws {
+        let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
+        try writeVersion1Database(at: path)
+        try MailSchema.migrateFile(at: path, upTo: "v24-tracker-images")
+        let account = AccountID("acct-a")
+        let m1 = MessageID(accountID: account, providerID: "m1")
+        let invitation = CalendarInvitation(method: .request, uid: "dinner@example.com", sequence: 1, title: "Dinner",
+                                            start: MailStoreCodec.date(base + 3_600_000), end: MailStoreCodec.date(base + 7_200_000),
+                                            organizer: CalendarInvitation.Person(name: "Sam", address: "sam@example.com"))
+        let invitationJSON = try MailStoreCodec.json(invitation).replacingOccurrences(of: "'", with: "''")
+        let answer = InvitationAnswer(response: .accepted, uid: "dinner@example.com", title: "Dinner",
+                                      start: MailStoreCodec.date(base + 3_600_000), end: MailStoreCodec.date(base + 7_200_000),
+                                      organizer: EmailAddress(address: "sam@example.com"),
+                                      attendee: EmailAddress(address: "acct-a@example.com"))
+        let change = try MailStoreCodec.json(MetadataChange.answerInvitation(answer)).replacingOccurrences(of: "'", with: "''")
+        let targets = try MailStoreCodec.json([m1.providerID]).replacingOccurrences(of: "'", with: "''")
+        try execute("""
+            UPDATE bodies SET invitation_json = '\(invitationJSON)' WHERE provider_id = 'm1';
+            INSERT INTO operations (id, account_id, change_json, targets_json, status, attempts, created_at, next_attempt_at)
+            VALUES ('op-answer', 'acct-a', '\(change)', '\(targets)', 'pending', 0, \(base), \(base));
+            INSERT INTO calendar_events (id, account_id, provider_id, title, location, start_ms, end_ms, is_all_day, response,
+                is_free, join_url, web_url, organizer, invitation_uid, source_account_id, source_provider_id, client_key, sync,
+                updated_ms, queued_ms)
+            VALUES ('acct-a|evt-1', 'acct-a', 'evt-1', 'Dinner', 'Casa', \(base + 3_600_000), \(base + 7_200_000), 0,
+                    'needsAction', 0, NULL, 'https://calendar.google.com/event?eid=1', 'Sam', 'dinner@example.com', NULL, NULL,
+                    NULL, 'synced', \(base), NULL),
+                   ('acct-a|local-b', 'acct-a', NULL, 'Lunch?', NULL, \(base + 9_000_000), \(base + 10_800_000), 0,
+                    'organizer', 0, NULL, NULL, NULL, NULL, 'acct-a', 'm1', 'key-b', 'creating', NULL, \(base));
+            """, at: path)
+        XCTAssertFalse(try query("SELECT name FROM pragma_table_info('calendar_events')", at: path).compactMap(\.first).contains("series_id"))
+        XCTAssertTrue(try query("SELECT name FROM sqlite_master WHERE name = 'calendar_event_details'", at: path).isEmpty)
+
+        let store = try SQLiteMailStore(path: path)
+        let all = DateInterval(start: .distantPast, end: .distantFuture)
+        let events = try store.calendarEvents(in: all, accountIDs: nil)
+        XCTAssertEqual(events.map(\.id), ["acct-a|evt-1", "acct-a|local-b"], "every row kept")
+        for event in events {
+            XCTAssertNil(event.seriesID)
+            XCTAssertNil(event.originalStart)
+            XCTAssertNil(event.timeZone)
+            XCTAssertNil(event.kind)
+            XCTAssertNil(event.callService)
+            XCTAssertNil(event.version)
+        }
+        XCTAssertEqual(events.first?.response, .needsAction)
+        XCTAssertEqual(events.last?.sync, .creating)
+        XCTAssertEqual(try store.pendingCalendarEvents(accountID: account).map(\.id), ["acct-a|local-b"])
+        XCTAssertEqual(try store.invitation(for: m1)?.uid, "dinner@example.com", "the invitation reads as before")
+        XCTAssertEqual(try store.pendingOperations(accountID: account, limit: 10).map(\.id), ["op-answer"], "the queued answer is kept")
+        try store.close()
+
+        XCTAssertEqual(try query("""
+            SELECT name, type, "notnull", dflt_value FROM pragma_table_info('calendar_events') WHERE cid >= 20 ORDER BY cid
+            """, at: path), [
+                ["series_id", "TEXT", "0", nil], ["original_start_ms", "INTEGER", "0", nil], ["time_zone", "TEXT", "0", nil],
+                ["kind", "TEXT", "0", nil], ["call_service", "TEXT", "0", nil], ["version", "TEXT", "0", nil],
+            ], "nullable, no default: added without touching a row")
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM calendar_events WHERE series_id IS NOT NULL OR version IS NOT NULL", at: path),
+                       [["0"]], "nothing backfilled")
+        XCTAssertEqual(try query("SELECT sql FROM sqlite_master WHERE name = 'calendar_events_by_series'", at: path), [[
+            "CREATE INDEX calendar_events_by_series ON calendar_events(account_id, series_id) WHERE series_id IS NOT NULL",
+        ]])
+        XCTAssertEqual(try query("SELECT name, type, \"notnull\", pk FROM pragma_table_info('calendar_event_details') ORDER BY cid", at: path), [
+            ["event_id", "TEXT", "1", "1"], ["version", "TEXT", "0", "0"], ["read_ms", "INTEGER", "1", "0"],
+            ["details_json", "TEXT", "1", "0"],
+        ])
+        XCTAssertEqual(try query("SELECT \"table\", \"from\", \"to\", on_delete FROM pragma_foreign_key_list('calendar_event_details')", at: path),
+                       [["calendar_events", "event_id", "id", "CASCADE"]])
+        let ddl = try XCTUnwrap(try query("SELECT sql FROM sqlite_master WHERE name = 'calendar_event_details'", at: path).first?.first ?? nil)
+        XCTAssertFalse(ddl.contains("WITHOUT ROWID"), "a rowid table, which an observation can see")
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM calendar_event_details", at: path), [["0"]])
+        XCTAssertEqual(try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first).last,
+                       "v25-event-details")
+        try execute("""
+            PRAGMA foreign_keys = ON;
+            INSERT INTO calendar_event_details (event_id, version, read_ms, details_json) VALUES ('acct-a|evt-1', NULL, 0, '{}');
+            DELETE FROM calendar_events WHERE id = 'acct-a|evt-1';
+            """, at: path)
+        XCTAssertEqual(try query("SELECT COUNT(*) FROM calendar_event_details", at: path), [["0"]], "details go with their event")
+    }
+
+    /// The ten migrations since the last release, on one real v15 file (a v1 file taken through the shipped migrations up
     /// to v15) holding mail, a muted-to-be conversation and a send in its undo window. Opened by the current build it runs
     /// v16-conversation-mute, v17-sender-rules, v18-scheduled-sends, v19-sync-robustness, v20-calendar, v21-search-walk,
-    /// v22-account-face, v23-server-rules and v24-tracker-images, in that order and nothing else; everything it held reads as
+    /// v22-account-face, v23-server-rules, v24-tracker-images and v25-event-details, in that order and nothing else; everything it held reads as
     /// before, each new table or column starts empty, the date index carries the flags a search tests, and reopening it
     /// runs nothing.
-    func testVersion15DatabaseTakesTheNineNewMigrationsInOrder() throws {
+    func testVersion15DatabaseTakesTheTenNewMigrationsInOrder() throws {
         let newMigrations = ["v16-conversation-mute", "v17-sender-rules", "v18-scheduled-sends", "v19-sync-robustness",
-                             "v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules", "v24-tracker-images"]
-        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(9)), newMigrations, "registered in this order, last")
+                             "v20-calendar", "v21-search-walk", "v22-account-face", "v23-server-rules", "v24-tracker-images",
+                             "v25-event-details"]
+        XCTAssertEqual(Array(MailSchema.migrator().migrations.suffix(10)), newMigrations, "registered in this order, last")
         let path = try XCTUnwrap(directory).appendingPathComponent("mail.sqlite").path
         try writeVersion1Database(at: path)
         try MailSchema.migrateFile(at: path, upTo: "v15-calendar-invitations")
@@ -1139,7 +1242,7 @@ final class MailSchemaMigrationTests: XCTestCase {
         try store.close()
 
         let after = try query("SELECT identifier FROM grdb_migrations ORDER BY rowid", at: path).compactMap(\.first)
-        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the nine, in order, and nothing else")
+        XCTAssertEqual(Array(after.dropFirst(before.count)), newMigrations, "the ten, in order, and nothing else")
         XCTAssertEqual(try query("SELECT name FROM pragma_index_info('conversations_latest') ORDER BY seqno", at: path).compactMap(\.first), [
             "latest_date_ms", "in_inbox", "in_sent", "in_drafts", "in_trash", "is_starred", "has_attachments", "unread_count",
             "message_count", "inbox_section", "account_id", "provider_id",

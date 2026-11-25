@@ -16,9 +16,10 @@ extension GmailProvider: CalendarProvider {
     /// The most `events.list` gives a page (its default is 250): a busy window is one request, not several in a row.
     static let calendarPageSize = 2500
     /// Only the fields `GoogleCalendarMapper` reads: a page of full events carries descriptions and every attendee.
-    static let calendarFields = "items(id,status,summary,location,start,end,transparency,attendees(self,responseStatus),"
-        + "organizer(self,displayName,email),hangoutLink,conferenceData(entryPoints(entryPointType,uri)),htmlLink,iCalUID,"
-        + "updated,eventType,extendedProperties/private),nextPageToken"
+    static let calendarFields = "items(id,etag,status,summary,location,start,end,transparency,attendees(self,responseStatus),"
+        + "organizer(self,displayName,email),hangoutLink,conferenceData(conferenceSolution(name,key/type),"
+        + "entryPoints(entryPointType,uri)),htmlLink,iCalUID,updated,eventType,extendedProperties/private,recurringEventId,"
+        + "originalStartTime),nextPageToken"
     /// The line a block's description starts with, before the subject.
     static let setAsideLead = "Set aside in Paper for: "
     /// Gmail's web app, where a conversation's link starts.

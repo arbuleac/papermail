@@ -14,7 +14,7 @@ enum CalendarEventTable {
     private static let columnNames = [
         "id", "account_id", "provider_id", "title", "location", "start_ms", "end_ms", "is_all_day", "response", "is_free",
         "join_url", "web_url", "organizer", "invitation_uid", "source_account_id", "source_provider_id", "client_key", "sync",
-        "updated_ms", "queued_ms",
+        "updated_ms", "queued_ms", "series_id", "original_start_ms", "time_zone", "kind", "call_service", "version",
     ]
     private static let columns = columnNames.joined(separator: ", ")
 
@@ -32,6 +32,7 @@ enum CalendarEventTable {
         event.start = MailStoreCodec.date(MailStoreCodec.milliseconds(event.start))
         event.end = MailStoreCodec.date(MailStoreCodec.milliseconds(event.end))
         event.updatedAt = event.updatedAt.map { MailStoreCodec.date(MailStoreCodec.milliseconds($0)) }
+        event.originalStart = event.originalStart.map { MailStoreCodec.date(MailStoreCodec.milliseconds($0)) }
         return event
     }
 
@@ -178,6 +179,12 @@ enum CalendarEventTable {
             event.joinURL = nil
             event.invitationUID = nil
             event.updatedAt = nil
+            event.seriesID = nil
+            event.originalStart = nil
+            event.timeZone = nil
+            event.kind = nil
+            event.callService = nil
+            event.version = nil
         } else {
             // Removed while it was still `creating`, and its tombstone gone since: the engine deleted the copy a create
             // made, which reserves the key at Google, or the read found none. A new key keeps the new create from
@@ -333,13 +340,20 @@ enum CalendarEventTable {
         let isFree: Bool = row[9], joinURL: String? = row[10], webURL: String? = row[11], organizer: String? = row[12]
         let invitationUID: String? = row[13], sourceAccount: String? = row[14], sourceProvider: String? = row[15]
         let clientKey: String? = row[16], updated: Int64? = row[18], queued: Int64? = row[19]
+        let seriesID: String? = row[20], originalStart: Int64? = row[21], timeZone: String? = row[22]
+        let kindValue: String? = row[23], serviceValue: String? = row[24], version: String? = row[25]
         var source: MessageID?
         if let sourceAccount, let sourceProvider { source = MessageID(accountID: AccountID(sourceAccount), providerID: sourceProvider) }
+        // A kind or a service a later build wrote reads as none and keeps the row: unlike a response or a state, nothing
+        // this build does with the row depends on it.
         let event = CalendarEvent(
             id: id, accountID: AccountID(accountID), providerID: providerID, title: title, location: location,
             start: MailStoreCodec.date(start), end: MailStoreCodec.date(end), isAllDay: isAllDay, response: response,
             isFree: isFree, joinURL: joinURL, webURL: webURL, organizer: organizer, invitationUID: invitationUID,
-            sourceMessage: source, clientKey: clientKey, sync: sync, updatedAt: updated.map(MailStoreCodec.date)
+            sourceMessage: source, clientKey: clientKey, sync: sync, updatedAt: updated.map(MailStoreCodec.date),
+            seriesID: seriesID, originalStart: originalStart.map(MailStoreCodec.date), timeZone: timeZone,
+            kind: kindValue.flatMap(CalendarEvent.Kind.init(rawValue:)),
+            callService: serviceValue.flatMap(CallService.init(rawValue:)), version: version
         )
         return Stored(event: event, queuedAt: queued)
     }
@@ -457,7 +471,9 @@ enum CalendarEventTable {
             MailStoreCodec.milliseconds(event.start), MailStoreCodec.milliseconds(event.end), event.isAllDay,
             event.response.rawValue, event.isFree, event.joinURL, event.webURL, event.organizer, event.invitationUID,
             event.sourceMessage?.accountID.rawValue, event.sourceMessage?.providerID, event.clientKey, event.sync.rawValue,
-            event.updatedAt.map(MailStoreCodec.milliseconds), stored.queuedAt,
+            event.updatedAt.map(MailStoreCodec.milliseconds), stored.queuedAt, event.seriesID,
+            event.originalStart.map(MailStoreCodec.milliseconds), event.timeZone, event.kind?.rawValue,
+            event.callService?.rawValue, event.version,
         ]
         return StatementArguments(values)
     }

@@ -7,7 +7,7 @@ import PaperCore
 extension GraphProvider: CalendarProvider {
     /// `onlineMeeting` whole: `$select` takes top-level properties only. `transactionId` reports a block's client key;
     /// the original zones place an all-day event's dates (`GraphEventTime.allDay`).
-    static let calendarSelect = "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId"
+    static let calendarSelect = "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId,seriesMasterId,originalStart,changeKey,onlineMeetingProvider"
     /// Graph pages a `calendarView` ten events at a time unless asked. On Outlook's resources `$top` sets the page size,
     /// up to Exchange's cap of a thousand (asking for more is a 400): 999, as message lists ask (`maxListPageSize`), so
     /// a busy window is one request, and the nextLink still carries anything past it.

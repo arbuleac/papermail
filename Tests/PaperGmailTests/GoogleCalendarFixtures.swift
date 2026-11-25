@@ -11,18 +11,19 @@ enum GoogleCalendarFixtures {
      "items": [
       {
        "id": "7k2m4n6p8r0t2v4x6z8b0d2f4h",
+       "etag": "\"3512345678901001\"",
        "status": "confirmed",
        "htmlLink": "https://www.google.com/calendar/event?eid=N2sybTRuNnA4cjB0MnY0eDZ6OGIwZDJmNGggYWRhQGV4YW1wbGUuY29t",
        "updated": "2026-11-18T09:12:44.123Z",
        "summary": "Design review",
        "location": "Room 4",
        "organizer": {"email": "ben@contoso.test", "displayName": "Ben Carter"},
-       "start": {"dateTime": "2026-11-19T15:00:00+02:00"},
-       "end": {"dateTime": "2026-11-19T16:00:00+02:00"},
+       "start": {"dateTime": "2026-11-19T15:00:00+02:00", "timeZone": "Europe/Athens"},
+       "end": {"dateTime": "2026-11-19T16:00:00+02:00", "timeZone": "Europe/Athens"},
        "iCalUID": "5h0v6l1b@google.com",
        "attendees": [{"responseStatus": "accepted"}, {"self": true, "responseStatus": "accepted"}],
        "hangoutLink": "https://meet.google.com/abc-defg-hij",
-       "conferenceData": {"entryPoints": [
+       "conferenceData": {"conferenceSolution": {"name": "Google Meet", "key": {"type": "hangoutsMeet"}}, "entryPoints": [
         {"entryPointType": "video", "uri": "https://meet.google.com/abc-defg-hij"},
         {"entryPointType": "phone", "uri": "tel:+1-555-0100"}
        ]},
@@ -35,11 +36,11 @@ enum GoogleCalendarFixtures {
        "updated": "2026-11-17T20:00:00.000Z",
        "summary": "Quarterly sync",
        "organizer": {"email": "carol@fabrikam.test"},
-       "start": {"dateTime": "2026-11-19T10:30:00-05:00"},
+       "start": {"dateTime": "2026-11-19T10:30:00-05:00", "timeZone": "Mars/Olympus_Mons"},
        "end": {"dateTime": "2026-11-19T11:15:00-05:00"},
        "iCalUID": "040000008200E00074C5B7101A82E008@fabrikam.test",
        "attendees": [{"self": true, "responseStatus": "tentative"}, {"responseStatus": "accepted"}],
-       "conferenceData": {"entryPoints": [
+       "conferenceData": {"conferenceSolution": {"name": "Zoom Meeting", "key": {"type": "addOn"}}, "entryPoints": [
         {"entryPointType": "more", "uri": "https://zoom.us/meeting/more"},
         {"entryPointType": "video", "uri": "https://us02web.zoom.us/j/81234567890"}
        ]},
@@ -87,10 +88,26 @@ enum GoogleCalendarFixtures {
        "updated": "2026-11-19T07:00:00Z",
        "summary": "Offsite planning",
        "organizer": {"email": "erin@contoso.test"},
-       "start": {"dateTime": "2026-11-20T09:00:00+01:00"},
-       "end": {"dateTime": "2026-11-20T10:00:00+01:00"},
+       "start": {"dateTime": "2026-11-20T09:00:00+01:00", "timeZone": "Europe/Paris"},
+       "end": {"dateTime": "2026-11-20T10:00:00+01:00", "timeZone": "Europe/Paris"},
        "iCalUID": "unanswered01@contoso.test",
        "attendees": [{"self": true, "responseStatus": "needsAction"}, {"responseStatus": "accepted"}],
+       "eventType": "default"
+      },
+      {
+       "id": "standup_20261119T080000Z",
+       "etag": "\"3512345678901002\"",
+       "status": "confirmed",
+       "updated": "2026-11-02T08:00:00Z",
+       "summary": "Standup",
+       "location": "https://acme.zoom.us/j/555",
+       "organizer": {"email": "erin@contoso.test", "displayName": "Erin"},
+       "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+       "end": {"dateTime": "2026-11-19T09:15:00+01:00", "timeZone": "Europe/Berlin"},
+       "iCalUID": "standup@contoso.test",
+       "recurringEventId": "standup",
+       "originalStartTime": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+       "attendees": [{"self": true, "responseStatus": "accepted"}],
        "eventType": "default"
       },
       {

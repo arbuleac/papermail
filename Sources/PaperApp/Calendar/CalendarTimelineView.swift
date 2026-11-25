@@ -385,7 +385,7 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         }
         var place: (glyph: String, text: String)?
         if let join = event.joinURL, CalendarText.link(join) != nil {
-            place = (Quire.Icon.joinCall, CalendarText.service(of: join))
+            place = (Quire.Icon.joinCall, CalendarText.serviceName(of: join, stated: event.callService))
         } else if let location = event.location, !location.isEmpty {
             place = (Quire.Icon.eventPlace, location)
         }
