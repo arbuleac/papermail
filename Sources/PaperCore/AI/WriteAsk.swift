@@ -42,15 +42,19 @@ public struct WriteAsk: Sendable, Hashable {
     /// The ask with every picture taken out of its notes or its selection: a picture holds no words, so it is nothing
     /// to write from and nothing to send. A new message's and a forward's ask is read so; a reply's is sent as it
     /// always was.
+    ///
+    /// Each attachment character goes, also one a mark joins (a variation selector after it), which a search that reads
+    /// characters as the user sees them would not find on its own: the composer reads the body scalar by scalar
+    /// (`WriteSession.holdsWords`), and the two must agree.
     var withoutPictures: WriteAsk {
         var ask = self
         switch draft {
         case .empty:
             break
         case .notes(let notes):
-            ask.draft = .notes(notes.replacingOccurrences(of: Self.pictureCharacter, with: ""))
+            ask.draft = .notes(notes.replacingOccurrences(of: Self.pictureCharacter, with: "", options: .literal))
         case .selection(let selection):
-            ask.draft = .selection(selection.replacingOccurrences(of: Self.pictureCharacter, with: ""))
+            ask.draft = .selection(selection.replacingOccurrences(of: Self.pictureCharacter, with: "", options: .literal))
         }
         return ask
     }

@@ -277,22 +277,25 @@ final class WriteSession {
     }
 
     /// Whether `text` holds something written, in a field writing `kind`: anything but blanks, and in a new message or
-    /// a forward anything but a picture too (its attachment character, `WriteAsk.pictureCharacter`), which holds no
-    /// words. So there a body of pictures alone is empty to ⌘J, its ghost the empty body's, and a selection of pictures
-    /// alone is none. A reply's field reads a picture as it always did.
+    /// a forward anything but a picture (its attachment character, `WriteAsk.pictureCharacter`) or an invisible mark
+    /// (`AIRedactor.invisibleCharacters`: a byte-order mark left by a paste, a right-to-left mark) too, which hold no
+    /// words. That is the body as `WriteKind.hasNothingToWriteFrom` and the request's cleaning read it, scalar by
+    /// scalar, so the ghost, the plan, the ask and where the draft goes agree with what would be sent: there a body of
+    /// pictures and marks alone is empty to ⌘J, its ghost the empty body's, and a selection of them alone is none. A
+    /// reply's field reads a picture and a mark as it always did.
     static func holdsWords(_ text: String, writing kind: WriteKind) -> Bool {
-        kind == .reply ? text.contains { !$0.isWhitespace } : text.contains { !$0.isWhitespace && $0 != picture }
+        kind == .reply ? text.contains { !$0.isWhitespace } : text.unicodeScalars.contains { written.contains($0) }
     }
 
     /// `holdsWords` as a set, for a search in the text without copying it.
     static func words(writing kind: WriteKind) -> CharacterSet {
-        kind == .reply ? notBlank : notBlankOrPicture
+        kind == .reply ? notBlank : written
     }
 
-    private static let picture = Character(WriteAsk.pictureCharacter)
     private static let notBlank = CharacterSet.whitespacesAndNewlines.inverted
-    private static let notBlankOrPicture = CharacterSet.whitespacesAndNewlines
-        .union(CharacterSet(charactersIn: WriteAsk.pictureCharacter)).inverted
+    private static let written = CharacterSet.whitespacesAndNewlines
+        .union(CharacterSet(charactersIn: WriteAsk.pictureCharacter))
+        .union(AIRedactor.invisibleCharacters).inverted
 
     /// The selection moved (a click, the arrows, a drag let go): the ghost goes until the next pause, the pill follows the
     /// selection once it has settled, and the open prompt's placeholder follows what ⌘J would rewrite.
@@ -519,8 +522,9 @@ final class WriteSession {
 
     /// Where a draft of the whole message goes: the user's own text, which it replaces. In a new message or a forward
     /// whose own text holds pictures and no words, only the blanks before the first picture: the draft goes above the
-    /// pictures, an empty line between them (`start`), and every picture stays where it was (§5.56). Notes beside a
-    /// picture are replaced with it, as in a reply, whose field is written over whole as it always was.
+    /// pictures, an empty line between them, and every picture stays where it was (§5.56). Over notes beside pictures
+    /// the draft takes the whole own text and brings its pictures back after it (`picturesKept(after:attributes:)`).
+    /// A reply's field is written over whole, as it always was.
     private var wholeDraftRange: NSRange {
         let own = field.ownTextRange
         let kind = field.writeKind
@@ -530,6 +534,43 @@ final class WriteSession {
         let picture = text.range(of: WriteAsk.pictureCharacter, options: .literal, range: own)
         guard picture.location != NSNotFound else { return own }
         return NSRange(location: own.location, length: picture.location - own.location)
+    }
+
+    /// What a whole draft of a new message or a forward written over `range` (`wholeDraftRange`) brings after it, in
+    /// `attributes`, so it never takes a picture away: the model never sees one (`WriteAsk.withoutPictures`), and a draft
+    /// that dropped it would say nothing of it. Above pictures alone, an empty line: they stay where they are. Over notes
+    /// beside pictures, an empty line, then each picture the notes held, in order and as it was (its attachment, its
+    /// style): two that stood apart with only blanks between keep those blanks, and two with words between go on lines
+    /// of their own. The draft takes the words' place; its one undo step puts `range` back exactly as it was. Empty
+    /// where there is no picture.
+    private func picturesKept(after range: NSRange, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        guard let storage = textView.textStorage, NSMaxRange(range) <= storage.length else { return NSAttributedString() }
+        let text = storage.string as NSString
+        let gap = NSAttributedString(string: "\n\n", attributes: attributes)
+        if NSMaxRange(range) < text.length, text.character(at: NSMaxRange(range)) == 0xFFFC { return gap }
+        let kind = field.writeKind
+        let kept = NSMutableAttributedString()
+        var previous: NSRange?
+        var from = range.location
+        while from < NSMaxRange(range) {
+            let picture = text.range(of: WriteAsk.pictureCharacter, options: .literal,
+                                     range: NSRange(location: from, length: NSMaxRange(range) - from))
+            guard picture.location != NSNotFound else { break }
+            if let previous {
+                let between = NSRange(location: NSMaxRange(previous), length: picture.location - NSMaxRange(previous))
+                if Self.holdsWords(text.substring(with: between), writing: kind) {
+                    kept.append(NSAttributedString(string: "\n", attributes: attributes))
+                } else {
+                    kept.append(storage.attributedSubstring(from: between))
+                }
+            }
+            kept.append(storage.attributedSubstring(from: picture))
+            previous = picture
+            from = NSMaxRange(picture)
+        }
+        guard kept.length > 0 else { return NSAttributedString() }
+        kept.insert(gap, at: 0)
+        return kept
     }
 
     /// Whether a write with `instruction` would have nothing to write from (`WriteKind.hasNothingToWriteFrom`): no
@@ -726,12 +767,10 @@ final class WriteSession {
         proposedSubject = nil
         lastDraft = nil
         running = Running(ask: ask, isRewrite: isRewrite, kind: kind, wantsSubject: wantsSubject, brief: brief)
-        // A whole draft that goes above a picture (`wholeDraftRange`) keeps an empty line between them.
-        let text = textView.string as NSString
-        let abovePicture = !isRewrite && kind != .reply && NSMaxRange(range) < text.length
-            && text.character(at: NSMaxRange(range)) == 0xFFFC
-        edit = WriteStreamEdit(textView: textView, range: range, attributes: field.writeAttributes(at: range), showing: previous,
-                               trailing: abovePicture ? "\n\n" : "")
+        // A whole draft in a new message or a forward never takes a picture away: what it keeps follows it.
+        let attributes = field.writeAttributes(at: range)
+        let trailing = isRewrite || kind == .reply ? NSAttributedString() : picturesKept(after: range, attributes: attributes)
+        edit = WriteStreamEdit(textView: textView, range: range, attributes: attributes, showing: previous, trailing: trailing)
         field.streamDidUpdate()
         field.refusesEdits = true
         field.setHeldOpen(true)

@@ -53,14 +53,22 @@ public struct AIRedactor: Sendable {
     }
 
     static func isInvisible(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar.value {
-        case 0x00AD, 0x034F, 0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B...0x180F, 0x200B...0x200F, 0x202A...0x202E,
-             0x2060...0x2064, 0x2066...0x206F, 0x3164, 0xFE00...0xFE0F, 0xFEFF, 0xFFA0, 0xE0000...0xE007F, 0xE0100...0xE01EF:
-            return true
-        default:
-            return false
-        }
+        // Everything below the soft hyphen, the first of them, is seen: most text never reaches the set.
+        scalar.value >= 0x00AD && invisibleCharacters.contains(scalar)
     }
+
+    /// The characters `removingInvisibleCharacters` takes out, as a set: a field can then search its text for anything
+    /// else without copying it, and read a body of invisible marks as the blank one a request makes of it (Help Me
+    /// Write's ghost and ⌘J in a new message, which must agree with `WriteKind.hasNothingToWriteFrom`).
+    public static let invisibleCharacters: CharacterSet = {
+        let ranges: [ClosedRange<Unicode.Scalar>] = [
+            "\u{00AD}"..."\u{00AD}", "\u{034F}"..."\u{034F}", "\u{061C}"..."\u{061C}", "\u{115F}"..."\u{1160}",
+            "\u{17B4}"..."\u{17B5}", "\u{180B}"..."\u{180F}", "\u{200B}"..."\u{200F}", "\u{202A}"..."\u{202E}",
+            "\u{2060}"..."\u{2064}", "\u{2066}"..."\u{206F}", "\u{3164}"..."\u{3164}", "\u{FE00}"..."\u{FE0F}",
+            "\u{FEFF}"..."\u{FEFF}", "\u{FFA0}"..."\u{FFA0}", "\u{E0000}"..."\u{E007F}", "\u{E0100}"..."\u{E01EF}",
+        ]
+        return ranges.reduce(into: CharacterSet()) { $0.insert(charactersIn: $1) }
+    }()
 
     // MARK: Links
 

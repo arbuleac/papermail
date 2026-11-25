@@ -32,17 +32,18 @@ final class WriteStreamEdit {
     private(set) var wasDisturbed = false
     /// The undo manager whose registration this edit turned off, so the same one is turned back on.
     private var silencedUndo: UndoManager?
-    /// Written after the reply as part of it, in its style: the empty line between a draft and the picture it goes above
-    /// (a new message's or a forward's body that holds pictures and no words). Empty for every other write.
-    let trailing: String
-    private var trailingLength: Int { (trailing as NSString).length }
+    /// Written after the reply as part of it, as given: in a new message or a forward, the empty line between a draft and
+    /// the pictures it goes above, or that and the pictures of the notes it replaces, so a draft never takes a picture
+    /// away (`WriteSession.picturesKept(after:attributes:)`). Empty for every other write.
+    let trailing: NSAttributedString
+    private var trailingLength: Int { trailing.length }
 
     /// `previous`, when given, is shown in pencil in place of `range` until the first words arrive: Try again keeps the
     /// draft it replaces in sight rather than flashing the notes back. Without it, what `range` holds (the notes, the
     /// selection) turns to pencil where it is until then, its own style kept: it is what the reply will take the place of,
     /// and the pencil mark waits after it (§5.56).
     init(textView: NSTextView, range: NSRange, attributes: [NSAttributedString.Key: Any], showing previous: String? = nil,
-         trailing: String = "") {
+         trailing: NSAttributedString = NSAttributedString()) {
         self.textView = textView
         self.trailing = trailing
         let length = textView.textStorage?.length ?? 0
@@ -60,9 +61,9 @@ final class WriteStreamEdit {
         if let previous, !previous.isEmpty, let storage = textView.textStorage {
             silenceUndo()
             storage.beginEditing()
-            storage.replaceCharacters(in: safe, with: NSAttributedString(string: previous + trailing, attributes: pencilAttributes))
+            storage.replaceCharacters(in: safe, with: penciled(previous))
             storage.endEditing()
-            self.range = NSRange(location: safe.location, length: (previous as NSString).length + (trailing as NSString).length)
+            self.range = NSRange(location: safe.location, length: (previous as NSString).length + trailingLength)
             holdsPrevious = true
             wroteStorage = true
         } else if safe.length > 0, let manager = textView.layoutManager {
@@ -77,6 +78,13 @@ final class WriteStreamEdit {
     /// Where the text the stream has put in ends, before `trailing`: the pencil mark waits there.
     var textEnd: Int {
         wroteStorage ? NSMaxRange(range) - trailingLength : NSMaxRange(range)
+    }
+
+    /// `text` in pencil, then `trailing` as given.
+    private func penciled(_ text: String) -> NSAttributedString {
+        let whole = NSMutableAttributedString(string: text, attributes: pencilAttributes)
+        whole.append(trailing)
+        return whole
     }
 
     /// Pencil: the colour token `layout.writeCaret.pencilInk` names (`ink2`).
@@ -112,7 +120,7 @@ final class WriteStreamEdit {
             let added = NSAttributedString(string: now.substring(from: before.length), attributes: pencilAttributes)
             storage.insert(added, at: NSMaxRange(range) - trailingLength)
         } else {
-            storage.replaceCharacters(in: range, with: NSAttributedString(string: text + trailing, attributes: pencilAttributes))
+            storage.replaceCharacters(in: range, with: penciled(text))
         }
         holdsPrevious = false
         wroteStorage = true
@@ -137,8 +145,9 @@ final class WriteStreamEdit {
         guard !isFinished else { return false }
         restoreOriginal()
         isFinished = true
-        let replacement = text + trailing
-        let inserted = NSAttributedString(string: replacement, attributes: attributes)
+        let inserted = NSMutableAttributedString(string: text, attributes: attributes)
+        inserted.append(trailing)
+        let replacement = inserted.string
         guard !wasDisturbed else { return false }
         // The owner's answer first (it refuses while it holds edits), so a refused change leaves no step behind.
         let allowed = textView.isEditable

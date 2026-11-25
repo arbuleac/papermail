@@ -159,6 +159,29 @@ final class AIRedactorTests: XCTestCase {
         XCTAssertEqual(AIRedactor.removingInvisibleCharacters("so\u{00AD}ft"), "soft")
     }
 
+    /// The set a field searches its text with is exactly the characters the redactor takes out: zero-width,
+    /// bidirectional-control, tag and variation-selector characters and the like, and nothing beside them.
+    func testTheInvisibleCharactersAreOneSet() {
+        func listed(_ value: UInt32) -> Bool {
+            switch value {
+            case 0x00AD, 0x034F, 0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B...0x180F, 0x200B...0x200F, 0x202A...0x202E,
+                 0x2060...0x2064, 0x2066...0x206F, 0x3164, 0xFE00...0xFE0F, 0xFEFF, 0xFFA0, 0xE0000...0xE007F, 0xE0100...0xE01EF:
+                return true
+            default:
+                return false
+            }
+        }
+        var mismatches: [UInt32] = []
+        for value in UInt32(0)...0xE01FF {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            if AIRedactor.invisibleCharacters.contains(scalar) != listed(value) || AIRedactor.isInvisible(scalar) != listed(value) {
+                mismatches.append(value)
+            }
+        }
+        XCTAssertEqual(mismatches, [])
+        XCTAssertFalse(AIRedactor.invisibleCharacters.contains("\u{10FFFD}"))
+    }
+
     func testPlainTextIsUntouched() {
         let text = "Thanks, Thursday works. Shall we say 1pm at the café? — Priya 🙂"
         XCTAssertEqual(redactor.redact(text), text)

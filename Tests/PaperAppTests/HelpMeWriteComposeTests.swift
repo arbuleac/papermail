@@ -310,8 +310,9 @@ final class HelpMeWriteComposeTests: XCTestCase {
     /// A picture holds no words. A new message whose body is pictures alone has nothing to write from: its ghost says
     /// what ⌘J does there, ⌘J opens the prompt line and sends nothing, and a selection of the picture alone is none. The
     /// draft written from what is said there goes above the picture, an empty line between, and the picture stays; ⌘Z
-    /// takes the draft back and leaves the picture. Words beside a picture are notes, which the draft replaces with it,
-    /// as in a reply. A forward of pictures alone is written from its forwarded message, above them too.
+    /// takes the draft back and leaves the picture. Words beside a picture are notes, whose place the draft takes, the
+    /// picture kept after it; an invisible mark beside one is no word. A forward of pictures alone is written from its
+    /// forwarded message, above them too.
     func testABodyOfPicturesAloneIsNothingToWriteFromAndKeepsItsPicture() throws {
         let (harness, script) = try harness(reply: lunch)
         defer { harness.close() }
@@ -370,7 +371,8 @@ final class HelpMeWriteComposeTests: XCTestCase {
         script.holdsAfter = nil
         XCTAssertEqual(composer.bodyText, "\u{FFFC}")
 
-        // Words beside the picture are notes: sent without it, and the draft replaces them and it, one ⌘Z away.
+        // Words beside the picture are notes: sent without it, and the draft takes the words' place with the picture
+        // after it, an empty line between (`testADraftOverNotesBesidePicturesKeepsEveryPicture`), one ⌘Z away.
         composer.bodyEditor.insertText("numbers below ", replacementRange: NSRange(location: 0, length: 0))
         XCTAssertEqual(session.plan, .fromNotes)
         let sent = script.requests.count
@@ -379,10 +381,49 @@ final class HelpMeWriteComposeTests: XCTestCase {
         let notes = try XCTUnwrap(script.requests.last)
         XCTAssertTrue(notes.task.contains("numbers below"))
         XCTAssertFalse(notes.userTurn.contains("\u{FFFC}"))
-        XCTAssertEqual(composer.bodyText, lunchBody)
+        XCTAssertEqual(composer.bodyText, lunchBody + "\n\n\u{FFFC}", "the draft keeps the picture")
+        XCTAssertEqual(ComposeInlineImages.pictures(in: composer.contents.body).count, 1)
         composer.window?.undoManager?.undo()
         XCTAssertEqual(composer.bodyText, "numbers below \u{FFFC}")
+        XCTAssertEqual(ComposeInlineImages.pictures(in: composer.contents.body).count, 1)
         composer.closeWithoutSaving()
+
+        // An invisible mark beside a picture (a byte-order mark a paste left, a right-to-left mark) is no word either,
+        // as the request reads it: the ghost and the plan agree that there is nothing to write from, the draft goes
+        // above the picture in the mark's place, and the instruction it was written from stays its brief.
+        let brief = "ask Priya for the Q3 numbers in the chart"
+        for mark in ["\u{FEFF}", "\u{200F}", "\u{2060}"] {
+            let marked = newMessage(harness, link: MailtoLink(to: [priya]))
+            let writing = try self.session(marked)
+            marked.bodyEditor.insertText(mark, replacementRange: NSRange(location: 0, length: 0))
+            pastePicture(in: marked)
+            XCTAssertEqual(marked.bodyText, mark + "\u{FFFC}")
+            writing.refresh()
+            XCTAssertEqual(writing.plan, .askWhat, mark.debugDescription)
+            XCTAssertEqual(marked.bodyWriteLayer.state.ghost?.words, "to say what to write", "the ghost says what ⌘J does")
+            let before = script.requests.count
+            commandJ(marked)
+            XCTAssertTrue(writing.isPromptShown, "⌘J asks what to write")
+            pressReturn(in: marked)
+            ListTestSupport.spin(for: 0.1)
+            XCTAssertEqual(script.requests.count, before, "nothing is sent for a mark, a picture and a name")
+            say(brief, in: marked)
+            until({ writing.phase == .written && script.requests.count == before + 1 })
+            XCTAssertEqual(task(script.requests[before]), "Write my message from this brief:\n\(brief)")
+            XCTAssertEqual(marked.bodyText, lunchBody + "\n\n\u{FFFC}", "above the picture, in the mark's place")
+            XCTAssertEqual(ComposeInlineImages.pictures(in: marked.contents.body).count, 1)
+            press(.shorter, in: marked)
+            until({ writing.phase == .written && script.requests.count == before + 2 })
+            XCTAssertTrue(script.requests[before + 1].task.contains(brief), "Shorter is asked on top of the brief")
+            XCTAssertTrue(script.requests[before + 1].task.hasSuffix("Write my message from these notes. Shorter"))
+            XCTAssertEqual(marked.bodyText, lunchBody + "\n\n\u{FFFC}")
+            marked.window?.undoManager?.undo()
+            XCTAssertEqual(marked.bodyText, mark + "\u{FFFC}")
+            commandJ(marked)
+            XCTAssertTrue(writing.isPromptShown)
+            XCTAssertEqual(marked.bodyWriteLayer.prompt.instruction, brief, "after ⌘Z, ⌘J offers the brief again")
+            marked.closeWithoutSaving()
+        }
 
         // A forward of pictures alone writes from its forwarded message, above them.
         script.reply = "Hi Priya,\n\nForwarding the venue's note."
@@ -404,12 +445,176 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertFalse(forwarded.task.contains("NOTES"), "from the forwarded message alone")
         XCTAssertEqual(forwarding.bodyText, "Hi Priya,\n\nForwarding the venue's note.\n\n" + own)
 
-        // A reply reads a picture as it always did: as notes.
+        // A reply reads a picture as it always did: as notes, which its draft replaces whole.
         let reply = present(.reply(MessageID(accountID: a.id, providerID: "msg-2-2"), all: false), harness)
         let replying = try self.session(reply)
         reply.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
         pastePicture(in: reply)
         XCTAssertEqual(replying.plan, .fromNotes)
+        let replied = script.requests.count
+        commandJ(reply)
+        until({ replying.phase == .written && script.requests.count == replied + 1 })
+        XCTAssertEqual(script.requests.last?.kind, .reply)
+        XCTAssertTrue(ComposeInlineImages.pictures(in: reply.contents.body).isEmpty, "a reply's field is written over whole")
+    }
+
+    /// A draft of the whole message written over notes beside pictures never takes a picture away: the model never sees
+    /// one, so the draft takes the words' place and the pictures follow it, an empty line between, in their order and
+    /// as they were. ⌘Z puts the notes back with every picture where it was, ⇧⌘Z the draft with them; Try again and Stop
+    /// keep them, and so does a draft written above a picture, edited, then written again.
+    func testADraftOverNotesBesidePicturesKeepsEveryPicture() throws {
+        let (harness, script) = try harness(reply: lunch)
+        defer { harness.close() }
+        let composer = newMessage(harness, link: MailtoLink(to: [priya]))
+        let session = try session(composer)
+        let editor = composer.bodyEditor
+        let notes = "crash on login, see below"
+        editor.insertText(notes + "\n\n", replacementRange: NSRange(location: 0, length: 0))
+        editor.setSelectedRange(NSRange(location: (notes as NSString).length + 2, length: 0))
+        pastePicture(in: composer)
+        let body = notes + "\n\n\u{FFFC}"
+        XCTAssertEqual(composer.bodyText, body)
+        /// The pictures in a body, by content id, in order.
+        func pictures(_ composer: ComposeWindowController) -> [String] {
+            ComposeInlineImages.pictures(in: composer.contents.body).map(\.inlineImage.contentID)
+        }
+        let picture = pictures(composer)
+        XCTAssertEqual(picture.count, 1)
+
+        // ⇧⌘J and an instruction: the notes go without the picture, and the draft keeps it.
+        composer.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(session.isPromptShown)
+        say("write this up for Ben", in: composer)
+        until({ session.phase == .written && script.requests.count == 1 })
+        let request = try XCTUnwrap(script.requests.first)
+        XCTAssertTrue(request.task.contains(notes))
+        XCTAssertTrue(request.task.hasSuffix("write this up for Ben"))
+        XCTAssertFalse(request.userTurn.contains("\u{FFFC}"), "a picture is never sent")
+        let drafted = lunchBody + "\n\n\u{FFFC}"
+        XCTAssertEqual(composer.bodyText, drafted, "the draft in the notes' place, the picture after it")
+        XCTAssertEqual(pictures(composer), picture, "the same picture, not a copy")
+        XCTAssertEqual(composer.subjectText, "Lunch on Thursday?")
+        guard case .afterline(.end(let end), .written)? = composer.bodyWriteLayer.state.block else {
+            return XCTFail("the afterline under the draft")
+        }
+        XCTAssertEqual(end, (lunchBody as NSString).length, "after the draft's last word")
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: (lunchBody as NSString).length, length: 0))
+
+        // One step: ⌘Z brings the notes back with the picture where it was, ⇧⌘Z the draft with it.
+        XCTAssertEqual(editor.undoManager?.undoMenuItemTitle, "Undo Help Me Write")
+        editor.undoManager?.undo()
+        XCTAssertEqual(composer.bodyText, body)
+        XCTAssertEqual(pictures(composer), picture)
+        XCTAssertEqual(composer.subjectText, "")
+        editor.undoManager?.redo()
+        XCTAssertEqual(composer.bodyText, drafted)
+        XCTAssertEqual(pictures(composer), picture)
+
+        // Try again writes from the same notes, and keeps the picture.
+        commandJ(composer)
+        until({ session.phase == .written && script.requests.count == 2 })
+        XCTAssertEqual(task(script.requests[1]), task(request))
+        XCTAssertEqual(composer.bodyText, drafted)
+        XCTAssertEqual(pictures(composer), picture)
+
+        // Stop mid-write: the field as it was before the write, picture and all. (Try again shows the draft it replaces
+        // until the first words come.)
+        script.holdsAfter = 2
+        commandJ(composer)
+        until({ session.phase == .writing && composer.bodyText != drafted && composer.bodyText.hasPrefix("Hi Priya,\n\nAre ") })
+        XCTAssertTrue(composer.bodyText.hasSuffix(" \n\n\u{FFFC}"), composer.bodyText.debugDescription)
+        XCTAssertEqual(pictures(composer), picture)
+        session.stop()
+        script.holdsAfter = nil
+        XCTAssertEqual(composer.bodyText, body)
+        XCTAssertEqual(pictures(composer), picture)
+        composer.closeWithoutSaving()
+
+        // Several pictures keep their order: two that stood apart with blanks between keep the blanks, two with words
+        // between go on lines of their own, and two side by side stay so.
+        let several = newMessage(harness, link: MailtoLink(to: [priya]))
+        let writing = try self.session(several)
+        for part in ["see ", "\u{FFFC}", " and ", "\u{FFFC}", "\u{FFFC}", "\n", "\u{FFFC}"] {
+            if part == "\u{FFFC}" {
+                pastePicture(in: several)
+            } else {
+                several.bodyEditor.insertText(part, replacementRange: several.bodyEditor.selectedRange())
+            }
+        }
+        XCTAssertEqual(several.bodyText, "see \u{FFFC} and \u{FFFC}\u{FFFC}\n\u{FFFC}")
+        let four = pictures(several)
+        XCTAssertEqual(four.count, 4)
+        XCTAssertEqual(writing.plan, .fromNotes)
+        var sent = script.requests.count
+        commandJ(several)
+        until({ writing.phase == .written && script.requests.count == sent + 1 })
+        XCTAssertEqual(several.bodyText, lunchBody + "\n\n\u{FFFC}\n\u{FFFC}\u{FFFC}\n\u{FFFC}")
+        XCTAssertEqual(pictures(several), four)
+        several.window?.undoManager?.undo()
+        XCTAssertEqual(several.bodyText, "see \u{FFFC} and \u{FFFC}\u{FFFC}\n\u{FFFC}")
+        XCTAssertEqual(pictures(several), four)
+        several.closeWithoutSaving()
+
+        // A draft written above a picture, then edited and written again from what it says now: the picture stays.
+        let above = newMessage(harness, link: MailtoLink(to: [priya]))
+        let again = try self.session(above)
+        pastePicture(in: above)
+        sent = script.requests.count
+        try write("ask Priya for the Q3 numbers in the chart", in: above)
+        until({ again.phase == .written && script.requests.count == sent + 1 })
+        XCTAssertEqual(above.bodyText, lunchBody + "\n\n\u{FFFC}")
+        let kept = pictures(above)
+        let thursday = (above.bodyText as NSString).range(of: "Thursday")
+        above.bodyEditor.insertText("Friday", replacementRange: thursday)
+        XCTAssertEqual(again.plan, .fromNotes, "the edited draft is the user's notes now")
+        sent = script.requests.count
+        commandJ(above)
+        until({ again.phase == .written && script.requests.count == sent + 1 })
+        let edited = try XCTUnwrap(script.requests.last)
+        XCTAssertTrue(edited.task.contains("lunch on Friday?"))
+        XCTAssertFalse(edited.userTurn.contains("\u{FFFC}"))
+        XCTAssertEqual(above.bodyText, lunchBody + "\n\n\u{FFFC}", "the picture the first draft kept, kept again")
+        XCTAssertEqual(pictures(above), kept)
+        above.closeWithoutSaving()
+
+        // A forward's notes beside a picture: the same.
+        script.reply = "Hi Priya,\n\nForwarding the venue's note."
+        let forwarding = try forward(harness)
+        let forwardWriting = try self.session(forwarding)
+        forwarding.bodyEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        forwarding.bodyEditor.insertText("fyi ", replacementRange: NSRange(location: 0, length: 0))
+        pastePicture(in: forwarding)
+        XCTAssertTrue(forwarding.bodyText.hasPrefix("fyi \u{FFFC}"))
+        XCTAssertEqual(forwardWriting.plan, .fromNotes)
+        sent = script.requests.count
+        commandJ(forwarding)
+        until({ forwardWriting.phase == .written && script.requests.count == sent + 1 })
+        XCTAssertEqual(script.requests.last?.kind, .forward)
+        XCTAssertFalse(script.requests.last?.userTurn.contains("\u{FFFC}") ?? true)
+        XCTAssertTrue(forwarding.bodyText.hasPrefix("Hi Priya,\n\nForwarding the venue's note.\n\n\u{FFFC}"),
+                      forwarding.bodyText.debugDescription)
+        XCTAssertEqual(ComposeInlineImages.pictures(in: forwarding.contents.body).count, 1)
+    }
+
+    /// The session reads a new message's or a forward's body as the request would: it holds words exactly where notes
+    /// of that text are something to write from (`WriteKind.hasNothingToWriteFrom`), so blanks, pictures and invisible
+    /// marks alone are none, and the set it searches the text with finds a word exactly then. A reply's field reads a
+    /// picture and a mark as it always did.
+    func testTheSessionReadsABodyAsItsRequestWould() {
+        let samples = ["", " \n\t", "\u{FFFC}", "\u{FFFC} \u{FFFC}", "\u{FEFF}\u{FFFC}", "\u{200F}\u{FFFC}\u{200F}", "\u{00AD}",
+                       "\u{2060}", "\u{200B}", "\u{FFFC}\u{FE0F}", "\u{E0041}\u{FFFC}", "a", "\u{FFFC}b", "lunch\u{FEFF}",
+                       "\u{0301}", "\u{1F642}", "\u{05E9}\u{200F}"]
+        for text in samples {
+            let holds = WriteSession.holdsWords(text, writing: .newMessage)
+            XCTAssertEqual(holds, !WriteKind.newMessage.hasNothingToWriteFrom(WriteAsk(draft: .notes(text))), text.debugDescription)
+            let found = (text as NSString).rangeOfCharacter(from: WriteSession.words(writing: .newMessage)).location != NSNotFound
+            XCTAssertEqual(found, holds, text.debugDescription)
+            XCTAssertEqual(WriteSession.holdsWords(text, writing: .forward), holds, text.debugDescription)
+        }
+        for text in ["\u{FFFC}", "\u{FEFF}", "\u{200F}", "\u{FFFC}\u{FE0F}"] {
+            XCTAssertTrue(WriteSession.holdsWords(text, writing: .reply), text.debugDescription)
+        }
+        XCTAssertFalse(WriteSession.holdsWords(" \n", writing: .reply))
     }
 
     /// Esc with the prompt line open on an empty new message closes the line and gives the keyboard back to the body,

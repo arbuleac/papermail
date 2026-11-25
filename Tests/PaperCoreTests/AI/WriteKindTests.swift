@@ -96,6 +96,13 @@ final class WriteKindTests: XCTestCase {
                        WriteAsk(instruction: "\u{FFFC}", draft: .notes("ab")), "only the notes or the selection hold pictures")
         XCTAssertEqual(WriteAsk(draft: .selection("\u{FFFC}x")).withoutPictures, WriteAsk(draft: .selection("x")))
         XCTAssertEqual(WriteAsk().withoutPictures, WriteAsk())
+        // Each attachment character goes, also one a mark joins, which a search by what the user sees would miss; and
+        // invisible marks beside pictures say nothing either.
+        XCTAssertEqual(WriteAsk(draft: .notes("\u{FFFC}\u{FE0F}")).withoutPictures, WriteAsk(draft: .notes("\u{FE0F}")))
+        for marked in ["\u{FFFC}\u{FE0F}", "\u{FEFF}\u{FFFC}", "\u{200F}\u{FFFC}\u{200F}", "\u{E0041}\u{FFFC}", "\u{2060}"] {
+            XCTAssertTrue(kind.hasNothingToWriteFrom(WriteAsk(draft: .notes(marked))), marked.debugDescription)
+        }
+        XCTAssertFalse(kind.hasNothingToWriteFrom(WriteAsk(draft: .notes("\u{FFFC}\u{0301}"))), "a mark that is seen is something")
         for other in [WriteKind.reply, .forward] {
             XCTAssertFalse(other.hasNothingToWriteFrom(WriteAsk(draft: .notes("\u{FFFC}"))), "\(other)")
         }
