@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The `MailClient` the app talks to: one `AccountSyncer` (a live lane and a backfill lane, and a calendar lane for a
 /// provider with a calendar) and one `QuotaBudget` per account, a shared `SendRunner` and `SnoozeRunner`, the attachment
@@ -28,6 +29,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     /// The Keep mail window and the bodies kept whole for this run, read by the sweeper and the hydrators.
     private let keepMail = KeepMailState()
     private let stateLock = NSLock()
+    /// When each event's details were last asked for, so a card opened again and again asks once a minute at most.
+    private let detailsAsks = OSAllocatedUnfairLock<[String: Date]>(initialState: [:])
     private var running = false
     private var appActive = true
 
@@ -786,6 +789,23 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         for context in targets {
             context.syncer.refreshCalendar(covering: interval)
         }
+    }
+
+    public func readCalendarEventDetails(eventID: String) {
+        guard let event = try? store.calendarEvent(id: eventID), event.sync == .synced, event.providerID != nil,
+              !event.isSetAside else { return }
+        // On the calendar lane's clock, which dates what it reads.
+        let now = tuning.calendarClock.now()
+        if let stored = try? store.calendarEventDetails(id: eventID), stored.version == event.version,
+           now.timeIntervalSince(stored.readAt) < tuning.calendarDetailsFresh { return }
+        let interval = tuning.calendarDetailsAskInterval
+        let asked = detailsAsks.withLock { asks -> Bool in
+            if let last = asks[eventID], now.timeIntervalSince(last) < interval { return false }
+            asks[eventID] = now
+            return true
+        }
+        guard asked else { return }
+        registry.context(for: event.accountID)?.syncer.readCalendarDetails(eventID)
     }
 
     /// The reconnect asks for the calendar scope on top of what the account holds, and the calendar is read once the

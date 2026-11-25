@@ -223,6 +223,89 @@ final class DemoCalendarTests: XCTestCase {
         XCTAssertEqual(events.first { $0.id == dinner.id }?.response, .tentative)
     }
 
+    /// Two invitations are on the calendars with no mail about them, so an answer given from an event's details shows.
+    func testTheCalendarOnlyInvitationsHaveUIDsAndNoMail() async throws {
+        for (account, profile, title, uid) in [(gmail, DemoProfile.gmail, "Neighbourhood clean-up", DemoCalendar.cleanupUID),
+                                               (outlook, DemoProfile.outlook, "Quarterly planning", DemoCalendar.planningUID)] {
+            let listed = try await events(account)
+            let event = try XCTUnwrap(listed.first { $0.title == title }, title)
+            XCTAssertEqual(event.invitationUID, uid)
+            XCTAssertEqual(event.response, .needsAction)
+            XCTAssertNotNil(event.organizer)
+            let mailed = DemoInvitations.invitations(for: profile, reference: reference)
+                .compactMap { CalendarInvitationReader.invitation(fromICS: $0.calendar, userAddresses: [profile.email]) }
+            XCTAssertFalse(mailed.contains { $0.uid == uid }, "\(title): no mail carries it")
+        }
+    }
+
+    func testSeriesZonesKindsAndCallsAreThereAsTheProvidersSayThem() async throws {
+        let personal = try await events(gmail)
+        let pottery = personal.filter { $0.title == "Pottery class" }
+        XCTAssertEqual(Set(pottery.map(\.seriesID)), ["demopottery"])
+        XCTAssertEqual(pottery.first?.timeZone, "Europe/Berlin")
+        XCTAssertEqual(pottery.first?.originalStart, pottery.first?.start)
+        let priya = try XCTUnwrap(personal.first { $0.title == "Call with Priya: Lisbon plans" })
+        XCTAssertEqual(priya.callService, .meet)
+        XCTAssertEqual(priya.timeZone, "Europe/Lisbon")
+
+        let work = try await events(outlook)
+        XCTAssertEqual(Set(work.filter { $0.title == "Design critique" }.map(\.seriesID)), ["AAMkADemoSeries-critique"])
+        XCTAssertEqual(Set(work.filter { $0.title == "Standup" }.map(\.seriesID)), ["AAMkADemoSeries-standup"])
+        XCTAssertEqual(work.first { $0.title == "Design critique" }?.callService, .teams)
+        XCTAssertEqual(work.first { $0.title == "Design critique" }?.timeZone, "America/Los_Angeles")
+        XCTAssertTrue(work.filter { $0.title == "Focus time" }.allSatisfy { $0.kind == .focusTime && $0.isFree })
+        XCTAssertTrue(work.allSatisfy { $0.version == "demo-1" })
+    }
+
+    /// The demo's details come through the same notes and call-code readers the providers use.
+    func testTheSampleDetailsComeThroughTheReaders() async throws {
+        let service = service()
+        let gmailCalendar = try calendarProvider(gmail, in: service)
+        let outlookCalendar = try calendarProvider(outlook, in: service)
+        let facts = CalendarAccountFacts(email: DemoProfile.gmail.email)
+        func details(_ title: String, _ account: Account, _ provider: CalendarProvider) async throws -> CalendarEventDetails {
+            let listed = try await events(account, in: service)
+            let event = try XCTUnwrap(listed.first { $0.title == title }, title)
+            let read = try await provider.calendarEventDetails(providerID: try XCTUnwrap(event.providerID), seriesID: event.seriesID,
+                                                               knownRepeats: nil, account: facts)
+            return try XCTUnwrap(read).details
+        }
+        let dinner = try await details("Sam's birthday dinner", gmail, gmailCalendar)
+        XCTAssertEqual(dinner.organizer?.name, "Sam Okafor")
+        XCTAssertEqual(dinner.notes?.links.map(\.url), ["https://casalisboa.demo-gmail.test/menu"])
+        XCTAssertTrue(dinner.answersKnown)
+        XCTAssertEqual(dinner.guests.first?.isSelf, true)
+
+        let priya = try await details("Call with Priya: Lisbon plans", gmail, gmailCalendar)
+        XCTAssertEqual(priya.call?.phones.first?.number, "+1 555-0188")
+        XCTAssertEqual(priya.call?.morePhonesURL, "https://tel.meet.demo-gmail.test/lsb-trip-mar")
+
+        let critique = try await details("Design critique", outlook, outlookCalendar)
+        XCTAssertEqual(critique.call?.meetingID, "284 113 905 771", "lifted from the notes' Teams block")
+        XCTAssertEqual(critique.call?.passcode, "Qx7bTe")
+        XCTAssertEqual(critique.call?.pinLabel, .conferenceID)
+        XCTAssertFalse(critique.answersKnown)
+        XCTAssertTrue(critique.repeats?.hasPrefix("Every week on") ?? false, critique.repeats ?? "")
+        XCTAssertTrue(critique.notes?.text.hasPrefix("Weekly look at the reader and composer work.") ?? false)
+
+        let pottery = try await details("Pottery class", gmail, gmailCalendar)
+        XCTAssertTrue(pottery.repeats?.hasSuffix("10 times") ?? false, pottery.repeats ?? "")
+    }
+
+    func testAnAnswerWithNoMessageToASeriesReachesEveryOccurrence() async throws {
+        let service = service()
+        let provider = service.provider(for: outlook)
+        let calendarProvider = try calendarProvider(outlook, in: service)
+        var answer = InvitationAnswer(response: .accepted, uid: "", title: "Design critique", start: reference, end: reference,
+                                      organizer: DemoCatalog.rachel.email, attendee: DemoProfile.outlook.me)
+        answer.calendar = CalendarCopies(scope: .series(id: "AAMkADemoSeries-critique"), providerEventID: "AAMkADemoSeries-critique")
+        try await provider.apply(.answerInvitation(answer), to: [])
+        let events = try await calendarProvider.calendarEvents(in: CalendarWindow.around(reference, calendar: calendar)).events
+        let critiques = events.filter { $0.title == "Design critique" }
+        XCTAssertFalse(critiques.isEmpty)
+        XCTAssertTrue(critiques.allSatisfy { $0.response == .accepted })
+    }
+
     // MARK: Mail that names a time
 
     /// Each demo mailbox has a recent mail whose words name a time on a working day ahead, which the detector finds.

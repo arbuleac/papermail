@@ -97,4 +97,22 @@ final class PlainTextRendererTests: XCTestCase {
         XCTAssertEqual(rendered.html, "")
         XCTAssertFalse(rendered.hasQuotedContent)
     }
+
+    /// The ranges an event's notes link are the https links `linkify` makes, nothing else.
+    func testLinkRangesAgreeWithLinkify() {
+        let samples = [
+            "See https://example.com/a?b=c, then (https://example.com/wiki/Foo_(bar)).",
+            "Plain http://example.com and HTTPS://EXAMPLE.COM/X and mail me@example.com",
+            "Nothing here at all", "https://", "x https://a.example/p. y",
+        ]
+        for text in samples {
+            let ranges = PlainTextRenderer.linkRanges(in: text).map { String(text[$0]) }
+            let html = PlainTextRenderer.linkify(text)
+            let linked = html.components(separatedBy: "<a href=\"").dropFirst()
+                .compactMap { $0.components(separatedBy: "\"").first }
+                .filter { $0.lowercased().hasPrefix("https://") }
+                .map { $0.replacingOccurrences(of: "&amp;", with: "&") }
+            XCTAssertEqual(ranges, linked, text)
+        }
+    }
 }

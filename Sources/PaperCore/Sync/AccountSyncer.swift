@@ -131,6 +131,11 @@ final class AccountSyncer: Sendable {
         calendar?.read(covering: interval)
     }
 
+    /// A card is open on the event: the calendar lane reads its details at its next chance.
+    func readCalendarDetails(_ eventID: String) {
+        calendar?.readDetails(eventID)
+    }
+
     /// Time set aside or removed on this Mac waits for the provider: the calendar lane sends it at its next chance.
     func sendCalendarWrites() {
         calendar?.wake(.operations)

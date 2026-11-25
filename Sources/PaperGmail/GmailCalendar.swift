@@ -66,6 +66,51 @@ extension GmailProvider: CalendarProvider {
         return CalendarListing(events: events, requestCount: pages)
     }
 
+    /// What an event's details read asks of it: no more than the card shows.
+    static let detailsFields = "id,etag,description,organizer(email,displayName,self),"
+        + "attendees(email,displayName,self,organizer,optional,resource,responseStatus),attendeesOmitted,guestsCanSeeOtherGuests,"
+        + "conferenceData(conferenceSolution(name,key/type),entryPoints(entryPointType,uri,label,pin,accessCode,meetingCode,"
+        + "passcode,password,regionCode)),recurringEventId,start"
+
+    /// One `events.get` of the event; with a series whose words are not known, one more of the series' `recurrence`.
+    /// Charged to nothing: the Calendar API's own quota.
+    public func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                                     account: CalendarAccountFacts) async throws -> CalendarDetailsRead? {
+        guard !providerID.isEmpty else { return nil }
+        let item: GoogleCalendarEvent
+        do {
+            let request = try GmailRequest.calendarEvents(Self.pathComponent(providerID), query: [
+                URLQueryItem(name: "prettyPrint", value: "false"),
+                URLQueryItem(name: "fields", value: Self.detailsFields),
+            ])
+            item = try GmailHTTPClient.decode(GoogleCalendarEvent.self, from: try await http.send(request, refusal: Self.calendarRefusal).data)
+        } catch ProviderError.notFound {
+            return nil
+        } catch ProviderError.server(410, _) {
+            return nil
+        }
+        var requests = 1
+        var repeats = knownRepeats
+        if repeats == nil, let series = item.recurringEventId ?? seriesID, !series.isEmpty {
+            requests += 1
+            do {
+                let request = try GmailRequest.calendarEvents(Self.pathComponent(series), query: [
+                    URLQueryItem(name: "prettyPrint", value: "false"),
+                    URLQueryItem(name: "fields", value: "recurrence,start"),
+                ])
+                let parent = try GmailHTTPClient.decode(GoogleCalendarSeries.self,
+                                                        from: try await http.send(request, refusal: Self.calendarRefusal).data)
+                repeats = GoogleCalendarDetailsMapper.repeats(from: parent, mapper: GoogleCalendarMapper(accountID: accountID),
+                                                              account: account)
+            } catch ProviderError.notFound {
+                repeats = "Repeats"
+            }
+        }
+        let details = GoogleCalendarDetailsMapper.details(from: item, repeats: repeats)
+        Self.calendarLog.debug("calendar details read in \(requests, privacy: .public) requests")
+        return CalendarDetailsRead(details: details, version: item.etag, requestCount: requests)
+    }
+
     /// The block is created under its client key as its id, so a create replayed after a lost reply answers 409 and
     /// the copy already made is read back instead of a second one made. The key also rides in a private extended
     /// property, which every read reports.

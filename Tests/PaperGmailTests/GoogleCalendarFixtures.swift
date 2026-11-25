@@ -347,4 +347,77 @@ enum GoogleCalendarFixtures {
 
     /// What the patch answers under `fields=id`.
     static let patchReply = #"{"id": "standup_20261119T080000Z"}"#
+
+    // MARK: Details (`events.get` with `GmailProvider.detailsFields`)
+
+    /// A Meet call with a dial-in, nine attendees (the user, the organizer, a room, an optional guest, every answer) and
+    /// an HTML description with formatting, an image, a link, a phone link and a script link.
+    static let eventDetailsMeet = #"""
+    {
+     "id": "standup_20261119T080000Z",
+     "etag": "\"3512345678901002\"",
+     "description": "<b>Agenda</b><br>Weekly status.<ul><li>Wins</li><li>Blockers</li></ul><img src=\"https://tracker.example.test/p.gif\"><a href=\"https://docs.example.test/notes\">Notes</a> <a href=\"tel:+15550100\">Call Erin</a> <a href=\"javascript:alert(1)\">Click</a>",
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [
+      {"email": "erin@contoso.test", "displayName": "Erin Park", "organizer": true, "responseStatus": "accepted"},
+      {"email": "ben@contoso.test", "displayName": "Ben Carter", "responseStatus": "accepted"},
+      {"email": "ada@example.com", "self": true, "responseStatus": "needsAction"},
+      {"email": "room4@resource.calendar.google.com", "displayName": "Room 4", "resource": true, "responseStatus": "accepted"},
+      {"email": "carol@fabrikam.test", "optional": true, "responseStatus": "tentative"},
+      {"email": "dan@northwind.test", "displayName": "Dan", "responseStatus": "declined"},
+      {"email": "fay@contoso.test", "responseStatus": "needsAction"},
+      {"email": "gus@contoso.test", "displayName": "Gus", "responseStatus": "accepted"},
+      {"email": "hal@contoso.test", "displayName": "Hal", "responseStatus": "accepted"}
+     ],
+     "guestsCanSeeOtherGuests": true,
+     "conferenceData": {
+      "conferenceSolution": {"name": "Google Meet", "key": {"type": "hangoutsMeet"}},
+      "entryPoints": [
+       {"entryPointType": "video", "uri": "https://meet.google.com/abc-defg-hij", "label": "meet.google.com/abc-defg-hij"},
+       {"entryPointType": "phone", "uri": "tel:+1-555-0188", "label": "+1 555-0188", "pin": "248913557", "regionCode": "US"},
+       {"entryPointType": "more", "uri": "https://tel.meet.example.test/abc-defg-hij?pin=248913557"}
+      ]
+     },
+     "recurringEventId": "standup",
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"}
+    }
+    """#
+
+    /// A Zoom add-on's conference: the meeting code and passcode on the video entry.
+    static let eventDetailsZoomAddOn = #"""
+    {
+     "id": "zoomcall0001",
+     "etag": "\"3512345678901003\"",
+     "organizer": {"email": "carol@fabrikam.test"},
+     "attendees": [{"email": "ada@example.com", "self": true, "responseStatus": "tentative"}],
+     "conferenceData": {
+      "conferenceSolution": {"name": "Zoom Meeting", "key": {"type": "addOn"}},
+      "entryPoints": [
+       {"entryPointType": "video", "uri": "https://us02web.zoom.us/j/81234567890", "meetingCode": "812 3456 7890", "passcode": "551902"}
+      ]
+     },
+     "start": {"dateTime": "2026-11-19T10:30:00-05:00"}
+    }
+    """#
+
+    /// The organizer hid the guest list.
+    static let eventDetailsHiddenGuests = #"""
+    {
+     "id": "hidden000001",
+     "etag": "\"3512345678901004\"",
+     "description": "Surprise party: Zoom at https://acme.zoom.us/j/999 and the gift list https://gifts.example.test/list",
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [{"email": "ada@example.com", "self": true, "responseStatus": "needsAction"}],
+     "guestsCanSeeOtherGuests": false,
+     "start": {"dateTime": "2026-11-21T18:00:00Z"}
+    }
+    """#
+
+    /// The series of the standup instances: weekly on Thursday, twelve times, one exception.
+    static let seriesParent = #"""
+    {
+     "recurrence": ["EXDATE;TZID=Europe/Berlin:20261126T090000", "RRULE:FREQ=WEEKLY;BYDAY=TH;COUNT=12"],
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"}
+    }
+    """#
 }

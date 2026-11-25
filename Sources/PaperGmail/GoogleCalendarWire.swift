@@ -105,6 +105,13 @@ struct GoogleCalendarEvent: Decodable, Sendable {
     var recurrence: [String]?
 }
 
+/// A series read for its rule alone (`fields=recurrence,start`): no id comes back.
+struct GoogleCalendarSeries: Decodable, Sendable {
+    var recurrence: [String]?
+    var start: GoogleCalendarEvent.Time?
+    var end: GoogleCalendarEvent.Time?
+}
+
 /// The body of `events.insert` for time set aside for a mail: busy and private, with no attendees (so Google mails
 /// nobody) and no reminders.
 struct GoogleCalendarEventInsert: Encodable, Sendable {

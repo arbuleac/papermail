@@ -89,6 +89,11 @@ extension DemoMailProvider: CalendarProvider {
     public func deleteCalendarEvent(providerID: String) async throws {
         mailbox.deleteCalendarEvent(providerID: providerID)
     }
+
+    public func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                                     account: CalendarAccountFacts) async throws -> CalendarDetailsRead? {
+        mailbox.calendarEventDetails(providerID: providerID)
+    }
 }
 
 /// The demo account's server rules (its made-up Gmail filters or Outlook inbox rules), served from its mailbox and kept in

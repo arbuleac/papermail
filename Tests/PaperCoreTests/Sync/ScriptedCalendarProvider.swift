@@ -64,6 +64,19 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
         set { locked { scriptedHoldDeletes = newValue } }
     }
 
+    /// One per details read, in order; nil lets that read through. Once empty every details read goes through.
+    var detailsResults: [Error?] {
+        get { locked { scriptedDetails } }
+        set { locked { scriptedDetails = newValue } }
+    }
+    /// The requests each details read reports.
+    var requestsPerDetails: Int {
+        get { locked { scriptedDetailsRequests } }
+        set { locked { scriptedDetailsRequests = newValue } }
+    }
+
+    private var scriptedDetails: [Error?] = []
+    private var scriptedDetailsRequests = 1
     private var scriptedGrant = true
     private var scriptedReads: [Error?] = []
     private var scriptedCreates: [CreateScript] = []
@@ -85,13 +98,14 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
     /// provider id.
     @discardableResult
     func seedEvent(_ title: String, start: Date, minutes: Double = 30, invitationUID: String? = nil,
-                   response: CalendarEvent.Response = .organizer, clientKey: String? = nil) -> String {
+                   response: CalendarEvent.Response = .organizer, clientKey: String? = nil, seriesID: String? = nil,
+                   version: String? = nil) -> String {
         locked {
             made += 1
             let providerID = "seed-\(made)"
             held.append(CalendarEvent(id: "", accountID: accountID, providerID: providerID, title: title, start: start,
                                       end: start.addingTimeInterval(minutes * 60), response: response,
-                                      invitationUID: invitationUID, clientKey: clientKey))
+                                      invitationUID: invitationUID, clientKey: clientKey, seriesID: seriesID, version: version))
             return providerID
         }
     }
@@ -104,6 +118,13 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
     }
 
     // MARK: Recordings
+
+    /// Every calendar call in order: "create", "delete", "read", "details <provider id>".
+    var calendarCalls: [String] { locked { recordedCalls } }
+    /// The details reads, with the words of the series they were handed.
+    var detailsCalls: [(providerID: String, knownRepeats: String?)] { locked { recordedDetails } }
+    private var recordedCalls: [String] = []
+    private var recordedDetails: [(providerID: String, knownRepeats: String?)] = []
 
     var calendarPermissionChecks: Int { locked { recordedCalendarPermissionChecks } }
     var readWindows: [DateInterval] { locked { recordedReads } }
@@ -125,7 +146,10 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
     }
 
     func calendarEvents(in window: DateInterval) async throws -> CalendarListing {
-        locked { recordedReads.append(window) }
+        locked {
+            recordedReads.append(window)
+            recordedCalls.append("read")
+        }
         while locked({ scriptedHoldReads }) {
             try await Task.sleep(for: .milliseconds(5))
         }
@@ -144,7 +168,10 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
     }
 
     func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent {
-        locked { recordedCreates.append(event) }
+        locked {
+            recordedCreates.append(event)
+            recordedCalls.append("create")
+        }
         while locked({ scriptedHoldCreates }) {
             try await Task.sleep(for: .milliseconds(5))
         }
@@ -179,6 +206,29 @@ final class ScriptedCalendarProvider: ScriptedProvider, CalendarProvider, @unche
         locked { held.removeAll { $0.providerID == providerID } }
         while locked({ scriptedHoldDeletes }) {
             try await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    /// The details the provider holds for an event: its words of the series, at the event's version.
+    func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                              account: CalendarAccountFacts) async throws -> CalendarDetailsRead? {
+        let (failure, event, requests): (Error?, CalendarEvent?, Int) = locked {
+            recordedCalls.append("details " + providerID)
+            recordedDetails.append((providerID, knownRepeats))
+            let failure = scriptedDetails.isEmpty ? nil : scriptedDetails.removeFirst()
+            return (failure, held.first { $0.providerID == providerID }, scriptedDetailsRequests)
+        }
+        if let failure { throw failure }
+        guard let event else { return nil }
+        let details = CalendarEventDetails(organizer: EmailAddress(name: "Erin", address: "erin@example.com"),
+                                           repeats: knownRepeats ?? (seriesID == nil ? nil : "Every week"))
+        return CalendarDetailsRead(details: details, version: event.version, requestCount: requests)
+    }
+
+    /// Changes the provider's copy, as an edit elsewhere does: its version moves on.
+    func edit(_ providerID: String, version: String) {
+        locked {
+            for index in held.indices where held[index].providerID == providerID { held[index].version = version }
         }
     }
 

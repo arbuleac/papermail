@@ -34,6 +34,48 @@ extension GraphProvider: CalendarProvider {
         }
     }
 
+    /// What an event's details read selects: the body as Graph gives it (HTML), the people, the call.
+    static let detailsSelect = "body,organizer,attendees,isOrganizer,hideAttendees,onlineMeeting,changeKey,seriesMasterId,type"
+
+    /// One GET of the event; with a series whose words are not known, one more of the series master's recurrence. Each is
+    /// live spend on the mailbox's quota, counted by the tally as a window read is.
+    public func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                                     account: CalendarAccountFacts) async throws -> CalendarDetailsRead? {
+        guard !providerID.isEmpty else { return nil }
+        do {
+            let (read, sent) = try await GraphRequestTally.counting { () -> (GraphEvent, String?)? in
+                let url = try GraphURL.make("/me/events/\(providerID)", query: [("$select", Self.detailsSelect)])
+                let event: GraphEvent
+                do {
+                    event = try await client.json(GraphEvent.self, for: GraphRequest(method: .get, url: url, prefer: [Self.utcEventTimes]))
+                } catch ProviderError.notFound {
+                    return nil
+                }
+                var repeats = knownRepeats
+                if repeats == nil, let master = event.seriesMasterId ?? seriesID, !master.isEmpty {
+                    let seriesURL = try GraphURL.make("/me/events/\(master)", query: [("$select", "recurrence,originalStartTimeZone,start")])
+                    let series = try? await client.json(GraphEvent.self, for: GraphRequest(method: .get, url: seriesURL,
+                                                                                           prefer: [Self.utcEventTimes]))
+                    repeats = series.map { Self.repeats(of: $0, account: account) } ?? "Repeats"
+                }
+                return (event, repeats)
+            }
+            guard let (event, repeats) = read else { return nil }
+            let details = GraphCalendarDetailsMapper.details(from: event, accountEmail: account.email, repeats: repeats)
+            return CalendarDetailsRead(details: details, version: event.changeKey, requestCount: sent)
+        } catch {
+            throw await calendarError(error)
+        }
+    }
+
+    /// The series' rule in words, said in the zone it was made in (Graph states a repeat's days in that zone).
+    static func repeats(of series: GraphEvent, account: CalendarAccountFacts) -> String {
+        guard let recurrence = series.recurrence, let rule = GraphInvitationMapper.recurrenceRule(from: recurrence),
+              let startValue = series.start, let start = GraphEventTime.read(startValue)?.date else { return "Repeats" }
+        let zone = series.originalStartTimeZone.flatMap(CalendarTimeZones.timeZone(named:)) ?? account.timeZone
+        return rule.words(start: start, timeZone: zone, locale: account.locale)
+    }
+
     /// Creates the block with its client key as `transactionId`, so a create sent again after a lost reply finds the
     /// copy the first one made instead of making a second. Should Graph refuse the second as a duplicate rather than
     /// hand the copy back, the copy is looked up over the block's own half hour.

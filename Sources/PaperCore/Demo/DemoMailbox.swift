@@ -288,6 +288,14 @@ final class DemoMailbox: @unchecked Sendable {
         return copy
     }
 
+    /// The event's details as the demo's provider reads them, nil for an event it no longer has.
+    func calendarEventDetails(providerID: String) -> CalendarDetailsRead? {
+        lock.lock(); defer { lock.unlock() }
+        guard let event = calendarEvents[providerID] else { return nil }
+        return CalendarDetailsRead(details: DemoEventDetails.details(for: event, profile: profile), version: event.version,
+                                   requestCount: 1)
+    }
+
     private func answerCalendarEvents(_ answer: InvitationAnswer) {
         guard let response = CalendarEvent.Response(rawValue: answer.response.rawValue) else { return }
         lock.lock(); defer { lock.unlock() }

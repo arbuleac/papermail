@@ -75,6 +75,34 @@ public enum PlainTextRenderer {
         return html
     }
 
+    /// The https addresses `linkify` would link in `text`, as ranges of it: an event's notes keep these as links and
+    /// nothing else (no http, no address, no bare domain, no phone number).
+    public static func linkRanges(in text: String) -> [Range<String.Index>] {
+        guard text.utf8.contains(UInt8(ascii: ":")) else { return [] }
+        let scalars = Array(text.unicodeScalars)
+        let indices = Array(text.unicodeScalars.indices) + [text.unicodeScalars.endIndex]
+        let hasAt = text.utf8.contains(UInt8(ascii: "@"))
+        var ranges: [Range<String.Index>] = []
+        var index = 0
+        while index < scalars.count {
+            let scalar = scalars[index]
+            if scalar == "h" || scalar == "H", let end = urlEnd(in: scalars, at: index) {
+                if let schemeEnd = schemeEnd(in: scalars, at: index), schemeEnd - index == "https://".count {
+                    ranges.append(indices[index]..<indices[end])
+                }
+                index = end
+                continue
+            }
+            // An address is passed over whole, as `linkify` takes it, so nothing inside it is read as a link.
+            if hasAt, let end = emailEnd(in: scalars, at: index) {
+                index = end
+                continue
+            }
+            index += 1
+        }
+        return ranges
+    }
+
     // MARK: Blocks
 
     /// Quote levels nest by recursion; past this the remaining ">" markers are shown as text. A line of
