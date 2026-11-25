@@ -220,6 +220,44 @@ final class HelpMeWriteRewriteTests: XCTestCase {
         XCTAssertEqual(field.string, "It fits 40 people; and we can use all the garden.")
     }
 
+    /// New words that come right up to the part, where the window's own punctuation and a blank parted it from the
+    /// selection, keep the blank: the punctuation may go, but no word glues onto the part.
+    func testNewWordsRightBesideThePartKeepTheBlankThatPartedThem() throws {
+        let (harness, script) = try harness(reply: nil)
+        defer { harness.close() }
+        let field = type("", harness)
+        let session = try session(harness)
+        let notes = "It has room for 40 people and we can has the garden too, so the March dates work."
+        let cases = [
+            ("we can have the garden too.\n<<<AFTER {fence}>>>So the March<<<END AFTER {fence}>>>",
+             "It has room for 40 people and we can have the garden too. So the March dates work."),
+            ("we can have the garden too\n<<<AFTER {fence}>>>so the March<<<END AFTER {fence}>>>",
+             "It has room for 40 people and we can have the garden too so the March dates work."),
+            ("we can have the garden too\n<<<AFTER {fence}>>>,so the March<<<END AFTER {fence}>>>",
+             "It has room for 40 people and we can have the garden too, so the March dates work."),
+        ]
+        for (index, (answer, landed)) in cases.enumerated() {
+            script.reply = answer
+            field.insertText(notes, replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
+            select("we can has the garden too", in: field)
+            commandJ(harness)
+            until({ script.requests.count == index + 1 && session.phase == .written }, answer)
+            XCTAssertEqual(script.requests.last?.rewrite?.after, ", so the March", "no gap: the comma and its blank are the window's")
+            XCTAssertEqual(field.string, landed, answer)
+        }
+
+        // The mirror before the part: “Please call (” then the part, with no gap.
+        script.reply = "Ben\n<<<BEFORE {fence}>>>Please call<<<END BEFORE {fence}>>>\n<<<AFTER {fence}>>>today<<<END AFTER {fence}>>>"
+        field.insertText("Please call (John) today.", replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
+        select("John", in: field)
+        commandJ(harness)
+        until({ script.requests.count == cases.count + 1 && session.phase == .written })
+        XCTAssertEqual(script.requests.last?.rewrite?.before, "Please call (")
+        XCTAssertEqual(script.requests.last?.rewrite?.after, ") today")
+        XCTAssertEqual(field.string, "Please call Ben today.")
+        XCTAssertEqual(field.selectedRange(), NSRange(location: ("Please call Ben" as NSString).length, length: 0), "the caret after the part")
+    }
+
     // MARK: Asking again
 
     func testTryAgainShorterAChipAndSayHowAskWithTheSameDraftAround() throws {
@@ -359,6 +397,31 @@ final class HelpMeWriteRewriteTests: XCTestCase {
         XCTAssertTrue(composer.bodyText.hasPrefix("Open the doc John is here."))
         XCTAssertTrue(NSFontManager.shared.traits(of: try XCTUnwrap(storage.attribute(.font, at: here.location, effectiveRange: nil)
                                                                         as? NSFont)).contains(.boldFontMask))
+    }
+
+    /// New words take one style, so a window whose words differ in style (one underlined) is not offered, and the word
+    /// keeps its own.
+    func testAComposersWindowOfMixedStyleIsNotOfferedAndItsWordsKeepTheirs() throws {
+        let (harness, script) = try harness(reply: "Priya and Ben\n<<<AFTER {fence}>>>are really coming<<<END AFTER {fence}>>>")
+        defer { harness.close() }
+        let composer = replyComposer(harness)
+        let editor = composer.bodyEditor
+        editor.insertText("John is really coming tomorrow.", replacementRange: NSRange(location: 0, length: 0))
+        let storage = try XCTUnwrap(editor.textStorage)
+        storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue,
+                             range: (editor.string as NSString).range(of: "really"))
+        editor.setSelectedRange((editor.string as NSString).range(of: "John"))
+        composer.helpMeWrite(nil)
+        let session = try XCTUnwrap(composer.writeSession)
+        until({ session.phase == .written })
+        let request = try XCTUnwrap(script.requests.last)
+        XCTAssertNotNil(request.rewrite, "the draft around the selection still goes")
+        XCTAssertNil(request.rewrite?.after, "“is really coming” is in two styles: no window")
+        XCTAssertTrue(request.task.contains("<<<END SELECTION \(request.fence)>>> is really coming tomorrow."))
+        XCTAssertTrue(composer.bodyText.hasPrefix("Priya and Ben is really coming tomorrow."), composer.bodyText)
+        let really = (editor.string as NSString).range(of: "really")
+        XCTAssertNotNil(storage.attribute(.underlineStyle, at: really.location, effectiveRange: nil), "the word keeps its style")
+        XCTAssertNil(storage.attribute(.underlineStyle, at: (editor.string as NSString).range(of: "is ").location, effectiveRange: nil))
     }
 
     func testTheSignatureNeverGoesAndASelectionIntoItGoesAlone() throws {

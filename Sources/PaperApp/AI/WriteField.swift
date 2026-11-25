@@ -56,8 +56,10 @@ protocol WriteField: AnyObject {
     /// Whether a window of words a rewrite may change must not hold `index`: a link or a picture, which a rewrite never
     /// touches.
     func blocksSeam(at index: Int) -> Bool
-    /// The attributes new words take in place of a window starting at `index`: the window's own style.
-    func seamAttributes(at index: Int) -> [NSAttributedString.Key: Any]
+    /// The attributes new words take in place of the window at `range`: the window's own style, when every character
+    /// of it has that style; nil when they differ (one word in italics), since new words take one style and would lose
+    /// the word's own. Such a window is not offered, and never changes.
+    func seamAttributes(in range: NSRange) -> [NSAttributedString.Key: Any]?
 }
 
 extension WriteField {
@@ -71,7 +73,7 @@ extension WriteField {
     func blocksSeam(at index: Int) -> Bool { false }
 
     /// Plain text is in one style: typing's.
-    func seamAttributes(at index: Int) -> [NSAttributedString.Key: Any] { writeTextView.typingAttributes }
+    func seamAttributes(in range: NSRange) -> [NSAttributedString.Key: Any]? { writeTextView.typingAttributes }
 
     /// A field with no Subject of its own takes none.
     func commitSubject(_ subject: String, undo: UndoManager?) -> Bool { false }

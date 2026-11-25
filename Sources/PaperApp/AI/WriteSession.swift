@@ -109,9 +109,10 @@ final class WriteSession {
         var after: NSRange
         var afterText: String
         /// Each window's own style, read as the write starts: once the part streams in, the field's text there is the
-        /// stream's, in pencil, until the edit puts it back at landing.
-        var beforeAttributes: [NSAttributedString.Key: Any] = [:]
-        var afterAttributes: [NSAttributedString.Key: Any] = [:]
+        /// stream's, in pencil, until the edit puts it back at landing. Nil for a window whose words differ in style,
+        /// which then never changes.
+        var beforeAttributes: [NSAttributedString.Key: Any]?
+        var afterAttributes: [NSAttributedString.Key: Any]?
 
         /// Nil for a rewrite that sent the selection alone, or for anything else.
         init?(core: NSRange, around: WriteAsk.Around?) {
@@ -133,15 +134,15 @@ final class WriteSession {
 
         /// The windows' styles, read from `field` before anything streams into it.
         @MainActor mutating func readStyle(of field: WriteField) {
-            if before.length > 0 { beforeAttributes = field.seamAttributes(at: before.location) }
-            if after.length > 0 { afterAttributes = field.seamAttributes(at: after.location) }
+            if before.length > 0 { beforeAttributes = field.seamAttributes(in: before) }
+            if after.length > 0 { afterAttributes = field.seamAttributes(in: after) }
         }
 
         /// What lands beside the part for `join`, the words the writer accepted: each changed window in its own style.
         func edits(for join: WriteJoin?) -> WriteStreamEdit.Seams {
-            func side(_ range: NSRange, _ text: String, _ words: String?, _ attributes: [NSAttributedString.Key: Any])
+            func side(_ range: NSRange, _ text: String, _ words: String?, _ attributes: [NSAttributedString.Key: Any]?)
                 -> WriteStreamEdit.Seams.Side? {
-                guard let words, range.length > 0 else { return nil }
+                guard let words, let attributes, range.length > 0 else { return nil }
                 return .init(range: range, original: text, replacement: words, attributes: attributes)
             }
             return WriteStreamEdit.Seams(gapBefore: gapBefore, gapAfter: gapAfter,
@@ -715,7 +716,12 @@ final class WriteSession {
         guard field.textAroundSelectionIsOwn else { return nil }
         let own = field.ownTextRange
         guard own.location <= core.location, NSMaxRange(core) <= NSMaxRange(own), NSMaxRange(own) <= text.length else { return nil }
-        let windows = WriteSeamWindows.find(in: text, core: core, own: own, blocked: { [field] in field.blocksSeam(at: $0) })
+        var windows = WriteSeamWindows.find(in: text, core: core, own: own, blocked: { [field] in field.blocksSeam(at: $0) })
+        // A window whose words differ in style (one in italics) is not offered: new words take one style.
+        let before = NSRange(location: core.location - windows.beforeGap - windows.beforeWindow, length: windows.beforeWindow)
+        if before.length > 0, field.seamAttributes(in: before) == nil { windows.beforeWindow = 0 }
+        let after = NSRange(location: NSMaxRange(core) + windows.afterGap, length: windows.afterWindow)
+        if after.length > 0, field.seamAttributes(in: after) == nil { windows.afterWindow = 0 }
         return WriteAsk.Around(before: text.substring(with: NSRange(location: own.location, length: core.location - own.location)),
                                after: text.substring(with: NSRange(location: NSMaxRange(core), length: NSMaxRange(own) - NSMaxRange(core))),
                                beforeGap: windows.beforeGap, beforeWindow: windows.beforeWindow,
@@ -879,6 +885,13 @@ final class WriteSession {
                 self.center.writeDetails[fieldID] = nil
                 self.writeEndedElsewhere()
                 return
+            }
+            if isRewrite, request.rewrite == nil {
+                // The builder sends the selection alone where the draft around it cannot go as it was read (a body a
+                // mail link filled in whose pieces would part a code from its label): what is said is what went, and
+                // nothing beside the part may change.
+                self.center.writeDetails[fieldID]?.around = .alone
+                self.running?.seams = nil
             }
             #if DEBUG
             Self.requestObserver?(request)

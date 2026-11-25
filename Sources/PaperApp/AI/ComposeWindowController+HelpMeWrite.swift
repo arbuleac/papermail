@@ -184,10 +184,13 @@ final class ComposerWriteField: WriteField {
             || storage.attribute(.attachment, at: index, effectiveRange: nil) != nil
     }
 
-    func seamAttributes(at index: Int) -> [NSAttributedString.Key: Any] {
-        guard let editor else { return [:] }
-        guard let storage = editor.textStorage, index >= 0, index < storage.length else { return editor.defaultTypingAttributes }
-        return ComposeTextView.typingSafe(storage.attributes(at: index, effectiveRange: nil))
+    func seamAttributes(in range: NSRange) -> [NSAttributedString.Key: Any]? {
+        guard let storage = editor?.textStorage, range.location >= 0, range.length > 0, NSMaxRange(range) <= storage.length else {
+            return nil
+        }
+        var run = NSRange(location: NSNotFound, length: 0)
+        let attributes = storage.attributes(at: range.location, longestEffectiveRange: &run, in: range)
+        return run == range ? ComposeTextView.typingSafe(attributes) : nil
     }
 
     func commitSubject(_ subject: String, undo: UndoManager?) -> Bool {

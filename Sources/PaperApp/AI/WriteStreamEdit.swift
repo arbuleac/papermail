@@ -260,12 +260,19 @@ final class WriteStreamEdit {
             }
             return marked ? nil : (side.range, words, side.attributes)
         }
-        let before = changing(seams.before, endsAt: seams.gapBefore.location, startsAt: nil)
-        let after = changing(seams.after, endsAt: nil, startsAt: NSMaxRange(seams.gapAfter))
+        var before = changing(seams.before, endsAt: seams.gapBefore.location, startsAt: nil)
+        var after = changing(seams.after, endsAt: nil, startsAt: NSMaxRange(seams.gapAfter))
         let startsWithMark = text.first.map { Self.jointPunctuation.contains($0) } ?? false
         let dropsGapBefore = seams.gapBefore.length > 0 && (before?.words.isEmpty == true || startsWithMark)
         let dropsGapAfter = seams.gapAfter.length > 0 && after.map { $0.words.isEmpty || $0.words.first.map(Self.jointPunctuation.contains) == true } == true
         guard before != nil || after != nil || dropsGapBefore || dropsGapAfter else { return nil }
+        // New words that come right up to the part keep the blank that parted the window's words from it.
+        if let words = before?.words, let original = seams.before?.original, seams.gapBefore.length == 0, !startsWithMark {
+            before?.words = Self.keepingBlank(words, original: original, partedByGap: false, after: false)
+        }
+        if let words = after?.words, let original = seams.after?.original, seams.gapAfter.length == 0 || dropsGapAfter {
+            after?.words = Self.keepingBlank(words, original: original, partedByGap: seams.gapAfter.length > 0, after: true)
+        }
 
         let start = before?.range.location ?? (dropsGapBefore ? seams.gapBefore.location : core.location)
         let end = after.map { NSMaxRange($0.range) } ?? (dropsGapAfter ? NSMaxRange(seams.gapAfter) : NSMaxRange(core))
@@ -278,6 +285,30 @@ final class WriteStreamEdit {
         if let after { replacement.append(NSAttributedString(string: after.words, attributes: after.attributes)) }
         return Joint(range: NSRange(location: start, length: end - start), replacement: replacement,
                      partEnd: start + partStart + (text as NSString).length, changesWords: before != nil || after != nil)
+    }
+
+    /// `words`, new words for a window that meet the part with no gap between them (none was there, or the joint
+    /// drops it), with the blank kept that parted the window's first word (`after`) or last word from the part: in its
+    /// gap (`partedByGap`) or in the window's own punctuation beside the part (“, so the March”). Its punctuation may
+    /// go, but words never glue onto the part: “too.” and “So the March” land as “too. So the March”, never
+    /// “too.So the March”; “Please call” before “John”, where “Please call (” was, as “Please call John”.
+    static func keepingBlank(_ words: String, original: String, partedByGap: Bool, after: Bool) -> String {
+        let isWord: (Character) -> Bool = { $0.isLetter || $0.isNumber }
+        if after {
+            guard let first = words.firstIndex(where: isWord) else { return words }
+            let originalEdge = original.prefix { !isWord($0) }
+            guard partedByGap || originalEdge.contains(where: \.isWhitespace), !words[..<first].contains(where: \.isWhitespace) else {
+                return words
+            }
+            return String(words[..<first]) + " " + words[first...]
+        }
+        guard let last = words.lastIndex(where: isWord) else { return words }
+        let edge = words.index(after: last)
+        let originalEdge = original.reversed().prefix { !isWord($0) }
+        guard partedByGap || originalEdge.contains(where: \.isWhitespace), !words[edge...].contains(where: \.isWhitespace) else {
+            return words
+        }
+        return String(words[..<edge]) + " " + words[edge...]
     }
 
     /// The rewrite and its joint as one undoable change, “Help Me Write”, as the plain commit makes it: the owner asked

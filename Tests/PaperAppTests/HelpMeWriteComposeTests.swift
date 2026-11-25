@@ -1598,6 +1598,26 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(script.requests.last).task.contains("ada@example.test"), "the user's own text goes as typed")
     }
 
+    /// A body a mail link filled in whose pieces, redacted one by one, would part a code from its label: the selection
+    /// goes alone, as it did before the draft around it was read, and nothing beside it changes.
+    func testAnUntouchedLinkBodyWhoseCodeWouldGoBesideItsLabelSendsTheSelectionAlone() throws {
+        let (harness, script) = try harness(reply: "Here is your code")
+        defer { harness.close() }
+        let filled = "Your verification code is 481516. Please enter it within 10 minutes."
+        let composer = newMessage(harness, link: MailtoLink(to: [priya], body: filled))
+        XCTAssertTrue(composer.bodyIsUntouchedPrefill)
+        let session = try session(composer)
+        composer.bodyEditor.setSelectedRange((composer.bodyText as NSString).range(of: "Your verification code is"))
+        commandJ(composer)
+        until({ session.phase == .written })
+        let alone = try XCTUnwrap(script.requests.last)
+        XCTAssertNil(alone.rewrite)
+        XCTAssertFalse(alone.userTurn.contains("481516"))
+        XCTAssertFalse(alone.userTurn.contains("<<<DRAFT"))
+        XCTAssertTrue(alone.task.contains("isn't given"))
+        XCTAssertTrue(composer.bodyText.hasPrefix("Here is your code 481516. Please enter it within 10 minutes."), composer.bodyText)
+    }
+
     /// The outbox's rebuilt draft says what it is, and a kept draft remembers it: the flag is in the record, absent
     /// from every draft written in a composer.
     func testADraftRebuiltFromTheOutboxKeepsItsMark() throws {

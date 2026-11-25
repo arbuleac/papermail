@@ -464,6 +464,22 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { used().count == 4 }, timeout: 5))
         XCTAssertEqual(used().last?.parameters["around"], "alone")
         XCTAssertNil(used().last?.parameters["join"])
+
+        // A body a mail link filled in, whose pieces would part a code from its label: the request goes in the ALONE
+        // form, and the signal says what went.
+        let accounts = harness.controller.accounts
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       link: MailtoLink(body: "Your verification code is 481516. Please enter it."))
+        defer { composer.closeWithoutSaving() }
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        composer.bodyWriteSession?.assumesKeyWindow = true
+        script.reply = "Here is your code"
+        composer.bodyEditor.setSelectedRange((composer.bodyText as NSString).range(of: "Your verification code is"))
+        composer.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 5 }, timeout: 5))
+        XCTAssertNil(script.requests.last?.rewrite)
+        XCTAssertEqual(used().last?.parameters["around"], "alone", "the selection went alone, though the body is the user's to read")
+        XCTAssertNil(used().last?.parameters["join"])
     }
 
     /// Block trackers' link cleaning (§5.60) counts a link only when it lost something, and only while the setting is on.
