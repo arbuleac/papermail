@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.21.1"
+VERSION = "1.22.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -309,7 +309,8 @@ LAYOUT = {
                 "answerGlyph": 12, "attendeesMax": 4, "noticeTop": 10, "gapBelow": 16},
  # Day and week (spec §5.54): the day column beside the reader, its folded strip, and the week in the reader's place.
  # Points, except eventTintAlpha (the account ink's opacity over `sheet` in an event's face), coreStartHour and coreEndHour
- # (the hours of the day always open), blockMinutes and snapMinutes (minutes), maxSideBySide and allDayRowsMax (counts)
+ # (the hours of the day always open), blockMinutes and snapMinutes (minutes), maxSideBySide, allDayRowsMax,
+ # detailsNotesLines and detailsGuestsKept (counts)
  # and overlayShadow (the elevation of the column opened over the reader's edge). columnWidth and stripWidth include their
  # leading hairline, as the rail's and the list's widths include their trailing one (§3.2).
  "calendarPane": {"columnWidth": 240, "stripWidth": 28, "readerMinWithColumn": 400, "overlayShadow": "e2",
@@ -329,10 +330,13 @@ LAYOUT = {
                   "markLine": 1, "mentionLine": 2, "markDash": [3, 3], "markChipHeight": 18,
                   "markChipInset": 3, "markChipPadLeading": 5, "markChipPadTrailing": 7, "markChipGap": 4,
                   "pencilDash": [3, 2], "hatchLine": 1, "hatchPitch": 5, "joinMinWidth": 120,
-                  "joinMinHeight": 22, "joinLabelMinWidth": 150, "detailsWidth": 240, "detailsGap": 8,
+                  "joinMinHeight": 22, "joinLabelMinWidth": 150, "detailsWidth": 300, "detailsGap": 8,
                   "detailsRadius": 8, "detailsPadTop": 12, "detailsPadX": 14, "detailsPadBottom": 14,
                   "detailsTitleTop": 6, "detailsWhenTop": 2, "detailsPlaceTop": 4, "detailsActionsTop": 12,
-                  "detailsActionGap": 4, "ghostEdge": 2, "dropDash": [4, 3], "dropRing": 2,
+                  "detailsActionGap": 4, "detailsMaxHeight": 560, "detailsMiddleMinHeight": 80,
+                  "detailsSectionTop": 10, "detailsRowGap": 4, "detailsLineTop": 2, "detailsStatusTop": 6,
+                  "detailsCopyButton": 22, "detailsCopyGap": 4, "detailsMailPadX": 6, "detailsFooterGap": 8,
+                  "detailsNotesLines": 6, "detailsGuestsKept": 100, "ghostEdge": 2, "dropDash": [4, 3], "dropRing": 2,
                   "stripGlyph": 15, "stripBarWidth": 8, "stripBarRadius": 3, "stripLineInset": 3,
                   "footPadY": 10, "footGap": 6, "footLinesMax": 2, "blockMinutes": 30,
                   "snapMinutes": 15},
@@ -510,7 +514,7 @@ ICON = {
  "download": "arrow.down.circle",
  # day and week (§5.54); `later` and `send` mark Later and Send Later times on it, `warning` an overlap
  "dayColumn": "calendar", "week": "rectangle.split.3x1", "previousDay": "chevron.left", "nextDay": "chevron.right",
- "blockTime": "calendar.badge.plus", "joinCall": "video", "eventPlace": "mappin.and.ellipse", "fromThisMail": "envelope",
+ "blockTime": "calendar.badge.plus", "joinCall": "video", "eventPlace": "mappin.and.ellipse", "fromThisMail": "envelope", "copy": "doc.on.doc",
 }
 GLYPHS = {
  "paper.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},

@@ -39,6 +39,34 @@ final class ComponentAccessibilityTests: XCTestCase {
         XCTAssertEqual(toggle.accessibilityValue() as? NSNumber, 1)
     }
 
+    /// A choice button is a toggle with its value; a click on the chosen one sends nothing and shows the arrow.
+    func testAChoiceButtonIsAToggleAndItsChosenOneIgnoresAClick() {
+        final class Target: NSObject {
+            var presses = 0
+            @objc func press(_ sender: Any?) { presses += 1 }
+        }
+        _ = NSApplication.shared
+        let target = Target()
+        let button = QuireButton(title: "Accept", variant: .choice, size: .small)
+        button.target = target
+        button.action = #selector(Target.press(_:))
+        XCTAssertEqual(button.accessibilityRole(), .button)
+        XCTAssertEqual(button.accessibilitySubrole(), .toggle)
+        XCTAssertEqual(button.accessibilityValue() as? NSNumber, 0)
+        button.performClick(nil)
+        XCTAssertEqual(target.presses, 1)
+        XCTAssertEqual(button.pointerCursor, .pointingHand)
+
+        button.isOn = true
+        XCTAssertEqual(button.accessibilityValue() as? NSNumber, 1)
+        button.performClick(nil)
+        XCTAssertEqual(target.presses, 1, "the chosen answer does nothing")
+        XCTAssertEqual(button.pointerCursor, .arrow)
+        let width = button.intrinsicContentSize.width
+        button.isOn = false
+        XCTAssertEqual(button.intrinsicContentSize.width, width, "choosing never moves the neighbours")
+    }
+
     func testChoices() {
         let checkbox = QuireCheckbox(title: "Show sender", state: .mixed)
         XCTAssertEqual(checkbox.accessibilityRole(), .checkBox)

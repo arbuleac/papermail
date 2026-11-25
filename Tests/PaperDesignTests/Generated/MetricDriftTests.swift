@@ -10,8 +10,8 @@ final class MetricDriftTests: XCTestCase {
     private let file = DesignTokensFile.shared
 
     func testEveryMetricIsCovered() {
-        // tokens.json had 933 leaves under layout, border and platform when this file was generated.
-        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 933, "regenerate with swift scripts/tools/quire-tokens.swift")
+        // tokens.json had 945 leaves under layout, border and platform when this file was generated.
+        XCTAssertEqual(file.leafCount(under: ["layout", "border", "platform"]), 945, "regenerate with swift scripts/tools/quire-tokens.swift")
     }
 
     func testLayoutWindow() {
@@ -466,6 +466,18 @@ final class MetricDriftTests: XCTestCase {
         number(Quire.Layout.CalendarPane.detailsPlaceTop, "layout.calendarPane.detailsPlaceTop")
         number(Quire.Layout.CalendarPane.detailsActionsTop, "layout.calendarPane.detailsActionsTop")
         number(Quire.Layout.CalendarPane.detailsActionGap, "layout.calendarPane.detailsActionGap")
+        number(Quire.Layout.CalendarPane.detailsMaxHeight, "layout.calendarPane.detailsMaxHeight")
+        number(Quire.Layout.CalendarPane.detailsMiddleMinHeight, "layout.calendarPane.detailsMiddleMinHeight")
+        number(Quire.Layout.CalendarPane.detailsSectionTop, "layout.calendarPane.detailsSectionTop")
+        number(Quire.Layout.CalendarPane.detailsRowGap, "layout.calendarPane.detailsRowGap")
+        number(Quire.Layout.CalendarPane.detailsLineTop, "layout.calendarPane.detailsLineTop")
+        number(Quire.Layout.CalendarPane.detailsStatusTop, "layout.calendarPane.detailsStatusTop")
+        number(Quire.Layout.CalendarPane.detailsCopyButton, "layout.calendarPane.detailsCopyButton")
+        number(Quire.Layout.CalendarPane.detailsCopyGap, "layout.calendarPane.detailsCopyGap")
+        number(Quire.Layout.CalendarPane.detailsMailPadX, "layout.calendarPane.detailsMailPadX")
+        number(Quire.Layout.CalendarPane.detailsFooterGap, "layout.calendarPane.detailsFooterGap")
+        number(Quire.Layout.CalendarPane.detailsNotesLines, "layout.calendarPane.detailsNotesLines")
+        number(Quire.Layout.CalendarPane.detailsGuestsKept, "layout.calendarPane.detailsGuestsKept")
         number(Quire.Layout.CalendarPane.ghostEdge, "layout.calendarPane.ghostEdge")
         numbers(Quire.Layout.CalendarPane.dropDash.map { Double($0) }, "layout.calendarPane.dropDash")
         number(Quire.Layout.CalendarPane.dropRing, "layout.calendarPane.dropRing")
