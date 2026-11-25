@@ -268,8 +268,8 @@ struct AppAlert {
     }
 
     /// Settings › AI, as a provider is chosen (§5.40, §5.56): the privacy notice, at that moment and only then, never while
-    /// writing. What goes, when, and to whom, in few words, for each thing Help Me Write writes: a reply, a forward, a new
-    /// message. Cancel is the default and Esc, and puts the popup back; Turn On keeps the choice and gives that provider
+    /// writing. What goes, when, and to whom, in few words, for each thing Help Me Write writes: a reply, a new message, a
+    /// forward. Cancel is the default and Esc, and puts the popup back; Turn On keeps the choice and gives that provider
     /// permission for all of it (Off withdraws it). The CLIs add whose rules then apply. The demo's writer makes drafts up
     /// on the Mac and sends nothing, so its sheet says only that.
     ///
@@ -284,11 +284,13 @@ struct AppAlert {
         let company = kind.destination.displayName
         // The user's own notes go as typed (an address there is one they want in the message), so the promise about
         // addresses is about the mail's and the recipients', which are never sent.
+        // A forward's request carries its Subject and the first names in To as a new message's does, so the sheet
+        // names them for both.
         var body = "When you press Write, what the draft is written from goes to \(company): for a reply, the conversation "
-            + "you\u{2019}re replying to (newest messages first, older ones shortened); for a forward, the message you\u{2019}re "
-            + "forwarding; for a new message, its subject and the first names of the people in To. Your notes go with each, and "
-            + "your first name when Paper knows it. Email addresses from your mail, your recipients\u{2019} addresses, "
-            + "attachments and any other mail are never sent. Nothing is sent until you press Write."
+            + "you\u{2019}re replying to (newest messages first, older ones shortened); for a new message, its subject and the "
+            + "first names of the people in To; for a forward, the same and the message you\u{2019}re forwarding. Your notes go "
+            + "with each, and your first name when Paper knows it. Email addresses from your mail, your recipients\u{2019} "
+            + "addresses, attachments and any other mail are never sent. Nothing is sent until you press Write."
         switch kind {
         case .claudeCode: body += " Through Claude Code, under your Claude plan\u{2019}s privacy settings."
         case .codex: body += " Through Codex, under your OpenAI account\u{2019}s privacy settings."

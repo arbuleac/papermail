@@ -55,10 +55,10 @@ final class AISettingsTests: XCTestCase {
     /// The privacy sheet's body before a CLI's own sentence, word for word (§5.33).
     private static func sheetBody(company: String) -> String {
         "When you press Write, what the draft is written from goes to \(company): for a reply, the conversation you\u{2019}re "
-            + "replying to (newest messages first, older ones shortened); for a forward, the message you\u{2019}re forwarding; for "
-            + "a new message, its subject and the first names of the people in To. Your notes go with each, and your first name "
-            + "when Paper knows it. Email addresses from your mail, your recipients\u{2019} addresses, attachments and any other "
-            + "mail are never sent. Nothing is sent until you press Write."
+            + "replying to (newest messages first, older ones shortened); for a new message, its subject and the first names of "
+            + "the people in To; for a forward, the same and the message you\u{2019}re forwarding. Your notes go with each, and "
+            + "your first name when Paper knows it. Email addresses from your mail, your recipients\u{2019} addresses, "
+            + "attachments and any other mail are never sent. Nothing is sent until you press Write."
     }
 
     /// Defaults as a version before 1.21 left them: `kind` chosen and turned on past the sheet that asked about replies,
