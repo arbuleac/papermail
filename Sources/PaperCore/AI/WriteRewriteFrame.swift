@@ -57,64 +57,23 @@ public struct WriteRewriteFrame: Sendable, Hashable {
     public var offersWindow: Bool { before != nil || after != nil }
 
     /// The frame for `around`. `selection` is the context's cleaned selection; `redacts` is true for a body that is still
-    /// what a mail link or a Service filled in, whose text goes through `AIRedactor` in pieces cut only at blanks.
+    /// what a mail link or a Service filled in, whose text goes through `AIRedactor` in pieces cut only at blanks (the
+    /// context first checks that those pieces redact as the whole would: `redactsInPiecesAsAWhole`).
     public static func make(around: WriteAsk.Around, selection: String, redacts: Bool, fence: String,
                             instruction: String = "") -> WriteRewriteFrame {
-        let before = around.before as NSString
-        let after = around.after as NSString
-        let beforeGap = clamped(around.beforeGap, to: before.length)
-        let beforeWindow = clamped(around.beforeWindow, to: before.length - beforeGap)
-        let afterGap = clamped(around.afterGap, to: after.length)
-        let afterWindow = clamped(around.afterWindow, to: after.length - afterGap)
-
-        var lead = before.substring(to: before.length - beforeGap - beforeWindow)
-        var windowBefore = before.substring(with: NSRange(location: before.length - beforeGap - beforeWindow, length: beforeWindow))
-        var gapBefore = before.substring(from: before.length - beforeGap)
-        var gapAfter = after.substring(to: afterGap)
-        var windowAfter = after.substring(with: NSRange(location: afterGap, length: afterWindow))
-        var trail = after.substring(from: afterGap + afterWindow)
-        // A gap is blanks and nothing else: anything else is text, sent as text.
-        if !isBlanks(gapBefore) {
-            lead += windowBefore + gapBefore
-            (windowBefore, gapBefore) = ("", "")
-        }
-        if !isBlanks(gapAfter) {
-            trail = gapAfter + windowAfter + trail
-            (gapAfter, windowAfter) = ("", "")
-        }
-
-        if redacts {
-            // A selection that starts or ends inside a run of characters (a link, an address, a code, a card number)
-            // takes the rest of that run with it out of the request: nothing beside it is a fragment of one.
-            if gapBefore.isEmpty, let last = (lead + windowBefore).unicodeScalars.last, !last.properties.isWhitespace {
-                lead = droppingTrailingRun(of: lead + windowBefore)
-                windowBefore = ""
-            }
-            if gapAfter.isEmpty, let first = (windowAfter + trail).unicodeScalars.first, !first.properties.isWhitespace {
-                trail = droppingLeadingRun(of: windowAfter + trail)
-                windowAfter = ""
-            }
-        }
-
-        let offersBefore = offers(windowBefore, gap: gapBefore, outerEdgeIsBlank: lead.isEmpty || endsInBlank(lead),
-                                  redacts: redacts, fence: fence)
-        let offersAfter = offers(windowAfter, gap: gapAfter, outerEdgeIsBlank: trail.isEmpty || startsWithBlank(trail),
-                                 redacts: redacts, fence: fence)
-        if !offersBefore { lead += windowBefore }
-        if !offersAfter { trail = windowAfter + trail }
-
-        lead = clean(lead, fence: fence)
-        trail = clean(trail, fence: fence)
+        let pieces = Pieces(around, redacts: redacts, fence: fence)
+        var lead = clean(pieces.lead, fence: fence)
+        var trail = clean(pieces.trail, fence: fence)
         if redacts {
             let redactor = AIRedactor()
             lead = redactor.redact(lead)
             trail = redactor.redact(trail)
         }
 
-        let sentWindowBefore = offersBefore ? windowBefore : nil
-        let sentWindowAfter = offersAfter ? windowAfter : nil
-        let beforeFixed = (sentWindowBefore?.count ?? 0) + gapBefore.count
-        let afterFixed = (sentWindowAfter?.count ?? 0) + gapAfter.count
+        let sentWindowBefore = pieces.offersBefore ? pieces.windowBefore : nil
+        let sentWindowAfter = pieces.offersAfter ? pieces.windowAfter : nil
+        let beforeFixed = (sentWindowBefore?.count ?? 0) + pieces.gapBefore.count
+        let afterFixed = (sentWindowAfter?.count ?? 0) + pieces.gapAfter.count
         let leadRoom = max(0, maxBefore - beforeFixed)
         let trailRoom = max(0, maxAfter - afterFixed)
         let leadCount = lead.count
@@ -122,9 +81,100 @@ public struct WriteRewriteFrame: Sendable, Hashable {
         lead = cutLead(lead, to: min(leadCount, leadRoom + max(0, trailRoom - trailCount)))
         trail = cutTrail(trail, to: min(trailCount, trailRoom + max(0, leadRoom - leadCount)))
 
-        return WriteRewriteFrame(lead: lead, before: sentWindowBefore, gapBefore: gapBefore,
-                                 selection: WritePrompt.stripAll(selection, fence: fence), gapAfter: gapAfter,
+        return WriteRewriteFrame(lead: lead, before: sentWindowBefore, gapBefore: pieces.gapBefore,
+                                 selection: WritePrompt.stripAll(selection, fence: fence), gapAfter: pieces.gapAfter,
                                  after: sentWindowAfter, trail: trail, instruction: WritePrompt.stripAll(instruction, fence: fence))
+    }
+
+    /// Whether a body a mail link or a Service filled in may send the draft around `selection` (the selection as the
+    /// context cleaned it, before it is redacted): redacting each piece the frame sends on its own must take out all
+    /// that redacting them together does. `AIRedactor` reads context for a one-time code (a word like “code” within a
+    /// few words of it) and a card number spaced out in groups, which a piece cut at a blank may not hold: “Your
+    /// verification code is [selected]” then “481516. Please enter”, or a card number's groups on both sides of the
+    /// selection's edge. Where that context is cut, nothing around the selection is sent (the ALONE form), as before
+    /// the draft around a selection was read at all. The run of characters a selection's edge cuts, which the frame
+    /// never sends, is read with the selection here, so it neither hides a code's label from the text before it nor
+    /// counts as a difference of its own.
+    static func redactsInPiecesAsAWhole(_ around: WriteAsk.Around, selection: String) -> Bool {
+        let pieces = Pieces(around, redacts: true, fence: "")
+        let parts = [clean(pieces.lead, fence: ""), pieces.windowBefore, pieces.gapBefore,
+                     pieces.cutBefore + selection + pieces.cutAfter,
+                     pieces.gapAfter, pieces.windowAfter, clean(pieces.trail, fence: "")]
+        let redactor = AIRedactor()
+        return redactor.redact(parts.joined()) == parts.map(redactor.redact).joined()
+    }
+
+    /// `around` cut as the frame sends it, before cleaning and redaction: the text before the selection up to its
+    /// window, the window (empty unless offered), the gap, and the mirror of each after it. For a redacted body, the
+    /// run of characters each edge of the selection cuts into is set apart (`cutBefore`, `cutAfter`) and never sent.
+    struct Pieces {
+        var lead: String
+        var windowBefore: String
+        var gapBefore: String
+        var cutBefore = ""
+        var cutAfter = ""
+        var gapAfter: String
+        var windowAfter: String
+        var trail: String
+        var offersBefore: Bool
+        var offersAfter: Bool
+
+        init(_ around: WriteAsk.Around, redacts: Bool, fence: String) {
+            let before = around.before as NSString
+            let after = around.after as NSString
+            let beforeGap = WriteRewriteFrame.clamped(around.beforeGap, to: before.length)
+            let beforeWindow = WriteRewriteFrame.clamped(around.beforeWindow, to: before.length - beforeGap)
+            let afterGap = WriteRewriteFrame.clamped(around.afterGap, to: after.length)
+            let afterWindow = WriteRewriteFrame.clamped(around.afterWindow, to: after.length - afterGap)
+
+            lead = before.substring(to: before.length - beforeGap - beforeWindow)
+            windowBefore = before.substring(with: NSRange(location: before.length - beforeGap - beforeWindow, length: beforeWindow))
+            gapBefore = before.substring(from: before.length - beforeGap)
+            gapAfter = after.substring(to: afterGap)
+            windowAfter = after.substring(with: NSRange(location: afterGap, length: afterWindow))
+            trail = after.substring(from: afterGap + afterWindow)
+            // A gap is blanks and nothing else: anything else is text, sent as text.
+            if !WriteRewriteFrame.isBlanks(gapBefore) {
+                lead += windowBefore + gapBefore
+                (windowBefore, gapBefore) = ("", "")
+            }
+            if !WriteRewriteFrame.isBlanks(gapAfter) {
+                trail = gapAfter + windowAfter + trail
+                (gapAfter, windowAfter) = ("", "")
+            }
+
+            if redacts {
+                // A selection that starts or ends inside a run of characters (a link, an address, a code, a card number)
+                // takes the rest of that run with it out of the request: nothing beside it is a fragment of one.
+                if gapBefore.isEmpty, let last = (lead + windowBefore).unicodeScalars.last, !last.properties.isWhitespace {
+                    let whole = lead + windowBefore
+                    lead = WriteRewriteFrame.droppingTrailingRun(of: whole)
+                    cutBefore = String(whole.unicodeScalars.dropFirst(lead.unicodeScalars.count))
+                    windowBefore = ""
+                }
+                if gapAfter.isEmpty, let first = (windowAfter + trail).unicodeScalars.first, !first.properties.isWhitespace {
+                    let whole = windowAfter + trail
+                    trail = WriteRewriteFrame.droppingLeadingRun(of: whole)
+                    cutAfter = String(whole.unicodeScalars.prefix(whole.unicodeScalars.count - trail.unicodeScalars.count))
+                    windowAfter = ""
+                }
+            }
+
+            let leadEndsInBlank = lead.isEmpty || WriteRewriteFrame.endsInBlank(lead)
+            let trailStartsWithBlank = trail.isEmpty || WriteRewriteFrame.startsWithBlank(trail)
+            offersBefore = WriteRewriteFrame.offers(windowBefore, gap: gapBefore, outerEdgeIsBlank: leadEndsInBlank,
+                                                    redacts: redacts, fence: fence)
+            offersAfter = WriteRewriteFrame.offers(windowAfter, gap: gapAfter, outerEdgeIsBlank: trailStartsWithBlank,
+                                                   redacts: redacts, fence: fence)
+            if !offersBefore {
+                lead += windowBefore
+                windowBefore = ""
+            }
+            if !offersAfter {
+                trail = windowAfter + trail
+                windowAfter = ""
+            }
+        }
     }
 
     /// The DRAFT block's body: the pieces in order, the offered windows and the selection between markers that carry

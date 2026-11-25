@@ -108,6 +108,39 @@ final class WriteRewriteFrameTests: XCTestCase {
         XCTAssertNil(ending.after)
     }
 
+    /// `AIRedactor` reads around a code (its label within a few words) and a card number spaced out in groups. Pieces
+    /// cut at blanks may part a code from its label, or a card number's groups from each other: then the redacted
+    /// pieces would send what the whole, redacted, does not, and the selection goes alone.
+    func testPiecesThatWouldHideACodeOrACardFromTheRedactorSendTheSelectionAlone() {
+        let label = around("[Your verification code is] 481516. Please enter it within 10 minutes.")
+        XCTAssertEqual(WriteRewriteFrame.make(around: label.around, selection: label.selection, redacts: true, fence: fence).after,
+                       "481516. Please enter", "the code would go unredacted in the window, its label in the selection")
+        XCTAssertFalse(WriteRewriteFrame.redactsInPiecesAsAWhole(label.around, selection: label.selection))
+        let window = around("Your verification code is 481516. Please enter [it] within 10 minutes.")
+        XCTAssertFalse(WriteRewriteFrame.redactsInPiecesAsAWhole(window.around, selection: window.selection),
+                       "the label in the text before, the code in the window beside the selection")
+        for marked in ["Card 4111 1111 [1111 1111] for the booking.", "Card 4111 1111 [1111 1111 for the booking.]",
+                       "Card [4111 1111] 1111 1111 for the booking."] {
+            let card = around(marked)
+            XCTAssertFalse(WriteRewriteFrame.redactsInPiecesAsAWhole(card.around, selection: card.selection),
+                           "each piece too short for the card check: \(marked)")
+        }
+        let cutLabel = around("Use 481516 to verif[y it] please")
+        XCTAssertFalse(WriteRewriteFrame.redactsInPiecesAsAWhole(cutLabel.around, selection: cutLabel.selection),
+                       "the label's start, which the selection cuts and the frame never sends, is read with the selection")
+    }
+
+    func testPiecesThatRedactAsTheWholeKeepTheDraftAround() {
+        for marked in ["Hello Dana, could [you] check the plan",
+                       "Mail dana@example.test or see https://example.test/reset?t=SECRET1 then [call me] tomorrow",
+                       "Reset at https://example.test/reset?token=QUERYTOKEN&step=[2 and tell me] when done",
+                       "Your code is [ready] and the venue is booked for 40 people.",
+                       "[Thanks]. Your verification code is 481516."] {
+            let body = around(marked)
+            XCTAssertTrue(WriteRewriteFrame.redactsInPiecesAsAWhole(body.around, selection: body.selection), marked)
+        }
+    }
+
     func testARedactedBodysWindowIsOfferedOnlyAtBlanksAndAsItIs() {
         let made = frame("Hello Dana, could [you] check the plan", redacts: true)
         XCTAssertEqual(made.before, "Hello Dana, could")

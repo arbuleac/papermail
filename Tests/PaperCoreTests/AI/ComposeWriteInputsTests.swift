@@ -151,6 +151,47 @@ final class ComposeWriteInputsTests: XCTestCase {
         XCTAssertEqual(request(ComposeWriteInputs(), selection)?.task.contains("call dana@example.test"), true)
     }
 
+    /// The ask for a rewrite of the one `[…]` in `marked`, the body's own text around it read as the composer reads it.
+    private func rewrite(_ marked: String) -> WriteAsk {
+        let open = (marked as NSString).range(of: "[").location
+        let text = marked.replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "") as NSString
+        let core = NSRange(location: open, length: (marked as NSString).range(of: "]").location - 1 - open)
+        let found = WriteSeamWindows.find(in: text, core: core, own: NSRange(location: 0, length: text.length), blocked: { _ in false })
+        return WriteAsk(draft: .selection(text.substring(with: core)),
+                        around: WriteAsk.Around(before: text.substring(to: core.location), after: text.substring(from: NSMaxRange(core)),
+                                                beforeGap: found.beforeGap, beforeWindow: found.beforeWindow,
+                                                afterGap: found.afterGap, afterWindow: found.afterWindow))
+    }
+
+    /// A body a mail link or a Service filled in is redacted in pieces cut at blanks. Where those pieces would part a
+    /// code from its label or a card number's groups, so that redacting each would send what redacting the whole takes
+    /// out, nothing around the selection goes: the selection alone, redacted, as before the draft around it was read.
+    func testARedactedBodyWhosePiecesWouldHideACodeOrACardSendsTheSelectionAlone() throws {
+        let service = ComposeWriteInputs(redactsOwnText: true)
+        let cases = [("[Your verification code is] 481516. Please enter it within 10 minutes.", "481516"),
+                     ("Your verification code is 481516. Please enter [it] within 10 minutes.", "481516"),
+                     ("Card 4111 1111 [1111 1111] for the booking.", "4111")]
+        for (marked, secret) in cases {
+            let request = try XCTUnwrap(request(service, rewrite(marked)), marked)
+            XCTAssertNil(request.rewrite, "the ALONE form: \(marked)")
+            XCTAssertFalse(request.userTurn.contains(secret), marked)
+            XCTAssertFalse(request.userTurn.contains("<<<DRAFT"), marked)
+            XCTAssertTrue(request.userTurn.contains("Part of my message, to rewrite (the rest of my message isn't given):"), marked)
+            XCTAssertNil(NewMessageContext(service, ask: rewrite(marked))?.ask.around, marked)
+        }
+        // The same body after the user's own edit is their text, sent as typed around the selection.
+        let typed = try XCTUnwrap(request(ComposeWriteInputs(), rewrite(cases[0].0)))
+        XCTAssertNotNil(typed.rewrite)
+        // A body whose pieces redact as the whole does keeps the draft around the selection, redacted.
+        let link = try XCTUnwrap(request(service, rewrite("Please read https://example.test/a?k=SECRET before [Friday] and reply")))
+        XCTAssertNotNil(link.rewrite)
+        XCTAssertTrue(link.userTurn.contains("<<<DRAFT 1a2b3c4d>>>"))
+        XCTAssertTrue(link.userTurn.contains("[link: example.test]"))
+        XCTAssertFalse(link.userTurn.contains("SECRET"))
+        let forward = ComposeWriteInputs(redactsOwnText: true, forwarded: forwarded())
+        XCTAssertNil(try XCTUnwrap(request(forward, rewrite(cases[0].0))).rewrite, "a forward reads its body the same way")
+    }
+
     /// A rewrite reads what a whole write reads, so the part fits its message (§5.56): the subject, the To first names
     /// and the user's first name. Never Cc or Bcc, never an address, and never a subject asked for.
     func testARewriteSendsTheSubjectTheNamesAndTheUsersName() {

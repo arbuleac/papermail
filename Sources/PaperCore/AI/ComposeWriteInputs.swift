@@ -103,7 +103,9 @@ public struct ComposeWriteInputs: Sendable, Hashable {
 
     /// `ask` as it is sent: pictures and invisible characters out and the ends trimmed, blank notes or a blank
     /// selection becoming none; never cut (a part too long is refused before this). With `redactsOwnText`, the notes or
-    /// the selection redacted too. The instruction is always the user's own typing.
+    /// the selection redacted too, and a selection's rewrite sends the draft around it only where redacting it in the
+    /// pieces it goes in takes out all that redacting it whole would (`WriteRewriteFrame.redactsInPiecesAsAWhole`);
+    /// elsewhere the selection goes alone. The instruction is always the user's own typing.
     func cleaned(_ ask: WriteAsk) -> WriteAsk {
         var cleaned = ReplyContextBuilder.cleaned(ask.withoutPictures, limit: .max)
         guard redactsOwnText else { return cleaned }
@@ -117,6 +119,9 @@ public struct ComposeWriteInputs: Sendable, Hashable {
             let text = redacted(notes)
             cleaned.draft = text.isEmpty ? .empty : .notes(text)
         case .selection(let selection):
+            if let around = cleaned.around, !WriteRewriteFrame.redactsInPiecesAsAWhole(around, selection: selection) {
+                cleaned.around = nil
+            }
             let text = redacted(selection)
             cleaned.draft = text.isEmpty ? .empty : .selection(text)
         }

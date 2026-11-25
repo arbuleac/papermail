@@ -115,6 +115,38 @@ final class WriteSeamWindowsTests: XCTestCase {
         XCTAssertEqual(windows("[I can] come tomorrow.").after, "come tomorrow", "a full stop ends a sentence")
     }
 
+    /// A selection whose edge cuts a link, an address, a path or a number has no window on that side: the words there
+    /// are the rest of that token, which a word or two changed would change.
+    func testASelectionThatCutsATokenHasNoWindowOnThatSide() {
+        let domain = windows("visit www.example.[com] today")
+        XCTAssertEqual(domain.before, "", "“visit www.example.” would let a rewrite change the domain")
+        XCTAssertEqual(domain.after, "today")
+        XCTAssertEqual(windows("visit www.[example].com today").before, "")
+        XCTAssertEqual(windows("visit www.[example].com today").after, "")
+        XCTAssertEqual(windows("visit [www].example.com today").after, "", "a full stop inside a token is glue")
+        XCTAssertEqual(windows("visit www.example[.com] today").before, "", "the selection's own edge is glue")
+        XCTAssertEqual(windows("the well-[known] fact").before, "")
+        XCTAssertEqual(windows("write to dana@[example.test] today").before, "")
+        XCTAssertEqual(windows("ring 0800 123 [4567] now").before, "", "a number spaced out in groups")
+        let middle = windows("ring 0800 [123] 4567 now")
+        XCTAssertEqual(middle.before, "")
+        XCTAssertEqual(middle.after, "")
+        XCTAssertEqual(windows("call 0800 123 4567 and [ask] for Ben").before, "and",
+                       "a window never starts inside a number spaced out in groups")
+        XCTAssertEqual(windows("[ask] for 0800 123 4567 now").after, "for", "nor ends inside one")
+        XCTAssertEqual(windows("12[34] items").before, "")
+    }
+
+    func testPunctuationThatIsNoGlueStillJoins() {
+        XCTAssertEqual(windows("[we can has the garden too]. So the March dates").after, ". So the March",
+                       "a full stop that ends a sentence")
+        XCTAssertEqual(windows("\"[we are going.]\" she said").after, "\" she said", "the selection ends its sentence")
+        XCTAssertEqual(windows("[see you at noon.]Thanks").after, "", "a full stop between two words is glue")
+        XCTAssertEqual(windows("Hello,[world] again").before, "Hello,")
+        XCTAssertEqual(windows("I have 3 [apples] here").before, "I have 3", "a number beside a word")
+        XCTAssertEqual(windows("Ask Ana: [can we] meet").before, "Ask Ana:")
+    }
+
     func testAWindowHoldingFenceSyntaxGivesNone() {
         XCTAssertEqual(windows("a <<<b [c]").before, "")
         XCTAssertEqual(windows("[c] d>>> e").after, "")

@@ -25,7 +25,7 @@ public enum WriteSeamWindows {
     /// picture); a window starts after the last such index, and ends before the first.
     public static func find(in text: NSString, core: NSRange, own: NSRange, blocked: (Int) -> Bool)
         -> (beforeGap: Int, beforeWindow: Int, afterGap: Int, afterWindow: Int) {
-        guard own.location >= 0, own.location <= core.location, NSMaxRange(core) <= NSMaxRange(own),
+        guard core.length > 0, own.location >= 0, own.location <= core.location, NSMaxRange(core) <= NSMaxRange(own),
               NSMaxRange(own) <= text.length else { return (0, 0, 0, 0) }
         let before = beforeSide(of: core, in: text, own: own, blocked: blocked)
         let after = afterSide(of: core, in: text, own: own, blocked: blocked)
@@ -43,6 +43,10 @@ public enum WriteSeamWindows {
         let gap = core.location - gapStart
         // A long run of blanks, the start of a line or of the user's text: nothing there to join to.
         guard gap <= maxGap, gapStart > own.location, !isLineBreak(text.character(at: gapStart - 1)) else { return (0, 0) }
+        // The selection cuts a token here (“www.example.[com]”, “0800 123 [4567]”): the words before it are the rest of
+        // that link, address, path or number, never words to join.
+        guard !cutsAToken(inner: text.character(at: core.location), outer: text.character(at: gapStart - 1), gap: gap,
+                          isAfter: false, next: nil) else { return (gap, 0) }
 
         var regionStart = gapStart
         while regionStart > own.location, gapStart - regionStart < maxRead {
@@ -83,6 +87,8 @@ public enum WriteSeamWindows {
         while gapEnd < ownEnd, gapEnd - coreEnd <= maxGap, isGapBlank(text.character(at: gapEnd)) { gapEnd += 1 }
         let gap = gapEnd - coreEnd
         guard gap <= maxGap, gapEnd < ownEnd, !isLineBreak(text.character(at: gapEnd)) else { return (0, 0) }
+        guard !cutsAToken(inner: text.character(at: coreEnd - 1), outer: text.character(at: gapEnd), gap: gap, isAfter: true,
+                          next: gapEnd + 1 < ownEnd ? text.character(at: gapEnd + 1) : nil) else { return (gap, 0) }
 
         var regionEnd = gapEnd
         while regionEnd < ownEnd, regionEnd - gapEnd < maxRead {
@@ -120,7 +126,11 @@ public enum WriteSeamWindows {
     private static func opensCleanly(at start: Int, in text: NSString, own: NSRange) -> Bool {
         guard start > own.location else { return true }
         let unit = text.character(at: start - 1)
-        if isGapBlank(unit) || isLineBreak(unit) || unit == 0xFFFC { return true }
+        if isGapBlank(unit) {
+            // Never the last groups of a number spaced out in groups (“0800 [123 4567] and”).
+            return !(isDigit(text.character(at: start)) && start - 1 > own.location && isDigit(text.character(at: start - 2)))
+        }
+        if isLineBreak(unit) || unit == 0xFFFC { return true }
         return !isGlue(unit)
     }
 
@@ -130,10 +140,34 @@ public enum WriteSeamWindows {
         let ownEnd = NSMaxRange(own)
         guard end < ownEnd else { return true }
         let unit = text.character(at: end)
-        if isGapBlank(unit) || isLineBreak(unit) || unit == 0xFFFC || !isGlue(unit) { return true }
+        if isGapBlank(unit) {
+            return !(isDigit(text.character(at: end - 1)) && end + 1 < ownEnd && isDigit(text.character(at: end + 1)))
+        }
+        if isLineBreak(unit) || unit == 0xFFFC || !isGlue(unit) { return true }
         guard sentenceEnds.contains(unit) else { return false }
         let next = end + 1
         return next >= ownEnd || isGapBlank(text.character(at: next)) || isLineBreak(text.character(at: next))
+    }
+
+    /// Whether the selection's edge cuts a token where it meets the text beside it: `inner` is the selection's own edge
+    /// character and `outer` the first one beyond the `gap` of blanks. With no blank between them, glue on either side
+    /// makes them one link, address, path or number (“www.example.[com]”, “[.com]”); a digit on each side of at most one
+    /// blank is a number spaced out in groups (“0800 123 [4567]”). Such a side offers no window: a word or two changed
+    /// there would change the token. After the selection (`isAfter`; `next` is the character after `outer`, nil at the
+    /// own text's end), a full stop, a colon or a question mark that ends a sentence is no glue, as at a window's outer
+    /// edge (`closesCleanly`): “… [too]. So the March”, “[they said yes.]" Then”.
+    private static func cutsAToken(inner: unichar, outer: unichar, gap: Int, isAfter: Bool, next: unichar?) -> Bool {
+        if gap <= 1, isDigit(inner), isDigit(outer) { return true }
+        guard gap == 0 else { return false }
+        if isGlue(outer) {
+            let endsSentence = isAfter && sentenceEnds.contains(outer) && next.map { isGapBlank($0) || isLineBreak($0) } != false
+            if !endsSentence { return true }
+        }
+        if isGlue(inner) {
+            let endsSentence = isAfter && sentenceEnds.contains(inner) && !isLetterOrDigit(outer) && !isGlue(outer)
+            if !endsSentence { return true }
+        }
+        return false
     }
 
     /// Words only: never fence syntax, and never an address or a path, whose parts a two-word change could alter.
@@ -160,5 +194,14 @@ public enum WriteSeamWindows {
 
     private static func isGlue(_ unit: unichar) -> Bool {
         glue.contains(unit)
+    }
+
+    private static func isDigit(_ unit: unichar) -> Bool {
+        (0x30...0x39).contains(unit)
+    }
+
+    private static func isLetterOrDigit(_ unit: unichar) -> Bool {
+        guard let scalar = Unicode.Scalar(unit) else { return true }
+        return scalar.properties.isAlphabetic || scalar.properties.numericType != nil
     }
 }
