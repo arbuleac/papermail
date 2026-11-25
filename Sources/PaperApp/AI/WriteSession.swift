@@ -254,11 +254,12 @@ final class WriteSession {
         guard at == NSMaxRange(own) || (at < text.length && WriteTextGeometry.isLineEnd(text.character(at: at))) else { return nil }
         // Never the whole notes copied or counted on each key: the first letter, then the first few words, are enough.
         guard NSMaxRange(own) <= text.length else { return nil }
-        if text.rangeOfCharacter(from: Self.words(writing: field.writeKind), options: [], range: own).location == NSNotFound {
+        let kind = field.writeKind
+        if text.rangeOfCharacter(from: Self.words(writing: kind), options: [], range: own).location == NSNotFound {
             if let offset = field.placeholderWidth {
                 return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostAfterPlaceholder, offset: offset)
             }
-            return WriteInlineLayer.Ghost(location: at, words: WriteWords.emptyGhost(for: field.writeKind))
+            return WriteInlineLayer.Ghost(location: at, words: WriteWords.emptyGhost(for: kind))
         }
         guard notesGhostReady, Self.hasWords(Int(Quire.Layout.WriteCaret.hintMinWords), in: text, range: own) else { return nil }
         return WriteInlineLayer.Ghost(location: at, words: WriteWords.ghostNotes, fades: true)
