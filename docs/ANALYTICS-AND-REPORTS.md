@@ -188,8 +188,8 @@ Every value a parameter can take:
 | `instruction` | `on`, `off` (an instruction came with it: the prompt line's words or a chip; never the words) |
 | `retry` | `on`, `off` (Try again) |
 | `subject` | `on`, `off` (Help me write: a subject was asked for with the message, a new message whose Subject was empty; never the subject, nor whether one came back or was set) |
-| `around` | `draft` (a selection's rewrite sent the user's own draft around the selection with it), `alone` (it sent the selection alone: a body the composer did not write, or a selection reaching outside the user's own text). Only with `draft`=`selection` |
-| `join` | `none` (no line for the words beside the selection came with the rewrite), `before`, `after`, `both` (the words before it, after it, or both were changed, past the writer's checks), `refused` (one or more such lines came and none passed). Only with `around`=`draft` and `ending`=`finished`; never the words |
+| `around` | `draft` (a selection's rewrite sent the user's own draft around the selection with it), `alone` (it sent the selection alone: a body the composer did not write, a selection reaching outside the user's own text, or a body a mail link or a Service filled in whose pieces, redacted one by one, would keep what redacting it whole takes out). Only with `draft`=`selection` |
+| `join` | `none` (no line for the words beside the selection came with the rewrite), `before`, `after`, `both` (the words before it, after it, or both were changed, past the writer's checks), `refused` (one or more such lines came, a line whose markers were written wrongly among them, and none passed). Only with `around`=`draft` and `ending`=`finished`; never the words |
 | `readerLine` | `text` (the sender's text part), `extracted` (the text taken from the design), `snippet` (the preview text): each switched to Show original; `original` (the message as sent, switched back with Show text) |
 | `trackers` | `1`, `2-5`, `6-20`, `21+` |
 | `attachmentAction` | `quickLook`, `open`, `download`, `downloadAll`, `saveAs`, `copy`, `drag` |
