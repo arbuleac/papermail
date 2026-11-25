@@ -5,7 +5,7 @@ import CoreGraphics
 
 extension Quire {
     public static let name = "Quire"
-    public static let version = "1.21.0"
+    public static let version = "1.21.1"
 
     /// Every symbol the app draws, by action (spec §4.11). `paper.` names are custom glyphs (`QuireGlyph`).
     public enum Icon {
