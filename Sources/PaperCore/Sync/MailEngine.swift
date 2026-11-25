@@ -533,7 +533,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     }
 
     public func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws {
-        guard let metadata = try store.message(message), let invitation = try store.body(for: message)?.invitation else {
+        // The invitations alone, from their column: never a whole body decompressed on the main thread.
+        guard let metadata = try store.message(message), let invitation = try store.invitation(for: message) else {
             throw StoreError.notFound
         }
         let account = try store.accounts().first { $0.id == message.accountID }
@@ -542,38 +543,26 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         // and times the organizer replaced. The messages the reader shows, so the card never offers what this refuses.
         let shown = RenderPayloadBuilder.visibleMessages(try store.messages(in: metadata.conversationID))
         for other in shown where other.id != message {
-            if let later = try store.body(for: other.id)?.invitation, later.supersedes(invitation) {
+            if let later = try store.invitation(for: other.id), later.supersedes(invitation) {
                 throw StoreError.conflict("A later invitation replaces this one")
             }
         }
-        guard let answer = InvitationAnswer(response, to: invitation, accountEmail: account.email,
+        guard var answer = InvitationAnswer(response, to: invitation, accountEmail: account.email,
                                             accountName: account.displayName.isEmpty ? nil : account.displayName,
                                             previous: metadata.invitationReply) else {
             throw StoreError.conflict("This invitation can't be answered")
         }
         // The same answer again changes nothing and sends nothing.
         guard metadata.invitationReply != response else { return }
-        try perform(.answerInvitation(answer), on: [message])
-        answerOnCalendar(response, to: invitation, message: message)
-    }
-
-    /// The calendar's copy of the invitation (Google and Exchange put invitations on the calendar themselves) shows the
-    /// answer at once rather than at the calendar's next read: a decline leaves the day column, an accept is drawn
-    /// solid. The account's calendar lane reads the provider's own word once the outbox has sent the answer
-    /// (`LiveLane`'s `invitationAnswered`), not before, when it would still say the old one. The answer is queued
-    /// whatever this meets: the calendar catches up at that read.
-    private func answerOnCalendar(_ response: InvitationResponse, to invitation: CalendarInvitation, message: MessageID) {
-        guard let answer = CalendarEvent.Response(rawValue: response.rawValue) else { return }
-        // An answer to one occurrence is that occurrence's alone; a floating time is read on the Mac's clock, as the
-        // calendar draws it.
+        // The calendar's copy of the invitation (Google and Exchange put invitations on the calendar themselves) takes the
+        // answer in the enqueue's transaction, so a decline leaves the day column and an accept is drawn solid at once;
+        // the account's calendar lane reads the provider's own word once the outbox has sent the answer. An answer to one
+        // occurrence is that occurrence's alone; a floating time is read on the Mac's clock, as the calendar draws it.
         let occurrence = invitation.recurrenceID == nil
             ? nil
             : CalendarFit.pencil(for: invitation, message: message, timeZone: .current)?.start
-        do {
-            try store.answerCalendarEvents(answer, invitationUID: invitation.uid, accountID: message.accountID, near: occurrence)
-        } catch {
-            SyncLog.logger.error("calendar: could not show an answer for \(message.accountID.rawValue, privacy: .public): \(SyncErrorDescription.describe(error), privacy: .private)")
-        }
+        answer.calendar = CalendarCopies(scope: .invitation(uid: invitation.uid, near: occurrence))
+        try perform(.answerInvitation(answer), on: [message])
     }
 
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {

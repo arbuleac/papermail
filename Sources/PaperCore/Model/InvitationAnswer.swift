@@ -27,6 +27,11 @@ public struct InvitationAnswer: Hashable, Codable, Sendable {
     /// looks for that message in the mailbox before mailing, so a retry after a send whose reply was lost (a timeout,
     /// a dropped connection, a quit mid-request) never mails the organizer twice. Nil sends without that check.
     public var replyID: String?
+    /// The calendar rows this answer shows on at once, what each had (a give-up puts it back), and, for an answer that
+    /// no message carries, the provider's event to answer. Nil in answers queued before 1.22: they show on no row and put
+    /// none back. Optional, so an older build decodes every answer this one writes (its synthesized decoding ignores the
+    /// key).
+    public var calendar: CalendarCopies?
 
     public init(
         response: InvitationResponse,
@@ -42,7 +47,8 @@ public struct InvitationAnswer: Hashable, Codable, Sendable {
         organizer: EmailAddress,
         attendee: EmailAddress,
         graphEventID: String? = nil,
-        replyID: String? = nil
+        replyID: String? = nil,
+        calendar: CalendarCopies? = nil
     ) {
         self.response = response
         self.previous = previous
@@ -58,6 +64,7 @@ public struct InvitationAnswer: Hashable, Codable, Sendable {
         self.attendee = attendee
         self.graphEventID = graphEventID
         self.replyID = replyID
+        self.calendar = calendar
     }
 
     /// The answer to `invitation` from the account `accountEmail`, or nil when it cannot be answered (a cancellation,

@@ -593,9 +593,49 @@ public final class SQLiteMailStore: MailStoring, MailStoreMaintenance, Sendable 
         try write { try CalendarEventTable.settle(id: id, created: created, in: $0) }
     }
 
-    public func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
-                                     near occurrence: Date?) throws {
-        try write { try CalendarEventTable.answer(response, invitationUID: uid, accountID: accountID, near: occurrence, in: $0) }
+    public func calendarEvent(id: String) throws -> CalendarEvent? {
+        try read { try CalendarEventTable.stored(id: id, in: $0)?.event }
+    }
+
+    public func calendarEvents(seriesID: String, accountID: AccountID) throws -> [CalendarEvent] {
+        try read { try CalendarEventTable.events(seriesID: seriesID, accountID: accountID, in: $0).map(\.event) }
+    }
+
+    public func calendarEventDetails(id: String) throws -> StoredEventDetails? {
+        try read { try CalendarDetailsTable.details(eventID: id, in: $0) }
+    }
+
+    @discardableResult
+    public func saveCalendarEventDetails(_ details: CalendarEventDetails, eventID: String, version: String?,
+                                         readAt: Date) throws -> Bool {
+        try write { try CalendarDetailsTable.save(details, eventID: eventID, version: version, readAt: readAt, in: $0) }
+    }
+
+    public func seriesRepeats(accountID: AccountID, seriesID: String, since: Date) throws -> String? {
+        try read { try CalendarDetailsTable.seriesRepeats(accountID: accountID, seriesID: seriesID, since: since, in: $0) }
+    }
+
+    public func eventsNeedingDetails(accountID: AccountID, in interval: DateInterval, limit: Int) throws -> [CalendarEvent] {
+        try read { try CalendarDetailsTable.eventsNeedingDetails(accountID: accountID, in: interval, limit: limit, in: $0) }
+    }
+
+    public func observeEventCard(id: String, onChange: @escaping @Sendable (EventCardState?) -> Void) -> StoreObservation {
+        // Tracks the row, its details and the outbox: an answer queued, sent, given up or confirmed changes the card.
+        let observation = ValueObservation.tracking { db in
+            try CalendarDetailsTable.cardState(eventID: id, in: db)
+        }.removeDuplicates()
+        let cancellable = database.startObservation(observation, firstValueOnCallingThread: false, onError: Self.reportObservationFailure,
+                                                    onChange: onChange)
+        return StoreObservation { cancellable.cancel() }
+    }
+
+    public func observeFailedCalendarAnswers(onChange: @escaping @Sendable (Set<String>) -> Void) -> StoreObservation {
+        let observation = ValueObservation.tracking { db in
+            try CalendarDetailsTable.failedCalendarAnswers(in: db)
+        }.removeDuplicates()
+        let cancellable = database.startObservation(observation, firstValueOnCallingThread: false, onError: Self.reportObservationFailure,
+                                                    onChange: onChange)
+        return StoreObservation { cancellable.cancel() }
     }
 
     public func failCalendarEvent(id: String) throws {

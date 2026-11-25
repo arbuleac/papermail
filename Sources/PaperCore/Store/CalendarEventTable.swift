@@ -237,26 +237,6 @@ enum CalendarEventTable {
         return Stored(event: withSync(row.event, .failed), queuedAt: nil)
     }
 
-    /// What `answerCalendarEvents` writes, given the account's rows that carry an invitation UID, ordered by id: each
-    /// `synced` occurrence of the invitation (`InvitationUID.matches`) that the user did not organize, or only the one
-    /// whose start is nearest `occurrence` when given, with `response`. Rows that already say so are left out.
-    static func answering(_ rows: [Stored], uid: String, near occurrence: Date?, response: CalendarEvent.Response) -> [Stored] {
-        let own = rows.filter {
-            $0.event.sync == .synced && $0.event.response != .organizer && InvitationUID.matches($0.event.invitationUID, uid)
-        }
-        var chosen = own
-        if let occurrence {
-            let distance = { (row: Stored) in abs(row.event.start.timeIntervalSince(occurrence)) }
-            chosen = own.min { distance($0) < distance($1) }.map { [$0] } ?? []
-        }
-        return chosen.compactMap { row in
-            guard row.event.response != response else { return nil }
-            var event = row.event
-            event.response = response
-            return Stored(event: event, queuedAt: row.queuedAt)
-        }
-    }
-
     private static func withSync(_ event: CalendarEvent, _ sync: CalendarEvent.Sync) -> CalendarEvent {
         var event = event
         event.sync = sync
@@ -298,6 +278,56 @@ enum CalendarEventTable {
     static func stored(id: String, in db: Database) throws -> Stored? {
         try Row.fetchOne(db.cachedStatement(sql: "SELECT \(columns) FROM calendar_events WHERE id = ?"), arguments: [id])
             .flatMap(stored(from:))
+    }
+
+    static func events(seriesID: String, accountID: AccountID, in db: Database) throws -> [Stored] {
+        try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT \(columns) FROM calendar_events INDEXED BY calendar_events_by_series
+            WHERE account_id = ? AND series_id = ? ORDER BY start_ms, end_ms, id
+            """), arguments: [accountID.rawValue, seriesID]).compactMap(stored(from:))
+    }
+
+    /// The rows an answer's scope may cover, before `CalendarAnswers.covered` picks them.
+    static func candidates(for scope: CalendarCopies.Scope, accountID: AccountID, in db: Database) throws -> [Stored] {
+        switch scope {
+        case .invitation:
+            return try Row.fetchAll(db.cachedStatement(sql: """
+                SELECT \(columns) FROM calendar_events WHERE account_id = ? AND invitation_uid IS NOT NULL ORDER BY id
+                """), arguments: [accountID.rawValue]).compactMap(stored(from:))
+        case .event(let id):
+            return try stored(id: id, in: db).map { [$0] } ?? []
+        case .series(let id):
+            return try events(seriesID: id, accountID: accountID, in: db)
+        }
+    }
+
+    /// The account's live answers that have a calendar part, oldest first. A row this build cannot decode (a later
+    /// build's change) is skipped, never thrown: the read must not fail over it.
+    static func liveAnswers(accountID: AccountID, in db: Database) throws -> [InvitationAnswer] {
+        try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT change_json FROM operations
+            WHERE account_id = ? AND status IN \(OperationTable.liveStatusList) AND substr(change_json, 1, 20) = '{"answerInvitation":'
+            ORDER BY created_at, rowid
+            """), arguments: [accountID.rawValue])
+            .compactMap { row in
+                (try? MailStoreCodec.decode(MetadataChange.self, from: row[0] as String)).flatMap(CalendarAnswers.answer(of:))
+            }
+    }
+
+    /// The account's answers with a calendar part that are live or failed, oldest first: what an event's card reads.
+    static func cardAnswers(accountID: AccountID, in db: Database) throws -> [(status: OperationStatus, answer: InvitationAnswer)] {
+        try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT status, change_json FROM operations
+            WHERE account_id = ? AND status IN ('pending', 'inFlight', 'uncertain', 'failed')
+              AND substr(change_json, 1, 20) = '{"answerInvitation":'
+            ORDER BY created_at, rowid
+            """), arguments: [accountID.rawValue])
+            .compactMap { row in
+                guard let status = OperationStatus(rawValue: row[0]),
+                      let change = try? MailStoreCodec.decode(MetadataChange.self, from: row[1] as String),
+                      let answer = CalendarAnswers.answer(of: change) else { return nil }
+                return (status, answer)
+            }
     }
 
     static func pending(accountID: AccountID, in db: Database) throws -> [CalendarEvent] {
@@ -391,13 +421,16 @@ enum CalendarEventTable {
         // The account was removed while its calendar was being read: there is nothing to write it into.
         guard try accountExists(accountID, in: db) else { return }
         let keyed = try keyed(accountID: accountID, in: db)
+        // Pending answers win: an answer the provider has not been sent yet keeps its word on the rows it covers.
+        let live = try liveAnswers(accountID: accountID, in: db)
         var listed: Set<String> = []
         for read in claimingKeys(events) {
             let byKey = read.clientKey.flatMap { keyed[$0] }
             let id = byKey?.event.id ?? read.id
             listed.insert(id)
             let current = try byKey ?? stored(id: id, in: db)
-            guard let merged = merged(read, accountID: accountID, keyed: byKey, sameID: byKey == nil ? current : nil) else { continue }
+            guard var merged = merged(read, accountID: accountID, keyed: byKey, sameID: byKey == nil ? current : nil) else { continue }
+            if !live.isEmpty { merged = CalendarAnswers.winning(merged, live: live) }
             // A refresh that changes nothing writes nothing: a read every two minutes would otherwise rewrite every row.
             if merged != current { try save(merged, in: db) }
         }
@@ -448,14 +481,6 @@ enum CalendarEventTable {
             try delete(id: id, in: db)
         }
         return true
-    }
-
-    static func answer(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
-                       near occurrence: Date?, in db: Database) throws {
-        let rows = try Row.fetchAll(db.cachedStatement(sql: """
-            SELECT \(columns) FROM calendar_events WHERE account_id = ? AND invitation_uid IS NOT NULL ORDER BY id
-            """), arguments: [accountID.rawValue]).compactMap(stored(from:))
-        for row in answering(rows, uid: uid, near: occurrence, response: response) { try save(row, in: db) }
     }
 
     static func fail(id: String, in db: Database) throws {

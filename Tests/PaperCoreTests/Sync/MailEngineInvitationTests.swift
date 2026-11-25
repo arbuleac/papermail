@@ -149,6 +149,72 @@ final class MailEngineInvitationTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// The calendar's copy of the invitation takes the answer in the enqueue's own transaction, and the answer records
+    /// what it said; a give-up puts it back with the message's answer.
+    func testTheAnswerWritesTheCalendarInItsTransactionAndAGiveUpPutsItBack() async throws {
+        let failure = Result<Void, Error>.failure(ProviderError.server(status: 500, message: "boom"))
+        let harness = try await harness(applyResults: [failure]) { $0.maxOperationAttempts = 1 }
+        let copy = CalendarEvent(id: CalendarEvent.localID(accountID: Fixtures.accountID, providerID: "evt"),
+                                 accountID: Fixtures.accountID, providerID: "evt", title: "Design review",
+                                 start: invitation().start, end: invitation().end, response: .needsAction,
+                                 invitationUID: "uid-1@google.com")
+        try harness.store.replaceCalendarEvents([copy], accountID: Fixtures.accountID,
+                                                window: DateInterval(start: copy.start.addingTimeInterval(-86_400), duration: 3 * 86_400))
+        try harness.engine.answerInvitation(.accepted, to: target)
+        XCTAssertEqual(try harness.store.calendarEvent(id: copy.id)?.response, .accepted, "the calendar shows it at once")
+        try await waitUntil("answer sent") { !self.answers(harness.provider).isEmpty }
+        let sent = try XCTUnwrap(answers(harness.provider).first)
+        XCTAssertEqual(sent.calendar?.scope, .invitation(uid: "uid-1@google.com", near: nil))
+        XCTAssertNil(sent.calendar?.providerEventID, "through its message")
+        XCTAssertEqual(sent.calendar?.previous, [copy.id: .needsAction])
+        try await waitUntil("given up") { try harness.store.message(self.target)?.invitationReply == nil }
+        XCTAssertEqual(try harness.store.calendarEvent(id: copy.id)?.response, .needsAction, "the calendar goes back too")
+        await harness.shutdown()
+    }
+
+    /// The enqueue is one transaction: when it fails, neither the message, the calendar nor the outbox changed.
+    func testAFailedEnqueueChangesNeitherTheMailNorTheCalendar() async throws {
+        let base = InMemoryMailStore()
+        let faulty = FaultyStore(base: base)
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]
+        let harness = try EngineHarness(store: base, provider: provider, engineStore: faulty)
+        harness.engine.start()
+        try await waitUntil("bootstrap complete") { try base.syncCursor(for: Fixtures.accountID) == "c0" }
+        try base.saveBody(StoredBody(body: MessageBody(html: "<p>Invite</p>", text: nil), renderedHTML: "<p>Invite</p>",
+                                     plainText: "Invite", invitation: invitation()), for: target)
+        let copy = CalendarEvent(id: CalendarEvent.localID(accountID: Fixtures.accountID, providerID: "evt"),
+                                 accountID: Fixtures.accountID, providerID: "evt", title: "Design review",
+                                 start: invitation().start, end: invitation().end, response: .needsAction,
+                                 invitationUID: "uid-1@google.com")
+        try base.replaceCalendarEvents([copy], accountID: Fixtures.accountID,
+                                       window: DateInterval(start: copy.start.addingTimeInterval(-86_400), duration: 3 * 86_400))
+        faulty.fail(.enqueue)
+        XCTAssertThrowsError(try harness.engine.answerInvitation(.accepted, to: target))
+        XCTAssertNil(try base.message(target)?.invitationReply)
+        XCTAssertEqual(try base.calendarEvent(id: copy.id)?.response, .needsAction)
+        XCTAssertTrue(try base.pendingOperations(accountID: Fixtures.accountID, limit: 10).isEmpty)
+        await harness.shutdown()
+    }
+
+    /// The answer reads the invitations alone (their column), never a whole body: an evicted body has none to answer.
+    func testTheAnswerReadsTheInvitationNotTheBody() async throws {
+        let base = InMemoryMailStore()
+        let counting = FaultyStore(base: base)
+        let provider = ScriptedProvider(accountID: Fixtures.accountID)
+        provider.bootstrapRuns = [["": .success(Fixtures.page(1...3, next: nil, cursor: "c0"))]]
+        let harness = try EngineHarness(store: base, provider: provider, engineStore: counting)
+        harness.engine.start()
+        try await waitUntil("bootstrap complete") { try base.syncCursor(for: Fixtures.accountID) == "c0" }
+        try base.saveBody(StoredBody(body: MessageBody(html: "<p>Invite</p>", text: nil), renderedHTML: "<p>Invite</p>",
+                                     plainText: "Invite", invitation: invitation()), for: target)
+        let bodiesBefore = counting.bodyReads
+        try harness.engine.answerInvitation(.accepted, to: target)
+        XCTAssertEqual(counting.bodyReads, bodiesBefore, "no body decompressed")
+        XCTAssertGreaterThan(counting.invitationReads, 0)
+        await harness.shutdown()
+    }
+
     /// The organizer updated the invitation since: a later message in the conversation carries it with a higher
     /// SEQUENCE and new times. The earlier one is not answered (its card offers no answer), so an answer always carries
     /// the latest revision's UID, SEQUENCE, RECURRENCE-ID and times.
@@ -522,3 +588,4 @@ final class MailEngineInvitationTests: XCTestCase {
         await harness.shutdown()
     }
 }
+

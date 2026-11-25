@@ -106,10 +106,49 @@ enum OperationTable {
         }
     }
 
+    /// Puts back the answer each calendar row had before a given-up answer, unless a newer live answer rules the row
+    /// (whose `previous` then names what the given-up one replaced) or a read has since written the provider's word.
+    private static func giveBackCalendar(_ operation: Operation, in db: Database) throws {
+        guard case .answerInvitation(let answer) = operation.change, let copies = answer.calendar, !copies.previous.isEmpty
+        else { return }
+        var rows: [String: CalendarEventTable.Stored] = [:]
+        for id in copies.previous.keys {
+            if let row = try CalendarEventTable.stored(id: id, in: db) { rows[id] = row }
+        }
+        let createdAt = MailStoreCodec.milliseconds(operation.createdAt)
+        let newer = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT id, change_json FROM operations
+            WHERE account_id = ? AND status IN \(liveStatusList) AND substr(change_json, 1, 20) = '{"answerInvitation":'
+              AND (created_at > ? OR (created_at = ? AND rowid > (SELECT rowid FROM operations WHERE id = ?)))
+            ORDER BY created_at, rowid
+            """), arguments: [operation.accountID.rawValue, createdAt, createdAt, operation.id])
+            .compactMap { row -> (id: String, answer: InvitationAnswer)? in
+                guard let change = try? MailStoreCodec.decode(MetadataChange.self, from: row[1] as String),
+                      let answer = CalendarAnswers.answer(of: change) else { return nil }
+                return (row[0], answer)
+            }
+        let (putBack, rewritten) = CalendarAnswers.givingBack(answer, rows: rows, newer: newer)
+        for row in putBack { try CalendarEventTable.save(row, in: db) }
+        for (id, newerAnswer) in rewritten {
+            try db.cachedStatement(sql: "UPDATE operations SET change_json = ? WHERE id = ?")
+                .execute(arguments: [try MailStoreCodec.json(MetadataChange.answerInvitation(newerAnswer)), id])
+        }
+    }
+
     // MARK: Writes
 
     static func enqueue(_ operation: Operation, in db: Database) throws {
         try MailSchema.ensureTouchedTable(db)
+        // An answer shows on the calendar in its own transaction: the rows it covers take it, and what each said goes
+        // into the answer itself, which a give-up puts back.
+        var operation = operation
+        if case .answerInvitation(let answer) = operation.change, let scope = answer.calendar?.scope,
+           let (filled, rows) = CalendarAnswers.enqueuing(
+            answer, accountID: operation.accountID,
+            rows: try CalendarEventTable.candidates(for: scope, accountID: operation.accountID, in: db)) {
+            for row in rows { try CalendarEventTable.save(row, in: db) }
+            operation.change = .answerInvitation(filled)
+        }
         var replaced: [MessageMetadata] = []
         for target in operation.targets {
             guard let current = try MessageTable.fetch(target, in: db) else { continue }
@@ -143,6 +182,7 @@ enum OperationTable {
         // in the transaction that marks the conversation, rather than waiting for a poll that will not come.
         if operation.status == .failed, let previous, previous.isLive {
             try giveBack(operation, in: db)
+            try giveBackCalendar(operation, in: db)
         }
         try touchTargets(of: operation.id, in: db)
         try ConversationTable.refreshTouched(db)
