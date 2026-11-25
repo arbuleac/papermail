@@ -10,10 +10,20 @@ public enum ConversationShellAssets {
     /// Scheme of the shell document. The app registers a `WKURLSchemeHandler` for it: WebKit never finishes a
     /// `loadHTMLString` whose base scheme has no handler, so this is not optional.
     public static let scheme = "ss-shell"
-    /// Base URL of the shell document. Message bodies live in `sandbox="allow-same-origin"` iframes, which
-    /// inherit this origin so the shell can measure them; nothing else is ever loaded from it.
+    /// Base URL of the shell document. Message bodies live in sandboxed iframes (`bodyFrameSandbox`), which inherit
+    /// this origin so the shell can measure them; nothing else is ever loaded from it.
     public static let baseURLString = scheme + "://local/"
     public static var baseURL: URL? { URL(string: baseURLString) }
+
+    /// The `sandbox` of every body frame. `allow-same-origin` keeps the shell's origin, so the shell can measure, mark
+    /// and fold a body from outside, since no script runs inside it. `allow-popups` is what lets a click on a link with a
+    /// `target` (`_blank`, a name, `_top`, `_parent`: most senders' buttons), or on any `mailto:` or `tel:` link, reach
+    /// the navigation policy at all: without it WebKit drops the click before asking any delegate, and the link shows the
+    /// pointing hand and does nothing. With it, the click asks the policy (a link with a target as a request for a new
+    /// window), which opens the link and cancels, so no window is ever made. Nothing else: no `allow-scripts`, so a window
+    /// is only ever asked for by a user's click; no `allow-top-navigation…`, so a body never navigates the shell; no
+    /// `allow-popups-to-escape-sandbox` and no `allow-forms`.
+    public static let bodyFrameSandbox = "allow-same-origin allow-popups"
 
     /// Script message handler the shell uses for everything but readiness.
     public static let messageHandlerName = "ss"
@@ -775,7 +785,8 @@ public enum ConversationShellAssets {
     }
     """#
 
-    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n" + trackerFiltersScript() + QuireCSS.fileMarkScript
+    public static let js: String = "var SS_BODY_CSS = " + jsStringLiteral(bodyCSS) + ";\n"
+        + "var SS_BODY_SANDBOX = " + jsStringLiteral(bodyFrameSandbox) + ";\n" + trackerFiltersScript() + QuireCSS.fileMarkScript
         + "\n" + script
 
     /// `SS_TRACKER_FILTERS`: the known open-tracking endpoints' expressions (`TrackerRules.endpoints`, the content blocker's
@@ -787,8 +798,8 @@ public enum ConversationShellAssets {
             + "];\n"
     }
 
-    /// Message bodies are loaded with `srcdoc` into `sandbox="allow-same-origin"` iframes: no scripts run
-    /// inside them, not even listeners the shell adds, so the shell measures each document from the parent
+    /// Message bodies are loaded with `srcdoc` into iframes sandboxed by `SS_BODY_SANDBOX` (`bodyFrameSandbox`): no
+    /// scripts run inside them, not even listeners the shell adds, so the shell measures each document from the parent
     /// after load, on resize and on a timer, and sizes the frame to its content.
     static let script: String = #"""
     (function () {
@@ -1450,7 +1461,7 @@ public enum ConversationShellAssets {
         }
         if (!card.expanded) { return; }
         var iframe = document.createElement('iframe');
-        iframe.setAttribute('sandbox', 'allow-same-origin');
+        iframe.setAttribute('sandbox', SS_BODY_SANDBOX);
         iframe.setAttribute('scrolling', 'no');
         iframe.setAttribute('title', 'Message body');
         iframe.addEventListener('load', function () { attachMeasurement(card); });
