@@ -1160,6 +1160,39 @@ final class HelpMeWriteComposeTests: XCTestCase {
         XCTAssertEqual(script.requests[0].kind, .reply)
     }
 
+    /// A follow-up too long to send on a standing draft (Say how's words on a new message written from a brief) is
+    /// refused before Try again's undo: the draft and its subject stay, the reason shows under them, and nothing is
+    /// sent. ⌘J under that line tries the draft again as it was asked.
+    func testAFollowUpTooLongIsRefusedWithTheDraftAndItsSubjectStanding() throws {
+        let (harness, script) = try harness(reply: lunch)
+        defer { harness.close() }
+        let composer = newMessage(harness, link: MailtoLink(to: [priya]))
+        try write("ask Priya to lunch on Thursday", in: composer)
+        let session = try session(composer)
+        until({ session.phase == .written })
+        XCTAssertEqual(composer.bodyText, lunchBody)
+        XCTAssertEqual(composer.subjectText, "Lunch on Thursday?")
+        let undoTitle = composer.window?.undoManager?.undoActionName
+
+        let long = String(repeating: "word ", count: 1_700) + "end"
+        composer.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(session.isPromptShown)
+        say(long, in: composer)
+        let reason = "Your instruction is too long. Shorten it."
+        XCTAssertEqual(session.phase, .failed(reason: reason, offersSettings: false))
+        XCTAssertEqual(composer.bodyText, lunchBody, "the draft stands")
+        XCTAssertEqual(composer.subjectText, "Lunch on Thursday?", "with its subject")
+        XCTAssertEqual(composer.window?.undoManager?.undoActionName, undoTitle, "nothing was undone")
+        XCTAssertEqual(composer.bodyWriteLayer.afterline.lineWords, reason + " \u{00b7} Try again \u{2318}J")
+        ListTestSupport.spin(for: 0.2)
+        XCTAssertEqual(script.requests.count, 1, "nothing is sent")
+
+        commandJ(composer)
+        until({ session.phase == .written && script.requests.count == 2 }, "⌘J tries the draft again as it was asked")
+        XCTAssertEqual(script.requests.last.map(task), script.requests.first.map(task))
+        XCTAssertEqual(composer.subjectText, "Lunch on Thursday?")
+    }
+
     // MARK: Bodies the composer did not write
 
     private func draft(_ harness: MainWindowHarness, mode: ComposeMode = .new, body: String, subject: String = "",

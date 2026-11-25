@@ -627,8 +627,8 @@ final class WriteSession {
     /// draft's one step goes back to the notes (and a new message's Subject back to empty, to be proposed again), and the
     /// old draft stays in sight, in pencil, until the new one starts.
     ///
-    /// What the write is made from is read before that undo: where the field can give none, the draft and its subject
-    /// stay as they are.
+    /// What the write is made from is read before that undo: where the field can give none, or the ask is longer than
+    /// is sent, the draft and its subject stay as they are.
     private func tryAgain(_ draft: Draft, instruction: String?, configuration: AIProviderConfiguration) {
         var ask = draft.ask
         var brief = draft.brief
@@ -650,8 +650,14 @@ final class WriteSession {
             refuse(reason)
             return
         }
-        guard field.writeContext() != nil else {
+        guard let context = field.writeContext() else {
             NSSound.beep()
+            return
+        }
+        // Past the cap nothing is sent (`start` refuses it by the same test), and that is known before the undo: the
+        // reason shows under the draft, which stands with its subject, and ⌘J under it tries the draft again as asked.
+        if let refusal = context.kind.lengthRefusal(of: ask) {
+            refuse(refusal.lineMessage(for: configuration.kind))
             return
         }
         if let undo = textView.undoManager, undo.canUndo, undo.undoActionName == WriteStreamEdit.actionName {
