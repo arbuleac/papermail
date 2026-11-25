@@ -53,22 +53,24 @@ public enum DemoAIReplies {
     ]
 
     /// Messages to go above a forwarded one: short, and saying nothing of what it holds that a made-up draft could
-    /// get wrong.
+    /// get wrong. Each is long enough for the writing render to rest part-way into it, wherever the pick lands.
     public static let forwardMessages: [String] = [
         "Hi,\n\nForwarding this so you have it. The details are in the message below.",
         "Hi,\n\nSharing the message below for context. Tell me what you think when you've had a look.",
         "Hi,\n\nPassing this along, since it touches what you're working on. Nothing needed from you yet.",
         "Hi all,\n\nSee the message below. I'd like to talk it through when we next meet.",
-        "Hi,\n\nI thought you should see this.",
-        "Hi,\n\nForwarding the message below for your records.",
+        "Hi,\n\nI thought you should see this before we talk. Have a look when you have a minute.",
+        "Hi,\n\nForwarding the message below for your records, so you have it to hand when you need it.",
     ]
 
     /// The draft for `request`, the same on every run for the same request (a snapshot must not change), different
     /// across asks. A subject comes with it only when the request asked for one.
     public static func draft(for request: AIWriteRequest) -> Draft {
-        // FNV-1a over the user's part: `hashValue` changes from launch to launch.
+        // FNV-1a over the user's part: `hashValue` changes from launch to launch. Without the request's fence code,
+        // which is new on every request, so the same ask picks the same draft on every run.
+        let key = request.fence.isEmpty ? request.task : request.task.replacingOccurrences(of: request.fence, with: "")
         var hash: UInt64 = 0xCBF2_9CE4_8422_2325
-        for byte in request.task.utf8 {
+        for byte in key.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x0000_0100_0000_01B3
         }

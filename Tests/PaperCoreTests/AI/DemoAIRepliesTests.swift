@@ -35,6 +35,30 @@ final class DemoAIRepliesTests: XCTestCase {
         XCTAssertTrue(Set(DemoAIReplies.forwardMessages).isDisjoint(with: bodies))
     }
 
+    /// The fence code is new on every request, so it plays no part in the pick: the same notes, written twice, get the
+    /// same draft (a render must not change from run to run), for every kind.
+    func testTheFenceCodeDoesNotChangeThePick() throws {
+        let claude = AIProviderConfiguration(kind: .claudeAPI)
+        let fences = ["1a2b3c4d", "9f8e7d6c", "00000000", "abcdef12", "5e5e5e5e"]
+        let inputs = [
+            ComposeWriteInputs(subject: "Offsite", to: [EmailAddress(name: "Priya Shah", address: "priya@example.test")],
+                               wantsSubject: true),
+            ComposeWriteInputs(subject: "Fwd: Contract",
+                               forwarded: ComposeWriteInputs.Forwarded(text: "The venue sent the contract.", author: "Ben Carter")),
+        ]
+        for input in inputs {
+            for ask in [WriteAsk(draft: .notes("fyi before thursday")), WriteAsk(instruction: "ask for dates in march")] {
+                let requests = try fences.map { try XCTUnwrap(input.request(for: ask, configuration: claude, fence: $0)) }
+                XCTAssertEqual(Set(requests.map(\.userTurn)).count, fences.count, "each request carries its own fence")
+                XCTAssertEqual(Set(requests.map(DemoAIReplies.draft(for:))).count, 1, "\(input.kind): one draft whatever the fence")
+            }
+        }
+        let reply = ReplyContext(subject: "Offsite", messages: [], ask: WriteAsk(draft: .notes("tue 10 works")))
+        let replies = fences.map { WritePrompt.request(for: reply, appendsSignature: false, configuration: claude, fence: $0) }
+        XCTAssertEqual(Set(replies.map(\.task)).count, fences.count)
+        XCTAssertEqual(Set(replies.map(DemoAIReplies.reply(for:))).count, 1)
+    }
+
     func testASubjectComesOnlyWhenTheRequestAskedForOne() {
         for index in 0..<12 {
             let task = "ask \(index)"

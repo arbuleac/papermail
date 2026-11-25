@@ -1354,6 +1354,21 @@ final class HelpMeWriteComposeTests: XCTestCase {
 
     // MARK: The demo writer
 
+    #if DEBUG
+    /// The writing render rests `writingHold` chunks into the message, whichever draft the ask picks: each of the
+    /// demo's canned new messages and forward messages is longer, and so is every draft the render scripts, so the
+    /// render never shows a landed draft instead.
+    func testTheWritingRenderRestsPartWayIntoEveryDraftItCanWrite() {
+        let hold = WriteSnapshotStates.writingHold
+        let wanting = AIWriteRequest(kind: .newMessage, instructions: "", transcript: "", task: "t", wantsSubject: true)
+        let scripted = [WriteSnapshotStates.reply, WriteSnapshotStates.longReply,
+                        DemoAIScript.answer(WriteSnapshotStates.newMessageDraft, for: wanting).message]
+        for message in DemoAIReplies.newMessages.map(\.body) + DemoAIReplies.forwardMessages + scripted {
+            XCTAssertGreaterThan(DemoAIScript.chunks(of: message).count, hold, "rests part-way into “\(message.prefix(32))…”")
+        }
+    }
+    #endif
+
     /// The demo writer answers a request that asks for a subject as a model does: the subject line first, then the
     /// message, so the demo's subject comes through the writer's own split. Its hold and fail counts are counted on
     /// the message, with or without a subject line before it.

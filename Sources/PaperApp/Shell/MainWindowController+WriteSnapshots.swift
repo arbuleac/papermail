@@ -66,6 +66,11 @@ enum WriteSnapshotStates {
         }
     }
 
+    /// `write-writing` rests after this many chunks of the message. Every draft the render can write is longer (the
+    /// scripted ones here and each of the demo's canned new messages and forward messages, whichever the ask picks), so
+    /// the render always rests part-way, never on a landed draft.
+    static let writingHold = 7
+
     /// `narrow` with a state: the window half a 2560 pt screen wide, the list ending where it usually does.
     static let narrowWidth: CGFloat = 1_289
     static let narrowListEdge: CGFloat = 463
@@ -105,7 +110,7 @@ enum WriteSnapshotStates {
         }
         script.delay = .milliseconds(12)
         switch state {
-        case "write-writing": script.holdsAfter = 7
+        case "write-writing": script.holdsAfter = writingHold
         case "write-rewrite": script.holdsAfter = 4
         case "write-failed":
             script.failure = .keyRefused
