@@ -51,4 +51,20 @@ final class InvitationUIDTests: XCTestCase {
         XCTAssertEqual(overlap?.event.id, own.id, "the calendar's copy is the invitation's event")
         XCTAssertEqual(overlap?.overlaps.map(\.event.id), [other.id], "and never an overlap of it")
     }
+
+    /// The invitation's event is its own account's copy: another account's copy of the same meeting says that account's
+    /// answer, so a decline there does not hide this account's overlap.
+    func testTheInvitationsCopyIsMatchedInItsOwnAccountOnly() {
+        let start = Date(timeIntervalSince1970: 1_795_000_000)
+        let mine = AccountID("mine"), theirs = AccountID("theirs")
+        let declinedElsewhere = CalendarEvent(id: "theirs|x", accountID: theirs, providerID: "x", title: "Review", start: start,
+                                              end: start.addingTimeInterval(3_600), response: .declined, invitationUID: "uid")
+        let mineCopy = CalendarEvent(id: "mine|y", accountID: mine, providerID: "y", title: "Review", start: start,
+                                     end: start.addingTimeInterval(3_600), response: .needsAction, invitationUID: "uid")
+        let busy = CalendarEvent(id: "mine|z", accountID: mine, providerID: "z", title: "Sync", start: start,
+                                 end: start.addingTimeInterval(1_800))
+        let overlap = CalendarFit.invitationOverlap(uid: "uid", near: start, in: [declinedElsewhere, mineCopy, busy], accountID: mine)
+        XCTAssertEqual(overlap?.event.id, "mine|y")
+        XCTAssertEqual(overlap?.overlaps.map(\.event.id), ["mine|z"], "the other account's copy is never an overlap")
+    }
 }

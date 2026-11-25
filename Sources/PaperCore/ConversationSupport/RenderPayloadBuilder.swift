@@ -55,6 +55,7 @@ public struct RenderPayloadBuilder: Sendable {
         pending: Set<MessageID> = [],
         invitationPermissionNeeded: Set<AccountID> = [],
         invitationOverlaps: [MessageID: String] = [:],
+        invitationCalendarAnswers: [MessageID: InvitationResponse] = [:],
         sendLater: [MessageID: SendLaterState] = [:],
         outbox: [MessageID: OutboxState] = [:],
         readerMode: ReaderModeRender? = nil,
@@ -137,7 +138,8 @@ public struct RenderPayloadBuilder: Sendable {
                                ownAddresses: Set(accounts[message.id.accountID].map { [$0.email.lowercased()] } ?? []),
                                needsPermission: invitationPermissionNeeded.contains(message.id.accountID),
                                superseded: revisions.contains { $0.supersedes(invitation) },
-                               overlap: invitationOverlaps[message.id], now: now)
+                               overlap: invitationOverlaps[message.id],
+                               calendarAnswer: invitationCalendarAnswers[message.id], now: now)
                 },
                 cancelsSendLater: {
                     if case .waiting? = later { return true }

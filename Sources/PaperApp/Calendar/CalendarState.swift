@@ -469,7 +469,8 @@ final class CalendarState {
     var selectionOverlap: CalendarFit.InvitationOverlap? {
         guard let invitation = selection?.invitation else { return nil }
         let pencil = selectionPencil
-        return CalendarFit.invitationOverlap(uid: invitation.uid, near: pencil?.start, in: events, pencil: pencil)
+        return CalendarFit.invitationOverlap(uid: invitation.uid, near: pencil?.start, in: events, pencil: pencil,
+                                             accountID: selection?.invitationMessage?.accountID)
     }
 
     /// The day the selection is about, which J and K turn the column to (spec §5.54, “It follows the mail”): its

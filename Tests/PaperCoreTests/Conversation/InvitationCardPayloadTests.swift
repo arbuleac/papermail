@@ -37,13 +37,15 @@ final class InvitationCardPayloadTests: XCTestCase {
     }
 
     private func card(_ invitation: CalendarInvitation, reply: InvitationResponse? = nil, waiting: Bool = false,
-                      builder: RenderPayloadBuilder = F.builder, roles: Set<MailboxRole> = [.inbox]) throws -> RenderPayload.Invitation {
+                      builder: RenderPayloadBuilder = F.builder, roles: Set<MailboxRole> = [.inbox],
+                      calendarAnswer: InvitationResponse? = nil) throws -> RenderPayload.Invitation {
         var message = F.message("m1", roles: roles)
         message.invitationReply = reply
         var body = F.body(html: "<p>Invitation</p>")
         body.invitation = invitation
         let payload = builder.build(messages: [message], bodies: [message.id: body], accounts: F.accounts,
-                                    invitationPermissionNeeded: waiting ? [F.accountID] : [], now: now)
+                                    invitationPermissionNeeded: waiting ? [F.accountID] : [],
+                                    invitationCalendarAnswers: calendarAnswer.map { [message.id: $0] } ?? [:], now: now)
         return try XCTUnwrap(payload.messages.first?.invitation)
     }
 
@@ -68,6 +70,43 @@ final class InvitationCardPayloadTests: XCTestCase {
         XCTAssertEqual(try card(invitation(userResponse: .accepted)).response, .accepted, "answered elsewhere (Graph knows)")
         XCTAssertEqual(try card(invitation(userResponse: .accepted), reply: .declined).response, .declined)
         XCTAssertNil(try card(invitation(userResponse: .needsAction)).response)
+    }
+
+    /// The calendar's copy says the answer given in an event's details, on the phone or by the provider, and carries a
+    /// pending local one: it wins over the message's reply and the stated answer.
+    func testTheCalendarCopysAnswerWinsOverTheReplyAndTheStatedOne() throws {
+        XCTAssertEqual(try card(invitation(userResponse: .accepted), reply: .declined, calendarAnswer: .tentative).response, .tentative)
+        XCTAssertEqual(try card(invitation(userResponse: .needsAction), calendarAnswer: .accepted).response, .accepted)
+
+        // Read from the store's events: the same account's copy, nearest the invitation's start, never the user's own.
+        let start = F.utc(2025, 3, 11, 15, 0)
+        func copy(_ id: String, account: AccountID, response: CalendarEvent.Response, offset: TimeInterval = 0) -> CalendarEvent {
+            CalendarEvent(id: "\(account.rawValue)|\(id)", accountID: account, providerID: id, title: "Design review",
+                          start: start.addingTimeInterval(offset), end: start.addingTimeInterval(offset + 3_600), response: response,
+                          invitationUID: "uid-1")
+        }
+        let events = [copy("far", account: F.accountID, response: .declined, offset: 7 * 86_400),
+                      copy("near", account: F.accountID, response: .tentative),
+                      copy("other", account: AccountID("someone-else"), response: .accepted)]
+        XCTAssertEqual(InvitationCalendarAnswer.response(uid: "uid-1", near: start, accountID: F.accountID, in: events), .tentative)
+        XCTAssertNil(InvitationCalendarAnswer.response(uid: "uid-1", near: start, accountID: F.accountID,
+                                                       in: [copy("x", account: F.accountID, response: .needsAction)]))
+        XCTAssertNil(InvitationCalendarAnswer.response(uid: "uid-1", near: start, accountID: AccountID("nobody"), in: events.dropLast()))
+    }
+
+    /// An http place or call stays text: the calendar opens https alone (§5.14, §5.60).
+    func testAnHttpAddressStaysText() throws {
+        let plain = try card(invitation(location: "http://meet.example.com/abc", conferenceURL: "http://teams.example.com/l/1"))
+        XCTAssertNil(plain.locationURL)
+        XCTAssertNil(plain.conferenceURL)
+        XCTAssertEqual(plain.location, "http://meet.example.com/abc")
+    }
+
+    /// Times follow the Mac's 12/24-hour setting, as the calendar's do: the short style, not a template.
+    func testTimesFollowTheTwelveHourSetting() throws {
+        let american = RenderPayloadBuilder(calendar: Calendar(identifier: .gregorian), locale: Locale(identifier: "en_US"),
+                                            timeZone: TimeZone(identifier: "UTC")!)
+        XCTAssertEqual(try card(invitation(), builder: american).when, "Tue, Mar 11 · 3:00\u{202F}PM - 4:00\u{202F}PM")
     }
 
     func testACancelledEventOffersNoAnswer() throws {

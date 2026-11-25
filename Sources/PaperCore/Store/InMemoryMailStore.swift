@@ -359,6 +359,29 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         return evicted.contains(id) ? nil : bodies[id]
     }
 
+    /// `MessageTable.invitationMessages`: the account's messages whose subject holds the title's first eight words
+    /// (case and diacritics aside), the same filters, the newest 40, at most 12 invitations read.
+    public func invitationMessages(for event: CalendarEvent) throws -> [RelatedInvitation] {
+        lock.lock(); defer { lock.unlock() }
+        guard let uid = event.invitationUID, !uid.isEmpty, MessageTable.relatedPhrase(event.title) != nil else { return [] }
+        let words = event.title.split(whereSeparator: \.isWhitespace).prefix(8).joined(separator: " ")
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        let candidates = messagesByID.values
+            .filter { message in
+                message.id.accountID == event.accountID && !message.roles.contains(.drafts) && !message.roles.contains(.spam)
+                    && message.subject.range(of: words, options: options) != nil
+            }
+            .sorted { $0.date > $1.date }
+            .prefix(MessageTable.relatedCandidates)
+        var found: [RelatedInvitation] = []
+        for message in candidates.prefix(MessageTable.relatedInvitationReads) {
+            guard !evicted.contains(message.id), let invitation = bodies[message.id]?.invitation,
+                  InvitationUID.matches(invitation.uid, uid) else { continue }
+            found.append(RelatedInvitation(message: message, invitation: invitation))
+        }
+        return found
+    }
+
     public func attachments(of id: MessageID) throws -> [AttachmentInfo]? {
         lock.lock(); defer { lock.unlock() }
         return bodies[id]?.body.attachments

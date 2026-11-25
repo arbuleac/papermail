@@ -23,17 +23,21 @@ struct InvitationCardText {
     ///     only that one is answered.
     ///   - overlap: what it overlaps on the user's calendars (`overlapLine`), shown only while the card can say it
     ///     (`mayOverlap`).
+    ///   - calendarAnswer: what the calendar's copy says (`InvitationCalendarAnswer`), which wins over both: it carries a
+    ///     pending answer given here, and one given in an event's details, on the phone or by the provider.
     func card(for invitation: CalendarInvitation, reply: InvitationResponse?, ownAddresses: Set<String>, needsPermission: Bool,
-              superseded: Bool = false, overlap: String? = nil, now: Date) -> RenderPayload.Invitation {
-        let (canAnswer, response) = answer(invitation, reply: reply, superseded: superseded)
+              superseded: Bool = false, overlap: String? = nil, calendarAnswer: InvitationResponse? = nil,
+              now: Date) -> RenderPayload.Invitation {
+        let (canAnswer, response) = answer(invitation, reply: calendarAnswer ?? reply, superseded: superseded)
         let userAddress = invitation.userAddress?.lowercased()
         func isUser(_ address: String) -> Bool {
             let lower = address.lowercased()
             return lower == userAddress || ownAddresses.contains(lower)
         }
         let location = invitation.location
-        let locationURL = location.flatMap { CalendarInvitationReader.webAddress($0) == nil ? nil : $0 }
-        let conference = invitation.conferenceURL.flatMap { $0 == location ? nil : $0 }
+        // https only, the one scheme a link from the calendar opens (`EventLinkPolicy`): an http address stays text.
+        let locationURL = location.flatMap { EventLinkPolicy.web($0) == nil ? nil : $0 }
+        let conference = invitation.conferenceURL.flatMap { $0 == location || EventLinkPolicy.web($0) == nil ? nil : $0 }
         return RenderPayload.Invitation(
             title: invitation.title,
             when: when(invitation, in: invitation.isFloating ? ICalendarTimes.utc.timeZone : timeZone, now: now),
@@ -177,7 +181,9 @@ struct InvitationCardText {
             formatter.calendar = calendar
             formatter.locale = locale
             formatter.timeZone = zone
-            formatter.setLocalizedDateFormatFromTemplate("jmm")
+            // The short style, unlike a template, follows the Mac's 12/24-hour override, as the calendar's times do.
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
             return formatter.string(from: date)
         }
         return (calendar, day, time)

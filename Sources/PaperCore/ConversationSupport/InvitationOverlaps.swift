@@ -12,11 +12,15 @@ public struct InvitationOverlaps: Hashable, Sendable {
         public var uid: String
         /// When the invitation is, as instants: a time written without a zone is read on this Mac's clock.
         public var span: DateInterval
+        /// Whether the card can say what it overlaps (`InvitationCardText.mayOverlap`); every card that can answer is
+        /// here, for the calendar copy's answer.
+        public var mayOverlap: Bool
 
-        public init(message: MessageID, uid: String, span: DateInterval) {
+        public init(message: MessageID, uid: String, span: DateInterval, mayOverlap: Bool = true) {
             self.message = message
             self.uid = uid
             self.span = span
+            self.mayOverlap = mayOverlap
         }
     }
 
@@ -24,10 +28,13 @@ public struct InvitationOverlaps: Hashable, Sendable {
     public var cards: [Card]
     /// Each card's line, “Overlaps 1:1 with Sam, 13:30 - 14:00”; a card that overlaps nothing has none.
     public var lines: [MessageID: String]
+    /// What each card's calendar copy says (`InvitationCalendarAnswer`); a card whose copy says none has none.
+    public var answers: [MessageID: InvitationResponse]
 
-    public init(cards: [Card] = [], lines: [MessageID: String] = [:]) {
+    public init(cards: [Card] = [], lines: [MessageID: String] = [:], answers: [MessageID: InvitationResponse] = [:]) {
         self.cards = cards
         self.lines = lines
+        self.answers = answers
     }
 
     public static let none = InvitationOverlaps()

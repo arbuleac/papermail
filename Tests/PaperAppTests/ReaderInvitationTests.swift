@@ -608,20 +608,28 @@ final class ReaderInvitationTests: XCTestCase {
         let slot = try XCTUnwrap(reader.pool.current)
         let rendered = slot.tracker.generation
 
-        // Writes that leave the line's words as they are: a free event in the hour, the invitation's own copy answered,
-        // an event on another day (outside what the reader watches). None renders the conversation again.
+        // Writes that leave the card's words as they are: a free event in the hour, an event on another day (outside
+        // what the reader watches). Neither renders the conversation again.
         let focus = calendarEvent("focus", "Focus time", at: 0, minutes: 60, isFree: true)
         let tomorrow = calendarEvent("tomorrow", "Standup", at: 24 * 60, minutes: 15)
-        try read([ownCopy(.accepted), sam, focus, tomorrow], into: calendar)
+        try read([ownCopy(), sam, focus, tomorrow], into: calendar)
         ListTestSupport.spin(for: 0.5)
         XCTAssertEqual(slot.tracker.generation, rendered, "an unrelated calendar write renders nothing")
         XCTAssertEqual(evaluate(overlapLine, in: reader), "Overlaps 1:1 with Sam, \(clock(30)) - \(clock(60))")
+
+        // The invitation's own copy answered (on the phone, in its details): the card shows that answer chosen, in one
+        // render, and still says what it overlaps.
+        try read([ownCopy(.accepted), sam, focus, tomorrow], into: calendar)
+        XCTAssertTrue(waitFor("(document.querySelector('.ss-ans.ss-chosen') || {dataset: {}}).dataset.response || ''",
+                              toBe: "accepted", in: reader))
+        XCTAssertEqual(slot.tracker.generation, rendered + 1, "the copy's answer renders once")
+        let answered = slot.tracker.generation
 
         // An overlapping event arrives: the line names the first by start and counts the rest, rendered once, in place.
         let hiring = calendarEvent("hiring", "Hiring sync", at: -30, minutes: 45)
         try read([ownCopy(.accepted), sam, focus, tomorrow, hiring], into: calendar)
         XCTAssertTrue(waitFor(overlapLine, toBe: "Overlaps Hiring sync, \(clock(0)) - \(clock(15)), and 1 more", in: reader))
-        XCTAssertEqual(slot.tracker.generation, rendered + 1, "one render in place")
+        XCTAssertEqual(slot.tracker.generation, answered + 1, "one render in place")
         XCTAssertTrue(reader.pool.current === slot)
 
         // Nothing overlaps any more: the line goes and the card stays.

@@ -92,9 +92,14 @@ extension CalendarFit {
         uid: String,
         near start: Date? = nil,
         in events: [CalendarEvent],
-        pencil: CalendarEvent? = nil
+        pencil: CalendarEvent? = nil,
+        accountID: AccountID? = nil
     ) -> InvitationOverlap? {
-        let own = events.filter { InvitationUID.matches($0.invitationUID, uid) && $0.sync != .deleting }
+        // The copy that is the invitation's event is its own account's (an answer writes one account's rows, so another
+        // account's copy says another answer); no copy of the same meeting, in any account, is ever an overlap.
+        let own = events.filter {
+            InvitationUID.matches($0.invitationUID, uid) && $0.sync != .deleting && (accountID == nil || $0.accountID == accountID)
+        }
         let matched: CalendarEvent?
         if let start {
             matched = own.min { a, b in

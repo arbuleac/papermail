@@ -480,6 +480,38 @@ enum MessageTable {
 
     /// `body(for:in:)`'s invitation alone, as it reads it (nil for an evicted body, nothing for one that no longer
     /// decodes): one short text column, none of the compressed ones.
+    /// How many subject matches an event's related-mail read looks at, and how many of their invitations it reads.
+    static let relatedCandidates = 40
+    static let relatedInvitationReads = 12
+
+    /// `MailStoring.invitationMessages(for:)`: one read of the index by the title's first eight words in the subject,
+    /// then the invitations of the newest matches, by UID.
+    static func invitationMessages(for event: CalendarEvent, in db: Database) throws -> [RelatedInvitation] {
+        guard let phrase = relatedPhrase(event.title), let uid = event.invitationUID, !uid.isEmpty else { return [] }
+        let excluded = MailStoreCodec.draftsBit | MailStoreCodec.spamBit
+        let rows = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT \(selectColumns) FROM messages
+            WHERE rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)
+              AND account_id = ? AND (roles & \(excluded)) = 0
+            ORDER BY date_ms DESC LIMIT \(relatedCandidates)
+            """), arguments: ["subject : \"" + phrase + "\"", event.accountID.rawValue])
+        var found: [RelatedInvitation] = []
+        for row in rows.prefix(relatedInvitationReads) {
+            let message = try metadata(from: row)
+            guard let invitation = try invitation(for: message.id, in: db),
+                  InvitationUID.matches(invitation.uid, uid) else { continue }
+            found.append(RelatedInvitation(message: message, invitation: invitation))
+        }
+        return found
+    }
+
+    /// The title's first eight words as the inside of an FTS5 phrase; nil when none is a word the index keeps.
+    static func relatedPhrase(_ title: String) -> String? {
+        let words = title.split(whereSeparator: \.isWhitespace).prefix(8).joined(separator: " ")
+        guard SearchGrammar.isIndexable(words) else { return nil }
+        return FullTextIndex.stringContent(words)
+    }
+
     static func invitation(for id: MessageID, in db: Database) throws -> CalendarInvitation? {
         let statement = try db.cachedStatement(sql: """
             SELECT invitation_json FROM bodies WHERE account_id = ? AND provider_id = ? AND evicted = 0
