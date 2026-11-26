@@ -354,6 +354,134 @@ final class MainWindowEventDetailsTests: XCTestCase {
                        "the top hairline would sit on the middle's edge, where the face starts")
     }
 
+    // MARK: One edge
+
+    /// Where a view's words (or its glyph, or its face) start, in the card: a label's its cell's inset in from its frame,
+    /// a link's its padding in from its face, the Mail row's glyph its padding in.
+    private func wordsX(_ view: NSView, in card: NSView) -> CGFloat {
+        let frame = card.convert(view.bounds, from: view)
+        switch view {
+        case is NSTextField:
+            return frame.minX + EventDetailsText.wordsInset
+        case let button as QuireButton:
+            let face = card.convert(button.alignmentRect(forFrame: button.frame), from: button.superview)
+            return button.variant == .link ? face.minX + Quire.Layout.Button.linkPadX : face.minX
+        case is MailButton:
+            return frame.minX + Quire.Layout.CalendarPane.detailsMailPadX
+        default:
+            return frame.minX
+        }
+    }
+
+    /// The first inked column of a bitmap, in pixels.
+    private func firstInk(_ bitmap: NSBitmapImageRep) -> Int? {
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh where (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.3 { return x }
+        }
+        return nil
+    }
+
+    /// `wordsInset` is what a card label's cell really draws with: the same words drawn at x = 0 and through the label
+    /// first ink that far apart.
+    func testTheLabelsInsetIsTheOneItsCellDrawsWith() throws {
+        let field = EventDetailsText.label("Hl", role: .snippet, color: .black)
+        field.frame = NSRect(x: 0, y: 0, width: 80, height: QuireFont.Role.snippet.lineHeight + 4)
+        let fieldBitmap = try XCTUnwrap(field.bitmapImageRepForCachingDisplay(in: field.bounds))
+        field.cacheDisplay(in: field.bounds, to: fieldBitmap)
+        let scale = CGFloat(fieldBitmap.pixelsWide) / field.bounds.width
+
+        let plain = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: fieldBitmap.pixelsWide,
+                                                   pixelsHigh: fieldBitmap.pixelsHigh, bitsPerSample: 8, samplesPerPixel: 4,
+                                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0,
+                                                   bitsPerPixel: 0))
+        plain.size = field.bounds.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: plain)
+        field.attributedStringValue.draw(at: .zero)
+        NSGraphicsContext.restoreGraphicsState()
+        let inField = try XCTUnwrap(firstInk(fieldBitmap)), drawn = try XCTUnwrap(firstInk(plain))
+        XCTAssertEqual(CGFloat(inField - drawn) / scale, EventDetailsText.wordsInset, accuracy: 0.5)
+    }
+
+    /// Every text in the card starts on one edge, the content's: the kicker, the title, the time, the overlap's glyph, each
+    /// row's label, the Mail row's, the notes, Show more, the answers and the actions; a row's values start on the value
+    /// column, where its links' words and the Mail row's glyph do.
+    func testEveryTextInTheCardStartsOnOneEdge() throws {
+        let harness = try self.harness()
+        let event = try invitation(harness)
+        var overlapping = Support.event("busy", title: "Budget review", start: Support.at(15, 30), end: Support.at(16))
+        overlapping.response = .accepted
+        let conversation = harness.list.conversations[3].id
+        let mail = try XCTUnwrap(try harness.environment.store.messages(in: conversation).max { $0.date < $1.date })
+        let aside = Support.event("aside", title: mail.subject, start: Support.at(17), end: Support.at(17, 30), sourceMessage: mail.id)
+        try Support.write([event, overlapping, aside], to: harness.environment.store)
+        let notes = (1...12).map { "Agenda line \($0): the numbers, then the plan." }.joined(separator: "\n")
+        let call = EventCall(phones: [EventPhone(number: "+1 555-0134", dial: "+15550134,,601225430#", region: "US", pin: "601225430")],
+                             morePhonesURL: "https://tel.meet.example.test/abc")
+        let details = CalendarEventDetails(
+            organizer: EmailAddress(name: "Elena Rossi", address: "elena@example.test"),
+            guests: [EventGuest(name: "Tom Hughes", address: "tom@example.test", response: .accepted),
+                     EventGuest(name: "Rachel Kim", address: "rachel@example.test", response: .declined)],
+            guestCount: 2, answersKnown: true, notes: EventNotes(text: notes), call: call)
+        XCTAssertTrue(try harness.environment.store.saveCalendarEventDetails(details, eventID: event.id, version: nil, readAt: Support.today))
+        let column = harness.controller.desk.column
+        harness.spin { column.timeline.placed(withID: aside.id) != nil && column.timeline.placed(withID: overlapping.id) != nil }
+
+        let edge = Quire.Layout.CalendarPane.detailsPadX
+        let valueColumn = edge + Quire.Layout.Invitation.labelColumn
+        func check(_ card: EventDetailsCardView, _ name: String, atLeast: (edge: Int, values: Int)) {
+            card.layoutSubtreeIfNeeded()
+            let views = descendants(of: card)
+            var atEdge: [(String, NSView)] = []
+            var atValues: [(String, NSView)] = []
+            for view in views {
+                switch view {
+                case let kicker as KickerView: atEdge.append(("kicker", kicker))
+                case let line as GlyphLine: atEdge.append(("glyph line", line))
+                case let notes as EventNotesTextView: atEdge.append(("notes", notes))
+                case let row as EventDetailsRowView:
+                    guard let label = row.subviews.first else { continue }
+                    atEdge.append(("\(row.row.label) label", label))
+                    // The first piece of each line, which starts on the value column.
+                    let pieces = row.subviews.dropFirst().filter { $0 !== row.copyButton }
+                    let starts = Dictionary(grouping: pieces) { card.convert($0.bounds, from: $0).midY.rounded() }
+                    for (_, line) in starts {
+                        if let first = line.min(by: { wordsX($0, in: card) < wordsX($1, in: card) }) {
+                            atValues.append(("\(row.row.label) value", first))
+                        }
+                    }
+                case let mailRow as MailRowView:
+                    if let label = mailRow.subviews.first { atEdge.append(("Mail label", label)) }
+                    if let button = mailRow.button { atValues.append(("Mail glyph", button)) }
+                default:
+                    break
+                }
+            }
+            for field in views.compactMap({ $0 as? NSTextField }) where field.superview is CardStack {
+                atEdge.append(("\(field.stringValue.prefix(12))", field))
+            }
+            if let more = card.buttons.first(where: { $0.title == "Show more" }) { atEdge.append(("Show more", more)) }
+            if let first = card.answerButtons[.accepted] { atEdge.append(("Accept", first)) }
+            if let first = card.keyed.first(where: { $0.key.hasPrefix("footer.") })?.view { atEdge.append(("first action", first)) }
+            XCTAssertGreaterThanOrEqual(atEdge.count, atLeast.edge, name)
+            XCTAssertGreaterThanOrEqual(atValues.count, atLeast.values, name)
+            for (what, view) in atEdge {
+                XCTAssertEqual(wordsX(view, in: card), edge, accuracy: 0.5, "\(name): \(what) starts on the content's edge")
+            }
+            for (what, view) in atValues {
+                XCTAssertEqual(wordsX(view, in: card), valueColumn, accuracy: 0.5, "\(name): \(what) starts on the value column")
+            }
+        }
+
+        column.timeline.activate(.event(event.id))
+        harness.spin { column.details.card?.model?.notes != nil && column.details.card?.model?.overlap != nil }
+        check(try XCTUnwrap(column.details.card), "an invitation", atLeast: (12, 4))
+
+        column.timeline.activate(.event(aside.id))
+        harness.spin { column.details.card?.model?.mail?.message != nil }
+        check(try XCTUnwrap(column.details.card), "time set aside", atLeast: (5, 1))
+    }
+
     /// Show more under clamped notes is the middle's last part: scrolled to the end, its ring is drawn whole; the top
     /// hairline sits on the middle's edge and its cover hides what scrolled past it.
     func testShowMoresRingFitsTheBottomOfAScrolledMiddle() throws {

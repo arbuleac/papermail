@@ -101,7 +101,7 @@ final class EventDetailsRowView: NSView {
         let lineHeight = QuireFont.Role.snippet.lineHeight
         // The first text line centred on the copy button when there is one.
         let firstLineTop: CGFloat = copyButton != nil ? (Pane.detailsCopyButton - lineHeight) / 2 : 0
-        label.frame = NSRect(x: 0, y: firstLineTop, width: valueX - 4, height: lineHeight)
+        label.frame = EventDetailsText.frame(forWords: NSRect(x: 0, y: firstLineTop, width: valueX - 4, height: lineHeight))
         var y = firstLineTop
         for (index, views) in lines.enumerated() {
             if index > 0 { y += Quire.Layout.Invitation.rowGap }
@@ -109,7 +109,7 @@ final class EventDetailsRowView: NSView {
             var x = valueX
             if views.count == 1, let field = views.first as? NSTextField {
                 let h = EventDetailsText.height(of: field, width: width)
-                field.frame = NSRect(x: x, y: y, width: width, height: h)
+                field.frame = EventDetailsText.frame(forWords: NSRect(x: x, y: y, width: width, height: h))
                 y += h
                 continue
             }
@@ -118,20 +118,17 @@ final class EventDetailsRowView: NSView {
                 let remaining = max(0, valueX + width - x)
                 if let button = view as? QuireButton {
                     let size = button.intrinsicContentSize
-                    let w = min(size.width, max(0, remaining - EventDetailsText.wordsInset))
-                    // A link's words start where a field's would at the same x (a field draws its words its cell's
-                    // inset in): the row's words stay in one column, links or not.
-                    let wordsX = x + EventDetailsText.wordsInset
-                    let visual = NSRect(x: wordsX - Quire.Layout.Button.linkPadX, y: y + (lineHeight - size.height) / 2, width: w,
+                    let w = min(size.width, max(0, remaining))
+                    // A link's words start at x, where a field's do: the row's words stay in one column, links or not.
+                    let visual = NSRect(x: x - Quire.Layout.Button.linkPadX, y: y + (lineHeight - size.height) / 2, width: w,
                                         height: size.height)
                     button.frame = button.frame(forVisualRect: visual)
-                    // The next piece is a field, which draws its words its inset in: so they follow the link's words
-                    // with no more than the space they begin with.
+                    // The next piece follows the link's words with no more than the space it begins with.
                     x += w - 2 * Quire.Layout.Button.linkPadX
                     tallest = max(tallest, lineHeight)
                 } else if let field = view as? NSTextField {
                     let w = min(ceil(field.attributedStringValue.size().width) + 8, remaining)
-                    field.frame = NSRect(x: x, y: y, width: w, height: lineHeight)
+                    field.frame = NSRect(x: x - EventDetailsText.wordsInset, y: y, width: w, height: lineHeight)
                     x += w
                     tallest = max(tallest, lineHeight)
                 }
@@ -173,8 +170,17 @@ final class EventDetailsRowView: NSView {
 /// The card's text fields: Quire roles, wrapping, selectable where they are values.
 @MainActor
 enum EventDetailsText {
-    /// How far in from its frame a label draws its first word (its cell's inset, as `QuireInnerTextField`'s).
+    /// How far in from its frame a label draws its first word, and stops short of its trailing edge (its cell's inset, as
+    /// `QuireInnerTextField.cellInset`).
     static let wordsInset: CGFloat = 2
+
+    /// A label's frame for words that start at `rect.minX` and may run to `rect.maxX`: the frame reaches the cell's inset
+    /// past the words on each side (as `QuireFindBar` places its field). So every text in the card starts on one edge,
+    /// the content's, where the notes, the kicker's dot, a line's glyph, Show more and the buttons' faces start; and a
+    /// row's values on the value column, where its links' words and the Mail row's glyph start.
+    static func frame(forWords rect: NSRect) -> NSRect {
+        rect.insetBy(dx: -wordsInset, dy: 0)
+    }
 
     static func label(_ text: String, role: QuireFont.Role, color: NSColor, selectable: Bool = false, maxLines: Int = 0,
                       italic: Bool = false, struck: Bool = false, tabular: Bool = false) -> NSTextField {
@@ -222,10 +228,10 @@ enum EventDetailsText {
         string.addAttribute(.paragraphStyle, value: style, range: whole)
     }
 
-    /// The field's height at `width`, its line count capped as it is.
+    /// The field's height with `width` for its words (its frame from `frame(forWords:)`), its line count capped as it is.
     static func height(of field: NSTextField, width: CGFloat) -> CGFloat {
         guard let cell = field.cell else { return 0 }
-        let size = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
+        let size = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width + 2 * wordsInset, height: .greatestFiniteMagnitude))
         return ceil(size.height)
     }
 }

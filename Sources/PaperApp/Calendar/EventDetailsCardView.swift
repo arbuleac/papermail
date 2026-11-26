@@ -495,7 +495,8 @@ final class CardStack: NSView {
                 let size = button.intrinsicContentSize
                 button.frame = button.frame(forVisualRect: NSRect(x: insetX + part.inset, y: y, width: size.width, height: size.height))
             } else {
-                part.view.frame = NSRect(x: insetX + part.inset, y: y, width: width - part.inset, height: h)
+                let rect = NSRect(x: insetX + part.inset, y: y, width: width - part.inset, height: h)
+                part.view.frame = part.view is NSTextField ? EventDetailsText.frame(forWords: rect) : rect
             }
             y += h
         }
@@ -694,7 +695,7 @@ final class GlyphLine: NSView, MeasuredView {
 
     override func layout() {
         super.layout()
-        field.frame = NSRect(x: indent, y: 0, width: bounds.width - indent, height: bounds.height)
+        field.frame = EventDetailsText.frame(forWords: NSRect(x: indent, y: 0, width: bounds.width - indent, height: bounds.height))
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -744,11 +745,12 @@ final class MailRowView: NSView, MeasuredView {
 
     override func layout() {
         super.layout()
-        label.frame = NSRect(x: 0, y: button == nil ? 0 : 4, width: valueX, height: QuireFont.Role.snippet.lineHeight)
+        label.frame = EventDetailsText.frame(forWords: NSRect(x: 0, y: button == nil ? 0 : 4, width: valueX,
+                                                              height: QuireFont.Role.snippet.lineHeight))
         // The face ends at the value column's end: past it the scrolling middle cuts its corners and its focus ring.
         button?.frame = NSRect(x: valueX, y: 0, width: bounds.width - valueX, height: bounds.height)
-        goneField?.frame = NSRect(x: Quire.Layout.Invitation.labelColumn, y: 0, width: bounds.width - Quire.Layout.Invitation.labelColumn,
-                                  height: bounds.height)
+        goneField?.frame = EventDetailsText.frame(forWords: NSRect(
+            x: Quire.Layout.Invitation.labelColumn, y: 0, width: bounds.width - Quire.Layout.Invitation.labelColumn, height: bounds.height))
     }
 
     override func accessibilityChildren() -> [Any]? { [button ?? goneField].compactMap { $0 } }
