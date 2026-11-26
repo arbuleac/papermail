@@ -168,8 +168,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     WrapSnapshot.type(into: window.conversation.quickReplyBar.writingTextView, in: window.window)
                 }
                 #endif
-                // Frames size themselves and inline images load after the render lands.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                // Frames size themselves and inline images load after the render lands; a calendar state still being
+                // applied (an event's details opening) is waited for, 15 s at most.
+                self.afterDebugStates(window: window, deadline: Date().addingTimeInterval(16.5)) {
                     MainActor.assumeIsolated {
                         self.captureReader(webView) { image in
                             if let main { self.writeWindowSnapshot(to: main, reader: image.map { ($0, webView) }) }
@@ -184,6 +185,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     }
                 }
             }
+        }
+    }
+
+    /// After 1.5 s, and once the window applied every debug state it is applying (0.2 s polls, until `deadline`).
+    private func afterDebugStates(window: MainWindowController, deadline: Date, then: @escaping @Sendable () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak window] in
+            MainActor.assumeIsolated { Self.pollDebugStates(window, deadline: deadline, then: then) }
+        }
+    }
+
+    private static func pollDebugStates(_ window: MainWindowController?, deadline: Date, then: @escaping @Sendable () -> Void) {
+        guard let window, window.debugStatesPending, Date() < deadline else { return then() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak window] in
+            MainActor.assumeIsolated { pollDebugStates(window, deadline: deadline, then: then) }
         }
     }
 
