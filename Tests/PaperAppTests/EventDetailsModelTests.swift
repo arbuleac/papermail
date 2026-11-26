@@ -188,11 +188,11 @@ final class EventDetailsModelTests: XCTestCase {
         let details = CalendarEventDetails(guests: [me] + people + [EventGuest(name: "Jordan Lee", address: "j@x.test", response: .tentative),
                                                                     EventGuest(name: "Maya Chen", address: "m@x.test", response: .declined)],
                                            guestCount: 50, answersKnown: true)
-        let cut = model(invited(), details: details)
+        let cut = model(invited(.accepted), details: details)
         XCTAssertEqual(words(cut.rows.first { $0.label == "Guests" }), [
             "Accepted: You, Priya Raman, Hannah Becker, Sam Okafor +3 more", "Tentative: Jordan Lee", "Declined: Maya Chen", "Show all 50",
         ])
-        let whole = model(invited(), details: details, guestsExpanded: true)
+        let whole = model(invited(.accepted), details: details, guestsExpanded: true)
         let lines = words(whole.rows.first { $0.label == "Guests" })
         XCTAssertEqual(lines.first, "Accepted: You, Priya Raman, Hannah Becker, Sam Okafor, Theo Nakamura, Linda Morgan, Ben Carter")
         XCTAssertEqual(Array(lines.suffix(2)), ["and 41 more", "Show fewer"])
@@ -207,6 +207,24 @@ final class EventDetailsModelTests: XCTestCase {
         XCTAssertFalse(model(invited(), details: hidden).rows.contains { $0.label == "Guests" }, "the organizer hides them")
         let alone = CalendarEventDetails(guests: [me], guestCount: 1, answersKnown: true)
         XCTAssertFalse(model(invited(), details: alone).rows.contains { $0.label == "Guests" }, "“You” alone says nothing")
+    }
+
+    /// The details were read before the user answered: their own line says the answer the card shows (the store's row,
+    /// or an answer on its way), never the one read earlier.
+    func testTheUsersOwnLineFollowsTheAnswerTheCardShows() {
+        let me = EventGuest(name: "Alex", address: "alex@x.test", response: .needsAction, isSelf: true)
+        let priya = EventGuest(name: "Priya Raman", address: "p@x.test", response: .accepted)
+        let details = CalendarEventDetails(guests: [me, priya], guestCount: 2, answersKnown: true)
+        XCTAssertEqual(words(model(invited(), details: details).rows.first { $0.label == "Guests" }),
+                       ["Accepted: Priya Raman", "Not answered: You"])
+        XCTAssertEqual(words(model(invited(.accepted), details: details).rows.first { $0.label == "Guests" }),
+                       ["Accepted: You, Priya Raman"], "the row is ahead of the details")
+        XCTAssertEqual(words(model(invited(), details: details, answer: .live(.declined)).rows.first { $0.label == "Guests" }),
+                       ["Accepted: Priya Raman", "Declined: You"], "an answer on its way")
+        var read = details
+        read.guests[0].response = .accepted
+        XCTAssertEqual(words(model(invited(), details: read).rows.first { $0.label == "Guests" }),
+                       ["Accepted: Priya Raman", "Not answered: You"], "a give-up put the row back: the row wins")
     }
 
     func testTheMailRowAndItsTrashAndTheSelectedConversation() throws {

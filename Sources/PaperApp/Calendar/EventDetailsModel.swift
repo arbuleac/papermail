@@ -278,7 +278,7 @@ struct EventDetailsModel {
             if chosen != .declined, !event.isAllDay { overlap = inputs.overlap }
         }
 
-        rows = Self.rows(inputs, isPencil: isPencil)
+        rows = Self.rows(inputs, isPencil: isPencil, chosen: chosen)
         mail = Self.mailRow(inputs)
         if !event.isSetAside, !isPencil, let notes = details?.notes {
             self.notes = notes
@@ -314,7 +314,7 @@ struct EventDetailsModel {
 
     // MARK: Rows
 
-    private static func rows(_ inputs: Inputs, isPencil: Bool) -> [Row] {
+    private static func rows(_ inputs: Inputs, isPencil: Bool, chosen: InvitationResponse?) -> [Row] {
         let event = inputs.event
         if event.isSetAside { return [] }
         let details = inputs.details
@@ -393,6 +393,16 @@ struct EventDetailsModel {
             guestCount = max(details.guestCount, details.guests.count)
             answersKnown = details.answersKnown
             hidden = details.guestsHidden
+        }
+        // The user's own line says the answer the card shows chosen (an answer on its way included): the details
+        // were read before it, and the store's row is ahead of them until the next read.
+        if !userIsOrganizer, event.response != .organizer {
+            guests = guests.map { guest in
+                guard guest.isSelf else { return guest }
+                var own = guest
+                own.response = chosen ?? .needsAction
+                return own
+            }
         }
         let others = guests.filter { !$0.isSelf }
         let hasGuests = !others.isEmpty && !hidden
