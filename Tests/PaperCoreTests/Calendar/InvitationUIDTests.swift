@@ -67,4 +67,33 @@ final class InvitationUIDTests: XCTestCase {
         XCTAssertEqual(overlap?.event.id, "mine|y")
         XCTAssertEqual(overlap?.overlaps.map(\.event.id), ["mine|z"], "the other account's copy is never an overlap")
     }
+
+    /// Only the meeting's own copies are left out, in every account (the same meeting is no conflict, whichever calendar
+    /// holds it, answered there or not); every other busy event of every account counts, another invitation included.
+    func testTheMeetingsCopiesAreLeftOutAndEveryOtherEventOfEveryAccountCounts() {
+        let start = Date(timeIntervalSince1970: 1_795_000_000)
+        let mine = AccountID("mine"), theirs = AccountID("theirs")
+        func event(_ id: String, _ account: AccountID, uid: String?, response: CalendarEvent.Response = .accepted,
+                   offset: TimeInterval = 0) -> CalendarEvent {
+            CalendarEvent(id: "\(account.rawValue)|\(id)", accountID: account, providerID: id, title: id, start: start.addingTimeInterval(offset),
+                          end: start.addingTimeInterval(offset + 3_600), response: response, invitationUID: uid)
+        }
+        let events = [
+            event("copy", mine, uid: "uid", response: .needsAction),
+            event("copy-there", theirs, uid: "uid", response: .accepted),
+            event("other-invitation", theirs, uid: "other-uid", response: .needsAction, offset: 900),
+            event("plain-there", theirs, uid: nil, offset: 1_800),
+            event("plain-here", mine, uid: nil, offset: 2_700),
+        ]
+        let overlap = CalendarFit.invitationOverlap(uid: "uid", near: start, in: events, accountID: mine)
+        XCTAssertEqual(overlap?.event.id, "mine|copy")
+        XCTAssertEqual(overlap?.overlaps.map(\.event.id), ["theirs|other-invitation", "theirs|plain-there", "mine|plain-here"])
+
+        // With no copy in its own account the pencil is the invitation's event, and the copy elsewhere is still its own.
+        let pencil = CalendarEvent(id: "invitation|mine|m", accountID: mine, providerID: nil, title: "uid", start: start,
+                                   end: start.addingTimeInterval(3_600), response: .needsAction, invitationUID: "uid")
+        let drawn = CalendarFit.invitationOverlap(uid: "uid", near: start, in: Array(events.dropFirst()), pencil: pencil, accountID: mine)
+        XCTAssertEqual(drawn?.event.id, pencil.id)
+        XCTAssertEqual(drawn?.overlaps.map(\.event.id), ["theirs|other-invitation", "theirs|plain-there", "mine|plain-here"])
+    }
 }

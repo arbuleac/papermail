@@ -354,6 +354,25 @@ final class MainWindowEventDetailsTests: XCTestCase {
                        "the top hairline would sit on the middle's edge, where the face starts")
     }
 
+    // MARK: Overlap
+
+    /// The card counts what the reader's card counts (§5.14): every account's busy events, the meeting's own copies left
+    /// out wherever they are, so a copy in the other account is no overlap and that account's other invitation is one.
+    func testTheCardsOverlapLeavesOutTheMeetingsCopiesAndCountsEveryAccount() throws {
+        let harness = try self.harness()
+        let event = try invitation(harness)
+        let copyThere = Support.event("copy-there", account: Support.accountB, title: "Quarterly planning", start: Support.at(15),
+                                      end: Support.at(16, 30), response: .accepted, invitationUID: "uid-planning")
+        let vendor = Support.event("vendor", account: Support.accountB, title: "Vendor call", start: Support.at(16),
+                                   end: Support.at(17), response: .needsAction, invitationUID: "uid-vendor")
+        try Support.write([event, copyThere, vendor], to: harness.environment.store)
+        let column = harness.controller.desk.column
+        harness.spin { column.timeline.placed(withID: vendor.id) != nil }
+        column.timeline.activate(.event(event.id))
+        harness.spin { column.details.card?.model?.overlap != nil }
+        XCTAssertEqual(column.details.card?.model?.overlap, "Overlaps Vendor call, 16:00 - 16:30")
+    }
+
     // MARK: One edge
 
     /// Where a view's words (or its glyph, or its face) start, in the card: a label's its cell's inset in from its frame,
