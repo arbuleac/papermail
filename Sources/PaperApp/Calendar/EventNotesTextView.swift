@@ -165,11 +165,12 @@ final class EventNotesTextView: NSTextView {
 
     override func pressureChange(with event: NSEvent) {}
 
+    /// The hand over each link in sight and the I-beam around them, each cut out of what lies on it (§4.17), which
+    /// AppKit's own I-beam could not be: an edge cover over lines scrolled past the middle's edge shows its arrow alone.
     override func resetCursorRects() {
-        super.resetCursorRects()
-        guard let manager = layoutManager, let container = textContainer, let notes else { return }
+        guard let manager = layoutManager, let container = textContainer, let notes, !isHiddenOrHasHiddenAncestor else { return }
         guard !visibleRect.isEmpty else { return }
-        addCursorRect(visibleRect, cursor: .iBeam)
+        var hands: [NSRect] = []
         for link in notes.links {
             let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: link.location, length: link.length), actualCharacterRange: nil)
             manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
@@ -177,7 +178,14 @@ final class EventNotesTextView: NSTextView {
                 // A link clamped out of sight has no rect to add (the intersection is null).
                 let visible = rect.intersection(self.visibleRect)
                 guard !visible.isNull, !visible.isEmpty else { return }
-                self.addCursorRect(visible, cursor: .pointingHand)
+                hands.append(visible)
+            }
+        }
+        addTextPointerRects(cutting: hands)
+        let covered = pointerCoverAreas()
+        for hand in hands {
+            for piece in QuirePointerRegion.regions(hand, cursor: .pointingHand, cutting: covered) {
+                addCursorRect(piece.rect, cursor: piece.cursor)
             }
         }
     }

@@ -184,7 +184,7 @@ enum EventDetailsText {
 
     static func label(_ text: String, role: QuireFont.Role, color: NSColor, selectable: Bool = false, maxLines: Int = 0,
                       italic: Bool = false, struck: Bool = false, tabular: Bool = false) -> NSTextField {
-        let field = NSTextField(wrappingLabelWithString: text)
+        let field = CardLabel(wrappingLabelWithString: text)
         field.isSelectable = selectable
         field.drawsBackground = false
         field.isBordered = false
@@ -233,5 +233,14 @@ enum EventDetailsText {
         guard let cell = field.cell else { return 0 }
         let size = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width + 2 * wordsInset, height: .greatestFiniteMagnitude))
         return ceil(size.height)
+    }
+}
+
+/// A label of the card. Selectable, its I-beam lies over the label alone, cut out of what lies on it (§4.17), which
+/// AppKit's own could not be: an edge cover over a line scrolled past the middle's edge shows its arrow alone.
+@MainActor
+private final class CardLabel: NSTextField {
+    override func resetCursorRects() {
+        if isSelectable { addTextPointerRects() }
     }
 }

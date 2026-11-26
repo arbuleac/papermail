@@ -751,6 +751,12 @@ final class MainWindowEventDetailsTests: XCTestCase {
         let face = clip.convert(more.alignmentRect(forFrame: more.frame), from: more.superview)
         let ring = QuireFocusRing.outset(gap: QuireFocusRing.gap, width: QuireFocusRing.width(increasedContrast: true))
         XCTAssertLessThanOrEqual(face.maxY + ring, clip.bounds.maxY, "the ring fits below Show more, at the middle's bottom")
+        XCTAssertGreaterThanOrEqual(face.minX - ring, clip.bounds.minX,
+                                    "and before it, its face starting a link's padding before the content's edge")
+        XCTAssertLessThanOrEqual(face.maxX + ring, clip.bounds.maxX)
+        XCTAssertEqual(card.convert(more.alignmentRect(forFrame: more.frame), from: more.superview).minX,
+                       Quire.Layout.CalendarPane.detailsPadX - Quire.Layout.Button.linkPadX, accuracy: 0.5,
+                       "Show more's words stay on the content's edge")
         let covers = descendants(of: card).compactMap { $0 as? EdgeCover }.sorted { $0.frame.minY < $1.frame.minY }
         XCTAssertEqual(covers.map(\.isHidden), [false, true], "cut at the top only")
         let topCover = try XCTUnwrap(covers.first)
@@ -765,6 +771,171 @@ final class MainWindowEventDetailsTests: XCTestCase {
         let firstTop = descendants(of: document).filter { $0.superview === document }.map { card.convert($0.bounds, from: $0).minY }.min()
         XCTAssertEqual(firstTop ?? 0, middleTop, accuracy: 0.5)
         XCTAssertEqual(covers.map(\.isHidden), [true, false], "cut at the bottom only")
+    }
+
+    /// A small link's face reaches past its line, above and below: where the Where row is the middle's only part (an
+    /// https place, no call, nothing above it), the link's ring is drawn whole at the middle's top and at its bottom,
+    /// and the row still starts on the middle's edge.
+    func testALinkOnTheMiddlesFirstAndLastLineKeepsItsWholeRing() throws {
+        let harness = try self.harness()
+        let place = "https://rooms.example.test/fourth-floor"
+        let event = Support.event("room", title: "Design review", start: Support.at(15), end: Support.at(16), location: place)
+        try Support.write([event], to: harness.environment.store)
+        let column = harness.controller.desk.column
+        harness.spin { column.timeline.placed(withID: event.id) != nil }
+        column.timeline.activate(.event(event.id))
+        harness.spin { column.details.card?.model?.rows.first?.key == "row.where" }
+        let card = try XCTUnwrap(column.details.card)
+        card.layoutSubtreeIfNeeded()
+        let model = try XCTUnwrap(card.model)
+        XCTAssertNil(model.elsewhere)
+        XCTAssertNil(model.repeats)
+        XCTAssertNil(model.status)
+        XCTAssertNil(model.overlap)
+        XCTAssertEqual(model.rows.map(\.key), ["row.where"], "the Where row alone: the middle's first part and its last")
+        XCTAssertNil(model.mail)
+        XCTAssertNil(model.notes)
+
+        let link = try XCTUnwrap(card.buttons.first { $0.title == place })
+        let clip = try XCTUnwrap(link.enclosingScrollView?.contentView)
+        let face = clip.convert(link.alignmentRect(forFrame: link.frame), from: link.superview)
+        let ring = QuireFocusRing.outset(gap: QuireFocusRing.gap, width: QuireFocusRing.width(increasedContrast: true))
+        XCTAssertGreaterThanOrEqual(face.minY - ring, clip.bounds.minY, "the ring fits above the link, at the middle's top")
+        XCTAssertLessThanOrEqual(face.maxY + ring, clip.bounds.maxY, "and below it, at the middle's bottom")
+        XCTAssertGreaterThanOrEqual(face.minX - ring, clip.bounds.minX)
+        XCTAssertLessThanOrEqual(face.maxX + ring, clip.bounds.maxX)
+
+        let row = try XCTUnwrap(descendants(of: card).compactMap { $0 as? EventDetailsRowView }.first)
+        let scroll = try XCTUnwrap(link.enclosingScrollView)
+        XCTAssertEqual(card.convert(row.bounds, from: row).minY, scroll.frame.minY + EventDetailsCardView.middleRingRoom,
+                       accuracy: 0.5, "the row starts on the middle's edge, the room beyond it")
+        XCTAssertTrue(descendants(of: card).compactMap { $0 as? EdgeCover }.allSatisfy(\.isHidden), "nothing is cut")
+    }
+
+    /// Cut at the bottom, the middle's cover lies over the room below its edge, where the footer's first buttons draw the
+    /// top of their focus ring (Join's, filled, the widest): the footer is drawn over the cover, so that ring stays whole.
+    func testTheFootersRingsDrawOverTheBottomCover() throws {
+        let harness = try self.harness()
+        let event = Support.event("call", title: "Standup", start: Support.at(15), end: Support.at(15, 30), response: .organizer,
+                                  joinURL: "https://meet.google.com/abc-defg-hij", webURL: "https://calendar.google.com/event?eid=2")
+        try Support.write([event], to: harness.environment.store)
+        let notes = (1...30).map { "Line \($0) of the agenda, long enough to wrap once or twice in the card." }.joined(separator: "\n")
+        XCTAssertTrue(try harness.environment.store.saveCalendarEventDetails(
+            CalendarEventDetails(notes: EventNotes(text: notes)), eventID: event.id, version: nil, readAt: Support.today))
+        let column = harness.controller.desk.column
+        harness.spin { column.timeline.placed(withID: event.id) != nil }
+        column.timeline.activate(.event(event.id))
+        harness.spin { column.details.card?.model?.notes != nil }
+        let card = try XCTUnwrap(column.details.card)
+        card.maxHeight = 220
+        card.apply(try XCTUnwrap(card.model))
+        XCTAssertTrue(card.middleScrolls)
+        XCTAssertNil(card.model?.answers, "the user's own: no answers, the footer starts with its buttons")
+        let join = try XCTUnwrap(card.keyed.first { $0.key == "footer.join" }?.view as? QuireButton)
+        let bottomCover = try XCTUnwrap(descendants(of: card).compactMap { $0 as? EdgeCover }.max { $0.frame.minY < $1.frame.minY })
+        XCTAssertFalse(bottomCover.isHidden, "at the top, cut at the bottom")
+
+        let face = card.convert(join.alignmentRect(forFrame: join.frame), from: join.superview)
+        let ring = face.insetBy(dx: -QuireFocusRing.margin, dy: -QuireFocusRing.margin)
+        XCTAssertTrue(ring.intersects(bottomCover.frame), "Join's ring reaches into the cover's room")
+        XCTAssertGreaterThanOrEqual(face.minY, bottomCover.frame.maxY, "its face is below it")
+        let host = try XCTUnwrap(bottomCover.superview)
+        let footer = try XCTUnwrap(host.subviews.first { join.isDescendant(of: $0) })
+        let order = host.subviews.map(ObjectIdentifier.init)
+        XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(footer))),
+                             try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(bottomCover))), "the footer is drawn over the cover")
+        let top = try XCTUnwrap(host.subviews.first { descendants(of: $0).contains { $0 is KickerView } })
+        XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(top))),
+                             try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(bottomCover))), "and so is the top")
+    }
+
+    /// While content is cut off at an edge, its cover shows the arrow alone: the hand of a link, the I-beam of a line and
+    /// of the notes, and the hand of a link in them, scrolled under it leave it out, as a click there does nothing. Below
+    /// the edge each keeps its own.
+    func testAnEdgeCoverShowsTheArrowOverWhatScrolledUnderIt() throws {
+        let harness = try self.harness()
+        let event = try invitation(harness)
+        let call = EventCall(phones: [EventPhone(number: "+1 555-0134", dial: "+15550134,,601225430#", region: "US", pin: "601225430")])
+        let address = "https://docs.example.test/plan"
+        let notes = "Agenda: " + address + "\n"
+            + (1...12).map { "Line \($0) of the agenda, long enough to wrap once or twice in the card." }.joined(separator: "\n")
+        let linkRange = NSRange(location: 8, length: (address as NSString).length)
+        XCTAssertTrue(try harness.environment.store.saveCalendarEventDetails(
+            CalendarEventDetails(notes: EventNotes(text: notes, links: [.init(location: linkRange.location, length: linkRange.length,
+                                                                              url: address)]), call: call),
+            eventID: event.id, version: nil, readAt: Support.today))
+        let column = harness.controller.desk.column
+        column.timeline.activate(.event(event.id))
+        harness.spin { column.details.card?.model?.notes != nil && column.details.card?.model?.rows.contains { $0.key == "row.phone" } == true }
+        let card = try XCTUnwrap(column.details.card)
+        card.maxHeight = 220
+        card.apply(try XCTUnwrap(card.model))
+        XCTAssertTrue(card.middleScrolls)
+        let window = try XCTUnwrap(card.window)
+        let link = try XCTUnwrap(card.buttons.first { $0.title == "+1 555-0134" })
+        let region = try XCTUnwrap(descendants(of: card).compactMap { $0 as? NSTextField }.first { $0.stringValue == " (US)" })
+        let notesView = try XCTUnwrap(card.notesView)
+        let scroll = try XCTUnwrap(link.enclosingScrollView)
+        let clip = scroll.contentView
+        let document = try XCTUnwrap(scroll.documentView)
+        let topCover = try XCTUnwrap(descendants(of: card).compactMap { $0 as? EdgeCover }.min { $0.frame.minY < $1.frame.minY })
+        let room = EventDetailsCardView.middleRingRoom
+
+        /// Scrolls so `top` (in the document) lies 4 pt above the middle's top edge, under the cover.
+        func scrollUnderTheEdge(_ top: CGFloat) {
+            let target = top - room + 4
+            clip.scroll(to: NSPoint(x: 0, y: target))
+            scroll.reflectScrolledClipView(clip)
+            card.layoutSubtreeIfNeeded()
+            XCTAssertEqual(clip.bounds.minY, target, accuracy: 0.5, "scrolled as asked")
+            XCTAssertFalse(topCover.isHidden, "cut at the top: the cover shows")
+        }
+
+        /// The arrow alone at every point of the cover, sampled every 2 pt down and 4 pt across.
+        func assertArrowAloneOverTheCover(_ step: String, file: StaticString = #filePath, line: UInt = #line) {
+            let recorder = CursorRectRecorder(window)
+            let band = topCover.frame
+            for y in stride(from: band.minY + 0.5, to: band.maxY, by: 2) {
+                for x in stride(from: band.minX + 1, to: band.maxX, by: 4) {
+                    let point = card.convert(NSPoint(x: x, y: y), to: nil)
+                    XCTAssertEqual(recorder.cursors(at: point), [.arrow], "\(step): (\(x), \(y))", file: file, line: line)
+                }
+            }
+        }
+
+        func under(_ view: NSView, _ rect: NSRect) -> Bool { card.convert(rect, from: view).intersects(topCover.frame) }
+
+        // The Phone row's first line under the edge, its words' top 4 pt past it: the region and the link before it, whose
+        // face reaches higher.
+        scrollUnderTheEdge(document.convert(region.bounds, from: region).minY)
+        XCTAssertTrue(under(link, link.hitRect), "the link lies under the cover")
+        XCTAssertTrue(under(region, region.bounds), "and the words after it")
+        assertArrowAloneOverTheCover("the Phone row")
+        var recorder = CursorRectRecorder(window)
+        let below = topCover.frame.maxY + 2
+        let linkFace = card.convert(link.hitRect, from: link)
+        XCTAssertTrue(recorder.cursors(at: card.convert(NSPoint(x: linkFace.midX, y: below), to: nil)).contains(.pointingHand),
+                      "below the edge the link keeps its hand")
+        let regionFrame = card.convert(region.bounds, from: region)
+        XCTAssertTrue(recorder.cursors(at: card.convert(NSPoint(x: regionFrame.midX, y: below), to: nil)).contains(.iBeam),
+                      "and the line its I-beam")
+
+        // The notes' first lines under it.
+        scrollUnderTheEdge(notesView.frame.minY)
+        XCTAssertTrue(under(notesView, notesView.bounds), "the notes lie under the cover")
+        assertArrowAloneOverTheCover("the notes")
+        let manager = try XCTUnwrap(notesView.layoutManager), container = try XCTUnwrap(notesView.textContainer)
+        let linkRect = card.convert(manager.boundingRect(forGlyphRange: manager.glyphRange(forCharacterRange: linkRange,
+                                                                                            actualCharacterRange: nil), in: container),
+                                    from: notesView)
+        XCTAssertTrue(linkRect.intersects(topCover.frame), "and the link on their first line")
+        recorder = CursorRectRecorder(window)
+        let notesFrame = card.convert(notesView.bounds, from: notesView)
+        XCTAssertTrue(recorder.cursors(at: card.convert(NSPoint(x: notesFrame.minX + 8, y: below), to: nil)).contains(.iBeam),
+                      "below the edge the notes keep theirs")
+        let onLink = recorder.cursors(at: card.convert(NSPoint(x: linkRect.midX, y: below), to: nil))
+        XCTAssertTrue(onLink.contains(.pointingHand), "and their link its hand")
+        XCTAssertFalse(onLink.contains(.iBeam), "the notes' I-beam leaves the link to it")
     }
 }
 
