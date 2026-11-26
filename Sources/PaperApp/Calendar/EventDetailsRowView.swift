@@ -23,6 +23,15 @@ final class EventDetailsRowView: NSView {
         label = EventDetailsText.label(row.label, role: .snippet, color: .qInk3)
         super.init(frame: .zero)
         addSubview(label)
+        var copy: QuireIconButton?
+        if let item = row.copy?.item {
+            let button = QuireIconButton(symbolName: Quire.Icon.copy, size: .small, accessibilityLabel: item.accessibilityLabel,
+                                         target: self, action: #selector(copyClicked(_:)))
+            button.toolTip = item.tooltip
+            button.onStyle = .accent
+            button.onSymbolName = Quire.Icon.answered
+            copy = button
+        }
         for (lineIndex, line) in row.lines.enumerated() {
             var views: [NSView] = []
             for (pieceIndex, piece) in line.enumerated() {
@@ -42,16 +51,13 @@ final class EventDetailsRowView: NSView {
             }
             views.forEach(addSubview)
             lines.append(views)
-        }
-        if let copy = row.copy {
-            let button = QuireIconButton(symbolName: Quire.Icon.copy, size: .small, accessibilityLabel: copy.item.accessibilityLabel,
-                                         target: self, action: #selector(copyClicked(_:)))
-            button.toolTip = copy.item.tooltip
-            button.onStyle = .accent
-            button.onSymbolName = Quire.Icon.answered
-            addSubview(button)
-            copyButton = button
-            controls.append(button)
+            // The copy button trails the first line: Tab and VoiceOver reach it after that line, before the next ones,
+            // as it is seen (the Phone link, its Copy, then More phone numbers).
+            if lineIndex == 0, let copy {
+                addSubview(copy)
+                copyButton = copy
+                controls.append(copy)
+            }
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -119,7 +125,9 @@ final class EventDetailsRowView: NSView {
                     let visual = NSRect(x: wordsX - Quire.Layout.Button.linkPadX, y: y + (lineHeight - size.height) / 2, width: w,
                                         height: size.height)
                     button.frame = button.frame(forVisualRect: visual)
-                    x += w - 2 * Quire.Layout.Button.linkPadX + EventDetailsText.wordsInset
+                    // The next piece is a field, which draws its words its inset in: so they follow the link's words
+                    // with no more than the space they begin with.
+                    x += w - 2 * Quire.Layout.Button.linkPadX
                     tallest = max(tallest, lineHeight)
                 } else if let field = view as? NSTextField {
                     let w = min(ceil(field.attributedStringValue.size().width) + 8, remaining)
@@ -153,8 +161,12 @@ final class EventDetailsRowView: NSView {
     }
 
     override func accessibilityChildren() -> [Any]? {
-        let views: [NSView] = Array(lines.joined())
-        return views + (copyButton.map { [$0] } ?? [])
+        var views: [NSView] = []
+        for (index, line) in lines.enumerated() {
+            views += line
+            if index == 0, let copyButton { views.append(copyButton) }
+        }
+        return views
     }
 }
 

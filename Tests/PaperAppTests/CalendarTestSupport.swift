@@ -158,8 +158,13 @@ final class RecordingCalendarDelegate: CalendarViewDelegate {
     }
     func removeEvent(_ event: CalendarEvent) { removed.append(event); calls.append("removeEvent") }
     func openURL(_ url: URL) { openedURLs.append(url); calls.append("openURL") }
-    func showMail(_ message: MessageID, fromWeek: Bool) { shownMail.append(message); calls.append("showMail") }
+    func showMail(_ message: MessageID, weekDay: Date?) {
+        shownMail.append(message)
+        shownMailDays.append(weekDay)
+        calls.append("showMail")
+    }
     var shownMail: [MessageID] = []
+    var shownMailDays: [Date?] = []
     var calendarAnswers: [(InvitationResponse, String, AnswerSpan, MessageID?)] = []
     var detailsAsked: [String] = []
     /// Whether the opener takes a link.

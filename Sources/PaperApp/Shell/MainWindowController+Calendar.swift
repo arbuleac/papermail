@@ -484,13 +484,13 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     }
 
     /// Show the mail, in an event's details: its conversation selected; from the week, the reader and the column come
-    /// back on the event's day first.
-    func showMail(_ message: MessageID, fromWeek: Bool) {
+    /// back on the event's day first, the column shown as a day's heading shows it (§5.54).
+    func showMail(_ message: MessageID, weekDay: Date?) {
         guard let metadata = try? environment.store.message(message), accountsByID[message.accountID] != nil else {
             NSSound.beep()
             return
         }
-        if fromWeek, desk.placement == .week { leaveWeek(on: calendarState.shownDay, columnOn: nil) }
+        if let weekDay, desk.placement == .week { leaveWeek(on: weekDay, columnOn: true) }
         showConversation(metadata.conversationID)
     }
 

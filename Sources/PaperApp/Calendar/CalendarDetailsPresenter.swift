@@ -307,12 +307,13 @@ final class CalendarDetailsPresenter {
         abs(a.midX - b.midX) + abs(a.midY - b.midY)
     }
 
-    /// The card's frame in the timeline's coordinates: beside the event as `placement` says, moved up to stay 8 pt above
-    /// the window's bottom, never above the timeline's top.
+    /// The card's frame in the timeline's coordinates: beside the event as `placement` says (in the week: after the face,
+    /// before it, under it, over it), moved up to stay 8 pt above the window's bottom, never above the timeline's top.
     static func frame(for height: CGFloat, anchor: NSRect, in timeline: NSView, host: NSView, placement: Placement) -> NSRect {
         let gap = Pane.detailsGap
         let width = Pane.detailsWidth
         let window = timeline.convert(host.bounds, from: host)
+        let bottom = max(window.minY, window.maxY) - gap
         var x: CGFloat
         var y = anchor.minY
         switch placement {
@@ -325,12 +326,15 @@ final class CalendarDetailsPresenter {
             if x + width > timeline.bounds.maxX {
                 x = anchor.minX - gap - width
                 if x < timeline.bounds.minX {
+                    // Neither side: under the face, else over it, so the card never hides the event it describes;
+                    // only when neither has the room does it move up over the face.
                     x = min(max(timeline.bounds.minX, anchor.minX), timeline.bounds.maxX - width)
                     y = anchor.maxY + gap
+                    let above = anchor.minY - gap - height
+                    if y + height > bottom, above >= timeline.bounds.minY { y = above }
                 }
             }
         }
-        let bottom = max(window.minY, window.maxY) - gap
         if y + height > bottom { y = bottom - height }
         y = max(timeline.bounds.minY, y)
         return NSRect(x: x, y: y, width: width, height: height)
@@ -346,10 +350,12 @@ final class CalendarDetailsPresenter {
         card.onShowMail = { [weak self] message in
             guard let self else { return }
             let trigger = self.trigger
+            let weekDay = self.placement == .besideEvent ? self.event.map(self.day(of:)) : nil
             self.dismiss(returningFocus: false)
-            self.delegate?.showMail(message, fromWeek: self.placement == .besideEvent)
+            self.delegate?.showMail(message, weekDay: weekDay)
             Analytics.send(.eventAction(.showMail, .details, trigger))
         }
+        card.onRestyle = { [weak self] in self?.apply() }
         card.onAction = { [weak self] kind in self?.perform(kind) }
         card.onControl = { [weak self] control in
             guard let self else { return }
@@ -367,6 +373,17 @@ final class CalendarDetailsPresenter {
             if self.notesExpanded, control == "notes.toggle", let notes = self.card?.notesView { self.card?.reveal(notes) }
         }
         card.onReconnect = { [weak self] account in self?.delegate?.connect(accountIDs: [account]) }
+    }
+
+    /// The day an event is on, as the column shows days: an all-day event's date is floating, held as UTC midnight,
+    /// and read in UTC (as `CalendarText.when` reads it) so a Mac west of UTC never names the day before.
+    func day(of event: CalendarEvent) -> Date {
+        let calendar = state.calendar
+        guard event.isAllDay else { return calendar.startOfDay(for: event.start) }
+        var utc = calendar
+        utc.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
+        let date = utc.dateComponents([.era, .year, .month, .day], from: event.start)
+        return calendar.date(from: date).map(calendar.startOfDay(for:)) ?? calendar.startOfDay(for: event.start)
     }
 
     /// A key when one is being handled, else a click.
@@ -453,7 +470,8 @@ final class CalendarDetailsPresenter {
         this.representedObject = AnswerSpan.occurrence.rawValue
         all.target = target
         all.representedObject = AnswerSpan.series.rawValue
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 2), in: button)
+        // Under the button's face, not its frame, which keeps room around the face for the focus ring.
+        menu.popUp(positioning: nil, at: NSPoint(x: button.bodyRect.minX, y: button.bodyRect.maxY + 2), in: button)
         _ = target
     }
 

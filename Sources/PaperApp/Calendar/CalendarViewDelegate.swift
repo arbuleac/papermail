@@ -26,8 +26,9 @@ protocol CalendarViewDelegate: AnyObject {
     func removeEvent(_ event: CalendarEvent)
     /// Join, Open in Google Calendar or Outlook, How to turn it on.
     func openURL(_ url: URL)
-    /// Show the mail, in an event's details: its conversation selected; from the week, the reader and the day come back.
-    func showMail(_ message: MessageID, fromWeek: Bool)
+    /// Show the mail, in an event's details: its conversation selected. From the week (`weekDay`, the event's day), the
+    /// reader and the column come back on that day.
+    func showMail(_ message: MessageID, weekDay: Date?)
     /// Show the mail, in the details of a Send Later mark: the message waiting in the Outbox.
     func showPendingSend(id: String)
     /// Connect, in the foot: ask each of these accounts for the calendar permission, one after another.

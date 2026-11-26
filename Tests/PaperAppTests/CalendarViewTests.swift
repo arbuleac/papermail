@@ -254,6 +254,30 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertEqual(inHost.width, Quire.Layout.CalendarPane.detailsWidth)
     }
 
+    /// In the week at about 1,000 pt, a mid-week afternoon face has room on neither side and none under it: the card goes
+    /// over it, never on it. Only when there is no room over it either does it move up onto the face.
+    func testDetailsInTheWeekNeverCoverTheirEventWhileThereIsRoomOverIt() {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let timeline = FlippedView(frame: NSRect(x: 340, y: 0, width: 600, height: 640))
+        host.addSubview(timeline)
+        let gap = Quire.Layout.CalendarPane.detailsGap
+        let thursday = NSRect(x: 260, y: 430, width: 80, height: 50)
+        let frame = CalendarDetailsPresenter.frame(for: 320, anchor: thursday, in: timeline, host: host, placement: .besideEvent)
+        XCTAssertFalse(frame.intersects(thursday), "the face stays in sight")
+        XCTAssertEqual(frame.maxY, thursday.minY - gap, "over it, the gap between")
+        XCTAssertGreaterThanOrEqual(frame.minY, timeline.bounds.minY)
+
+        let morning = NSRect(x: 260, y: 60, width: 80, height: 50)
+        let under = CalendarDetailsPresenter.frame(for: 320, anchor: morning, in: timeline, host: host, placement: .besideEvent)
+        XCTAssertEqual(under.minY, morning.maxY + gap, "under it while that fits")
+
+        let tall = CalendarDetailsPresenter.frame(for: 560, anchor: thursday, in: timeline, host: host, placement: .besideEvent)
+        XCTAssertGreaterThanOrEqual(tall.minY, timeline.bounds.minY, "neither fits: never above the timeline's top")
+        let wide = CalendarDetailsPresenter.frame(for: 320, anchor: NSRect(x: 40, y: 430, width: 80, height: 50), in: timeline,
+                                                  host: host, placement: .besideEvent)
+        XCTAssertEqual(wide.minX, 40 + 80 + gap, "after the face when it fits")
+    }
+
     func testDayCellsAndWeekHeadingsShowTheirDay() throws {
         let (column, state, delegate, window) = try column()
         defer { window.close(); state.tearDown() }
@@ -520,4 +544,9 @@ final class CalendarViewTests: XCTestCase {
                                 title: "")
         XCTAssertEqual(CalendarMarkPainter.toolTip(for: send, text: state.text), "Sends at 16:00 While Paper Is Open")
     }
+}
+
+/// A flipped plain view, as the timeline is: y grows downwards.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

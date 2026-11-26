@@ -20,6 +20,9 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
     var onControl: ((String) -> Void)?
     var onReconnect: ((AccountID) -> Void)?
     var onClose: (() -> Void)?
+    /// The Font, Text size, a Quire setting or the appearance changed: the card is built again from its model, as its
+    /// fonts, colours and the notes' link attributes were made for the old ones.
+    var onRestyle: (() -> Void)?
 
     private let sheet = QuireSheetView(frame: .zero)
     private let top = CardStack()
@@ -60,6 +63,7 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
             rule.borderWidth = 0
             rule.fillColor = .qRule
             rule.isHidden = true
+            rule.setAccessibilityElement(false)
         }
         sheet.contentView.addSubview(top)
         sheet.contentView.addSubview(scroll)
@@ -70,6 +74,8 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
         setAccessibilityRole(.group)
         setAccessibilitySubrole(.dialog)
         setAccessibilityHelp("Event details")
+        NotificationCenter.default.addObserver(self, selector: #selector(environmentDidChange(_:)),
+                                               name: QuireEnvironment.didChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
@@ -157,11 +163,7 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
             if let button = view.button { keyed.append(("row.mail", button)) }
         }
         if let notes = model.notes {
-            let rule = NSBox()
-            rule.boxType = .custom
-            rule.borderWidth = 0
-            rule.fillColor = .qRule
-            middle.add(rule, gap: gap(Pane.detailsSectionTop), height: 1)
+            middle.add(Self.hairline(.qRule), gap: gap(Pane.detailsSectionTop), height: 1)
             let text = EventNotesTextView()
             text.show(notes)
             text.onLink = { [weak self] url in self?.onLink?(url, .notesLink) }
@@ -184,11 +186,7 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
         var hasAnswers = false
         if let answers = model.answers {
             hasAnswers = true
-            let rule = NSBox()
-            rule.boxType = .custom
-            rule.borderWidth = 0
-            rule.fillColor = (QuireEnvironment.increaseContrast ? NSColor.qRuleStrong : .qRule)
-            footer.add(rule, gap: 0, height: 1)
+            footer.add(Self.hairline(QuireEnvironment.increaseContrast ? .qRuleStrong : .qRule), gap: 0, height: 1)
             let row = ButtonRow(gap: Quire.Layout.Invitation.answerGap)
             for response in InvitationResponse.answers {
                 let button = QuireButton(title: EventDetailsModel.titlesOfAnswers[response] ?? "", variant: .choice, size: .small,
@@ -233,6 +231,16 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
             }
             footer.add(row, gap: hasAnswers ? Pane.detailsFooterGap : 0)
         }
+    }
+
+    /// A hairline across the stack: drawn, never a stop for VoiceOver (a custom `NSBox` is an unnamed group).
+    private static func hairline(_ color: NSColor) -> NSBox {
+        let rule = NSBox()
+        rule.boxType = .custom
+        rule.borderWidth = 0
+        rule.fillColor = color
+        rule.setAccessibilityElement(false)
+        return rule
     }
 
     /// The Tab loop: the card's controls in order, around and around.
@@ -349,6 +357,37 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
 
     override func cancelOperation(_ sender: Any?) {
         onClose?()
+    }
+
+    /// ↩ and keypad Enter press the focused control, as Space does (§5.54): the keyboard router lets every key through
+    /// while focus is in the card, and a control takes only Space itself. Esc closes the card from anywhere in it.
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard modifiers.isEmpty else { return super.keyDown(with: event) }
+        switch event.keyCode {
+        case 36, 76:
+            guard let control = window?.firstResponder as? QuireControl, control.isDescendant(of: self) else { break }
+            if !event.isARepeat { control.performClick(nil) }
+            return
+        case 53:
+            onClose?()
+            return
+        default:
+            break
+        }
+        super.keyDown(with: event)
+    }
+
+    // MARK: Environment
+
+    @objc private func environmentDidChange(_ notification: Notification) {
+        onRestyle?()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // Only once on screen: the first appearance a new card takes is the one it is built in.
+        if window != nil { onRestyle?() }
     }
 
     // MARK: Pointer
@@ -656,9 +695,9 @@ final class MailRowView: NSView, MeasuredView {
 
     override func layout() {
         super.layout()
-        let pad = Quire.Layout.CalendarPane.detailsMailPadX
         label.frame = NSRect(x: 0, y: button == nil ? 0 : 4, width: valueX, height: QuireFont.Role.snippet.lineHeight)
-        button?.frame = NSRect(x: valueX, y: 0, width: bounds.width - valueX + pad, height: bounds.height)
+        // The face ends at the value column's end: past it the scrolling middle cuts its corners and its focus ring.
+        button?.frame = NSRect(x: valueX, y: 0, width: bounds.width - valueX, height: bounds.height)
         goneField?.frame = NSRect(x: Quire.Layout.Invitation.labelColumn, y: 0, width: bounds.width - Quire.Layout.Invitation.labelColumn,
                                   height: bounds.height)
     }
