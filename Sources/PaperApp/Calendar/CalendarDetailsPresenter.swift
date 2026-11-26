@@ -29,6 +29,9 @@ final class CalendarDetailsPresenter {
     var pasteboard: NSPasteboard = .general
     /// How long a copy button shows its Copied mark.
     var copiedDuration: TimeInterval = Quire.Motion.copiedConfirm
+    /// Shows the This Event / All Events menu under the answer pressed; nil pops it up there. A test takes the menu here,
+    /// since a pop-up runs its own modal loop.
+    var presentSpanMenu: ((NSMenu, QuireButton) -> Void)?
 
     private(set) var card: EventDetailsCardView?
     private(set) var markCard: CalendarCardView?
@@ -461,18 +464,27 @@ final class CalendarDetailsPresenter {
             send(response, span: .single, event: event)
             return
         }
+        let menu = spanMenu { [weak self] span in self?.send(response, span: span, event: event) }
+        if let presentSpanMenu {
+            presentSpanMenu(menu, button)
+        } else {
+            // Under the button's face, not its frame, which keeps room around the face for the focus ring.
+            menu.popUp(positioning: nil, at: NSPoint(x: button.bodyRect.minX, y: button.bodyRect.maxY + 2), in: button)
+        }
+    }
+
+    /// This Event · All Events, each choosing its span (no key equivalents: the menu's own arrows and ↩ choose).
+    private func spanMenu(_ chosen: @escaping (AnswerSpan) -> Void) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let this = menu.addItem(withTitle: "This Event", action: #selector(SpanTarget.chose(_:)), keyEquivalent: "")
         let all = menu.addItem(withTitle: "All Events", action: #selector(SpanTarget.chose(_:)), keyEquivalent: "")
-        let target = SpanTarget { [weak self] span in self?.send(response, span: span, event: event) }
+        let target = SpanTarget(chosen)
         this.target = target
         this.representedObject = AnswerSpan.occurrence.rawValue
         all.target = target
         all.representedObject = AnswerSpan.series.rawValue
-        // Under the button's face, not its frame, which keeps room around the face for the focus ring.
-        menu.popUp(positioning: nil, at: NSPoint(x: button.bodyRect.minX, y: button.bodyRect.maxY + 2), in: button)
-        _ = target
+        return menu
     }
 
     private func send(_ response: InvitationResponse, span: AnswerSpan, event: CalendarEvent) {

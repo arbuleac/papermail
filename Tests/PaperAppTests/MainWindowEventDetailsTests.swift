@@ -1,4 +1,6 @@
 import AppKit
+import ObjectiveC
+import OSLog
 import PaperCore
 import PaperDesign
 import XCTest
@@ -354,6 +356,224 @@ final class MainWindowEventDetailsTests: XCTestCase {
                        "the top hairline would sit on the middle's edge, where the face starts")
     }
 
+    // MARK: The span menu, Outlook's decline, the permission
+
+    /// On a repeating event an answer asks This Event or All Events in a menu under it. Opened from the keyboard (↩ on the
+    /// answer), it holds the two and no key equivalents, so its own arrows and ↩ choose; nothing is queued until one is
+    /// chosen, and each answers its span.
+    func testTheSpanMenuOpensFromTheKeyboardAndAnswersTheOccurrenceOrTheSeries() throws {
+        let harness = try self.harness()
+        var event = try invitation(harness)
+        event.seriesID = "series-planning"
+        event.originalStart = event.start
+        var next = event
+        next.id = CalendarEvent.localID(accountID: event.accountID, providerID: "evt-next")
+        next.providerID = "evt-next"
+        next.start = event.start.addingTimeInterval(7 * 86_400)
+        next.end = event.end.addingTimeInterval(7 * 86_400)
+        next.originalStart = next.start
+        try Support.write([event, next], to: harness.environment.store)
+        let store = harness.environment.store
+        let column = harness.controller.desk.column
+        let window = try XCTUnwrap(harness.controller.window)
+        var menus: [(menu: NSMenu, under: QuireButton)] = []
+        column.details.presentSpanMenu = { menu, button in menus.append((menu, button)) }
+        harness.spin { harness.controller.calendarState.events.contains { $0.id == event.id && $0.seriesID != nil } }
+        column.timeline.activate(.event(event.id), fromKeyboard: true)
+        harness.spin { column.details.card?.model?.answers?.asksSpan == true }
+        let card = try XCTUnwrap(column.details.card)
+        XCTAssertEqual(card.model?.answers?.asksSpan, true)
+
+        let accept = try XCTUnwrap(card.answerButtons[.accepted])
+        XCTAssertTrue(window.makeFirstResponder(accept))
+        try press("\r", keyCode: 36, in: window)
+        let first = try XCTUnwrap(menus.last)
+        XCTAssertTrue(first.under === accept, "under the answer pressed")
+        XCTAssertEqual(first.menu.items.map(\.title), ["This Event", "All Events"])
+        XCTAssertTrue(first.menu.items.allSatisfy { $0.keyEquivalent.isEmpty && $0.isEnabled }, "chosen by the menu's own keys")
+        XCTAssertTrue(try store.pendingOperations(accountID: event.accountID, limit: 10).isEmpty, "nothing until a choice (Esc chooses none)")
+        first.menu.performActionForItem(at: 0)
+        XCTAssertEqual(try store.calendarEvent(id: event.id)?.response, .accepted, "This Event: the occurrence")
+        XCTAssertEqual(try store.calendarEvent(id: next.id)?.response, .needsAction)
+
+        harness.spin { column.details.card?.model?.answers?.chosen == .accepted }
+        let tentative = try XCTUnwrap(column.details.card?.answerButtons[.tentative])
+        XCTAssertTrue(window.makeFirstResponder(tentative))
+        try press(" ", keyCode: 49, in: window)
+        let second = try XCTUnwrap(menus.last)
+        XCTAssertEqual(menus.count, 2, "Space opens it too")
+        second.menu.performActionForItem(at: 1)
+        XCTAssertEqual(try store.calendarEvent(id: event.id)?.response, .tentative, "All Events: every occurrence")
+        XCTAssertEqual(try store.calendarEvent(id: next.id)?.response, .tentative)
+        XCTAssertNotNil(column.details.card, "the card stays open")
+    }
+
+    /// Decline on Outlook says Outlook takes the event off the calendar, and the card closes when the read that follows
+    /// sweeps the row.
+    func testOutlooksDeclineLineAndTheCardClosesWhenTheReadSweepsTheRow() throws {
+        let harness = try self.harness()
+        let store = harness.environment.store
+        let event = Support.event("ol", account: Support.accountB, title: "Vendor sync", start: Support.at(15), end: Support.at(16),
+                                  response: .needsAction, invitationUID: "uid-vendor", webURL: "https://outlook.office.test/item")
+        try Support.write([event], to: store)
+        let column = harness.controller.desk.column
+        harness.spin { column.timeline.placed(withID: event.id) != nil }
+        column.timeline.activate(.event(event.id))
+        try XCTUnwrap(column.details.card?.answerButtons[.declined]).performClick(nil)
+        harness.spin { column.details.card?.model?.answerLine == .outlookDecline }
+        let card = try XCTUnwrap(column.details.card)
+        XCTAssertEqual(card.model?.answerLine, .outlookDecline)
+        let words = descendants(of: card).compactMap { ($0 as? NSTextField)?.stringValue }
+        XCTAssertTrue(words.contains("Outlook takes declined events off your calendar."))
+
+        let sent = try XCTUnwrap(try store.pendingOperations(accountID: event.accountID, limit: 10).first)
+        try store.confirmOperation(id: sent.id)
+        try Support.write([], to: store)
+        harness.spin { column.details.card == nil }
+        XCTAssertNil(column.details.card, "gone from the calendar, the card goes with it")
+    }
+
+    /// While an answer waits for the calendar's permission, the card says so and Reconnect asks for it, for that account.
+    func testThePermissionBannerAsksToReconnectWhileAnAnswerWaitsForIt() throws {
+        let harness = try self.harness()
+        let event = try invitation(harness)
+        let controller = harness.controller
+        var asked: [AccountID] = []
+        controller.onConnectCalendar = { account, _ in asked.append(account.id) }
+        let column = controller.desk.column
+        column.timeline.activate(.event(event.id))
+        try XCTUnwrap(column.details.card?.answerButtons[.accepted]).performClick(nil)
+        harness.spin { column.details.card?.model?.answers?.waiting == true }
+        XCTAssertNil(column.details.card?.keyed.first { $0.key == "answer.reconnect" }, "no banner while nothing waits for it")
+
+        controller.calendarState.statusesChanged([AccountSyncStatus(accountID: event.accountID, phase: .idle, permissionsNeeded: [.calendar],
+                                                                    calendar: .current(Support.at(11)))])
+        harness.spin { column.details.card?.model?.answerLine == .permission(event.accountID) }
+        let card = try XCTUnwrap(column.details.card)
+        let banner = try XCTUnwrap(descendants(of: card).compactMap { $0 as? QuireBannerView }.first)
+        XCTAssertFalse(banner.isHidden)
+        let reconnect = try XCTUnwrap(card.keyed.first { $0.key == "answer.reconnect" }?.view as? QuireButton)
+        XCTAssertEqual(reconnect.title, "Reconnect")
+        reconnect.performClick(nil)
+        XCTAssertEqual(asked, [event.accountID], "that account's permission asked for")
+
+        controller.calendarState.statusesChanged([AccountSyncStatus(accountID: event.accountID, phase: .idle,
+                                                                    calendar: .current(Support.at(11)))])
+        harness.spin { column.details.card?.model?.answerLine == nil }
+        XCTAssertNil(column.details.card?.model?.answerLine, "granted: the banner goes")
+    }
+
+    /// Show the mail of time set aside for a mail now in the Trash: the list turns to the Trash, which alone lists it.
+    func testShowTheMailInTheTrashTurnsTheListToTheTrash() throws {
+        let harness = try self.harness()
+        let store = harness.environment.store
+        let conversation = harness.list.conversations[4].id
+        let messages = try store.messages(in: conversation)
+        try store.upsertMessages(messages.map { message in
+            var trashed = message
+            trashed.roles = [.trash]
+            return trashed
+        })
+        let mail = try XCTUnwrap(messages.max { $0.date < $1.date })
+        let aside = Support.event("aside", title: mail.subject, start: Support.at(15), end: Support.at(15, 30), sourceMessage: mail.id)
+        try Support.write([aside], to: store)
+        let column = harness.controller.desk.column
+        harness.spin { column.timeline.placed(withID: aside.id) != nil }
+        column.timeline.activate(.event(aside.id))
+        harness.spin { column.details.card?.model?.mail?.message != nil }
+        let card = try XCTUnwrap(column.details.card)
+        XCTAssertTrue(card.model?.mail?.meta.hasSuffix("In the Trash") == true, card.model?.mail?.meta ?? "")
+        try XCTUnwrap(descendants(of: card).compactMap { $0 as? MailButton }.first).performClick(nil)
+        XCTAssertEqual(harness.controller.listView, .trash)
+        XCTAssertEqual(harness.list.selectedConversationID, conversation)
+        XCTAssertNil(column.details.card, "the card closes on Show the mail")
+    }
+
+    /// A re-read of the selected conversation (a body arrived, its times found) keeps the card open; another
+    /// conversation selected closes it.
+    func testAReReadOfTheSelectedConversationKeepsTheCardAndAnotherClosesIt() throws {
+        let harness = try self.harness()
+        let event = try invitation(harness)
+        let controller = harness.controller
+        let state = controller.calendarState
+        let selected = harness.list.conversations[0].id
+        controller.showConversation(selected)
+        harness.spin { state.selectedConversation == selected && state.selection != nil }
+        let column = controller.desk.column
+        column.timeline.activate(.event(event.id))
+        let card = try XCTUnwrap(column.details.card)
+
+        let mail = try XCTUnwrap(try harness.environment.store.messages(in: selected).first)
+        try harness.environment.store.saveMailTimes([MailTime(messageID: mail.id, start: Support.at(17), phrase: "5pm")], for: mail.id)
+        state.reloadSelection()
+        harness.spin { state.selection?.mailTimes.isEmpty == false }
+        XCTAssertEqual(state.selection?.mailTimes.count, 1, "read again")
+        XCTAssertTrue(column.details.card === card, "the same card stays open")
+
+        controller.showConversation(harness.list.conversations[1].id)
+        harness.spin { column.details.card == nil }
+        XCTAssertNil(column.details.card, "another conversation closes it")
+    }
+
+    // MARK: Privacy
+
+    /// No title, place, note, name, address, link or number of an event reaches the log at info or above along the
+    /// card's paths: opened by click and by key, a copy and a refused one, an answer, a link opened and one refused,
+    /// Esc.
+    func testNothingOfAnEventReachesTheLogAboveDebug() throws {
+        let start = Date()
+        let harness = try self.harness()
+        let store = harness.environment.store
+        let secrets = ["Zebra Quorum Ninefold", "Larkspur Wharf 9", "ochre folder", "Quentin Vasquez", "quentin@larkspur.test",
+                       "Imogen Thackeray", "zq9-join", "555-0177", "731 204 556", "Pq4Lm"]
+        var event = Support.event("secret", title: secrets[0], start: Support.at(15), end: Support.at(16), response: .needsAction,
+                                  joinURL: "https://teams.microsoft.com/l/zq9-join", location: secrets[1], invitationUID: "uid-secret",
+                                  webURL: "https://calendar.google.com/event?eid=zq9")
+        event.organizer = secrets[3]
+        try Support.write([event], to: store)
+        let details = CalendarEventDetails(
+            organizer: EmailAddress(name: secrets[3], address: secrets[4]),
+            guests: [EventGuest(name: secrets[5], address: "imogen@larkspur.test", response: .accepted)], guestCount: 1, answersKnown: true,
+            notes: EventNotes(text: "Bring the ochre folder: https://docs.larkspur.test/zq9",
+                              links: [EventNotes.Link(location: 30, length: 26, url: "https://docs.larkspur.test/zq9")]),
+            call: EventCall(meetingID: secrets[8], passcode: secrets[9],
+                            phones: [EventPhone(number: "+1 555-0177", dial: "+15550177,,731204556#", region: "US", pin: "731204556")]))
+        XCTAssertTrue(try store.saveCalendarEventDetails(details, eventID: event.id, version: nil, readAt: Support.today))
+        let column = harness.controller.desk.column
+        harness.spin { column.timeline.placed(withID: event.id) != nil }
+
+        column.timeline.activate(.event(event.id), fromKeyboard: true)
+        harness.spin { column.details.card?.model?.notes != nil }
+        let card = try XCTUnwrap(column.details.card)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        column.details.pasteboard = board
+        for copy in card.keyViews.compactMap({ $0 as? QuireIconButton }) { copy.performClick(nil) }
+        // AppKit hands pasteboards out from a factory, so the board takes a refusing subclass's class for the write.
+        object_setClass(board, RefusingPasteboard.self)
+        card.keyViews.compactMap { $0 as? QuireIconButton }.first?.performClick(nil)
+        object_setClass(board, NSPasteboard.self)
+        try XCTUnwrap(card.answerButtons[.tentative]).performClick(nil)
+        XCTAssertTrue(harness.controller.openEventLink(URL(string: "https://docs.larkspur.test/zq9")!))
+        XCTAssertFalse(harness.controller.openEventLink(URL(string: "http://docs.larkspur.test/zq9")!))
+        card.cancelOperation(nil)
+        column.timeline.activate(.event(event.id))
+        XCTAssertNotNil(column.details.card)
+        // A line the capture must find, so an empty capture never passes for a clean one.
+        let sentinel = "event log check \(UUID().uuidString)"
+        CalendarSignposts.log.notice("\(sentinel, privacy: .public)")
+        ListTestSupport.spin(for: 0.3)
+
+        let logs = try OSLogStore(scope: .currentProcessIdentifier)
+        let entries = try logs.getEntries(at: logs.position(date: start.addingTimeInterval(-1)),
+                                          matching: NSPredicate(format: "subsystem == %@", AppIdentity.bundleIdentifier))
+        let loud = entries.compactMap { $0 as? OSLogEntryLog }.filter { $0.level != .debug && $0.level != .undefined }
+        XCTAssertTrue(loud.contains { $0.composedMessage == sentinel }, "the capture sees this process's lines")
+        XCTAssertTrue(loud.contains { $0.composedMessage == "copying an event detail failed" }, "the refused copy said so, and only so")
+        let leaks = loud.map(\.composedMessage).filter { line in secrets.contains { line.contains($0) } || line.contains("larkspur") }
+        XCTAssertEqual(leaks, [], "nothing of the event at info or above")
+    }
+
     // MARK: Overlap
 
     /// The card counts what the reader's card counts (§5.14): every account's busy events, the meeting's own copies left
@@ -542,4 +762,9 @@ final class MainWindowEventDetailsTests: XCTestCase {
         XCTAssertEqual(firstTop ?? 0, middleTop, accuracy: 0.5)
         XCTAssertEqual(covers.map(\.isHidden), [true, false], "cut at the bottom only")
     }
+}
+
+/// A pasteboard that refuses every write.
+private final class RefusingPasteboard: NSPasteboard {
+    override func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool { false }
 }

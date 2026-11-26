@@ -82,7 +82,7 @@ final class MainWindowHarness {
     /// a tracking loop that a test drives with events it posts reads them first (a drag posted behind that backlog was
     /// dropped while its release arrived). So each harness starts, and leaves, with an empty queue.
     static func discardPendingEvents() {
-        while NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
+        while NSApplication.shared.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
     }
 }
 

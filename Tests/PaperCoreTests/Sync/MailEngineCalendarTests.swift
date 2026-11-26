@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import XCTest
 @testable import PaperCore
 
@@ -1049,6 +1050,41 @@ final class CalendarLaneDetailsTests: XCTestCase {
         guard case .current = center.status(for: account)?.calendar else {
             return XCTFail("still not the calendar's state")
         }
+    }
+
+    /// The lane says what it did in ids and counts: no title, organizer, address or answer of an event reaches the log at
+    /// info or above, whether a read, a details read or a failed one.
+    func testNothingOfAnEventReachesTheLogAboveDebug() async throws {
+        let start = Date()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let title = "Zebra Quorum Ninefold"
+        let event = provider.seedEvent(title, start: Date().addingTimeInterval(3_600), invitationUID: "uid-zebra@larkspur.test",
+                                       response: .needsAction, seriesID: "S", version: "v1")
+        let (lane, _, store) = try lane(provider, active: false)
+        await lane.turn()
+        XCTAssertEqual(try store.calendarEvent(id: id(event))?.title, title)
+        await lane.ask(details: id(event))
+        await lane.turn()
+        XCTAssertEqual(try store.calendarEventDetails(id: id(event))?.details.organizer?.address, "erin@example.com")
+        provider.edit(event, version: "v2")
+        provider.detailsResults = [ProviderError.server(status: 500, message: "boom")]
+        await lane.ask(details: id(event))
+        await lane.turn()
+        // A line the capture must find, so an empty capture never passes for a clean one.
+        let sentinel = "lane log check \(UUID().uuidString)"
+        SyncLog.logger.notice("\(sentinel, privacy: .public)")
+        try await Task.sleep(for: .milliseconds(300))
+
+        let logs = try OSLogStore(scope: .currentProcessIdentifier)
+        let entries = try logs.getEntries(at: logs.position(date: start.addingTimeInterval(-1)),
+                                          matching: NSPredicate(format: "subsystem == %@", AppIdentity.bundleIdentifier))
+        let loud = entries.compactMap { $0 as? OSLogEntryLog }.filter { $0.level != .debug && $0.level != .undefined }
+        XCTAssertTrue(loud.contains { $0.composedMessage == sentinel }, "the capture sees this process's lines")
+        XCTAssertTrue(loud.contains { $0.composedMessage.hasPrefix("calendar: details not read for") }, "the failure was said")
+        let leaks = loud.map(\.composedMessage).filter { line in
+            [title, "Zebra", "larkspur", "erin@example.com", "Erin", "Every week"].contains { line.contains($0) }
+        }
+        XCTAssertEqual(leaks, [], "ids and counts only")
     }
 
     func testAGraphDetailsReadIsLiveSpend() async throws {
