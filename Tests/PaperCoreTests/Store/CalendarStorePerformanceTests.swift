@@ -88,7 +88,93 @@ final class CalendarStorePerformanceTests: XCTestCase {
         XCTAssertLessThan(allAfter.milliseconds, 5, "the calendar's share of D or W to the calendar on screen")
     }
 
+    /// A v25 read (`v25-event-details`): the whole 70-day window of a busy account, 2,000 events carrying the six columns v25
+    /// added (series, original start, zone, kind, call service, version), written with a live answer to a series pending,
+    /// which every write reads and applies (pending answers win), and the window read back for the day column and the week.
+    /// Debug numbers set the budget (docs/ARCHITECTURE.md, "Performance budgets").
+    func testAV25ReadOf2000EventsOverTheWindowStaysWithinBudget() throws {
+        guard ProcessInfo.processInfo.environment["PAPER_PERF"] == "1" else {
+            throw XCTSkip("set PAPER_PERF=1 to run the calendar store benchmark")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalendarStorePerformanceTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try SQLiteMailStore(path: directory.appendingPathComponent("mail.sqlite").path)
+        defer { try? store.close() }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Berlin") ?? .current
+        let now = Date(timeIntervalSince1970: 1_795_600_000)
+        let window = CalendarWindow.around(now, calendar: calendar)
+        XCTAssertEqual(window.duration / 86_400, 71, accuracy: 0.1, "the window: 14 days back, today, 56 ahead")
+        let account = AccountID("acct-busy")
+        try store.upsertAccount(Account(id: account, kind: .microsoft, email: "owner@example.com", displayName: "Owner", addedAt: now))
+
+        let read = v25Events(for: account, in: window, count: 2_000)
+        let first = try measure { try store.replaceCalendarEvents(read, accountID: account, window: window) }
+        report("v25: the first read of 2,000 events over the window", first)
+
+        // A series answered on the calendar, still on its way: each read keeps its answer on every row it covers.
+        var answer = InvitationAnswer(response: .accepted, uid: "series-3@example.com", title: "Series 3", start: window.start,
+                                      end: window.start.addingTimeInterval(1_800), organizer: EmailAddress(address: "ben@example.com"),
+                                      attendee: EmailAddress(address: "owner@example.com"), replyID: UUID().uuidString)
+        answer.calendar = CalendarCopies(scope: .series(id: "series-3"), providerEventID: "series-3")
+        try store.enqueue(Operation(accountID: account, change: .answerInvitation(answer), targets: [], createdAt: now))
+
+        let unchanged = try median(runs: 9) { try store.replaceCalendarEvents(read, accountID: account, window: window) }
+        report("v25: the next read, nothing changed, a series answer pending", unchanged.milliseconds)
+
+        // Every other read moves 160 events, renames 160 and bumps their versions, drops 40 and adds 40.
+        var changed = read
+        for index in stride(from: 0, to: 1_600, by: 10) { changed[index].start += 1_800; changed[index].end += 1_800 }
+        for index in stride(from: 5, to: 1_605, by: 10) { changed[index].title += " (moved)"; changed[index].version = "v2" }
+        changed.removeLast(40)
+        changed += v25Events(for: account, in: window, count: 40, prefix: "new")
+        var flip = false
+        let churn = try median(runs: 9) {
+            flip.toggle()
+            try store.replaceCalendarEvents(flip ? changed : read, accountID: account, window: window)
+        }
+        report("v25: a read with 400 events changed, removed or added", churn.milliseconds)
+        let answered = try store.calendarEvents(seriesID: "series-3", accountID: account)
+        XCTAssertFalse(answered.isEmpty)
+        XCTAssertTrue(answered.allSatisfy { $0.response == .accepted }, "the pending answer won every read")
+
+        let whole = try median(runs: 15) { try store.calendarEvents(in: window, accountIDs: nil) }
+        report("v25: the whole window read back (\(whole.value.count) events)", whole.milliseconds)
+        XCTAssertEqual(whole.value.count, 2_000)
+        let week = DateInterval(start: calendar.startOfDay(for: now), duration: 7 * 86_400)
+        let shown = try median(runs: 15) { try store.calendarEvents(in: week, accountIDs: nil) }
+        report("v25: seven days read back (\(shown.value.count) events)", shown.milliseconds)
+
+        // Debug, M4 Pro, 26 November 2026: 73 to 74 ms first, 45 ms unchanged, 51 to 52 ms with 400 changed; the window
+        // back in 13.2 to 13.3 ms, seven days in 1.3 to 1.4 ms.
+        XCTAssertLessThan(first, 150, "calendar budget: a v25 read's store write of 2,000 events")
+        XCTAssertLessThan(unchanged.milliseconds, 150, "calendar budget: a v25 read's store write of 2,000 events")
+        XCTAssertLessThan(churn.milliseconds, 150, "calendar budget: a v25 read's store write of 2,000 events")
+        XCTAssertLessThan(whole.milliseconds, 30, "the whole window read back")
+        XCTAssertLessThan(shown.milliseconds, 5, "the calendar's share of D or W to the calendar on screen")
+    }
+
     // MARK: Fixtures
+
+    /// `count` events as a v25 read carries them: a tenth occurrences of twenty series (with their original start), a fifth
+    /// written in another zone, every other one with its call's service, a few focus time or out of office, each with a
+    /// version.
+    private func v25Events(for accountID: AccountID, in interval: DateInterval, count: Int, prefix: String = "evt") -> [CalendarEvent] {
+        events(for: accountID, in: interval, count: count, prefix: prefix).enumerated().map { index, event in
+            var row = event
+            if index.isMultiple(of: 10) {
+                row.seriesID = "series-\((index / 10) % 20)"
+                row.originalStart = row.start
+                row.response = .needsAction
+            }
+            if index.isMultiple(of: 5) { row.timeZone = "America/Los_Angeles" }
+            if index.isMultiple(of: 2) { row.callService = index.isMultiple(of: 4) ? .teams : .meet }
+            if index % 50 == 1 { row.kind = .focusTime } else if index % 50 == 2 { row.kind = .outOfOffice }
+            row.version = "v1-\(index)"
+            return row
+        }
+    }
 
     /// `count` events of the account spread over `interval`, half an hour to an hour and a half each between 08:00 and
     /// 19:00 UTC, with what a real read carries: links, an invitation UID, now and then a place, an organizer, a call.
