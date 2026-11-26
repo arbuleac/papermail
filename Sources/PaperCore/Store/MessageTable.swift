@@ -478,25 +478,32 @@ enum MessageTable {
         WHERE account_id = ? AND provider_id = ?
         """
 
-    /// `body(for:in:)`'s invitation alone, as it reads it (nil for an evicted body, nothing for one that no longer
-    /// decodes): one short text column, none of the compressed ones.
     /// How many subject matches an event's related-mail read looks at, and how many of their invitations it reads.
     static let relatedCandidates = 40
     static let relatedInvitationReads = 12
+    /// The related read's last column, after `selectColumns`: whether the match's stored body carries an invitation.
+    private static let relatedCarriesColumn = selectColumns.split(separator: ",").count
 
     /// `MailStoring.invitationMessages(for:)`: one read of the index by the title's first eight words in the subject,
-    /// then the invitations of the newest matches, by UID.
+    /// then the invitations of the newest matches, by UID. Only a match whose stored body carries an invitation spends
+    /// a read, so the replies and notes that share a weekly meeting's subject never use them up.
     static func invitationMessages(for event: CalendarEvent, in db: Database) throws -> [RelatedInvitation] {
         guard let phrase = relatedPhrase(event.title), let uid = event.invitationUID, !uid.isEmpty else { return [] }
         let excluded = MailStoreCodec.draftsBit | MailStoreCodec.spamBit
         let rows = try Row.fetchAll(db.cachedStatement(sql: """
-            SELECT \(selectColumns) FROM messages
+            SELECT \(selectColumns), EXISTS (
+                SELECT 1 FROM bodies b WHERE b.account_id = messages.account_id AND b.provider_id = messages.provider_id
+                  AND b.evicted = 0 AND b.invitation_json IS NOT NULL
+            ) FROM messages
             WHERE rowid IN (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)
               AND account_id = ? AND (roles & \(excluded)) = 0
             ORDER BY date_ms DESC LIMIT \(relatedCandidates)
             """), arguments: ["subject : \"" + phrase + "\"", event.accountID.rawValue])
         var found: [RelatedInvitation] = []
-        for row in rows.prefix(relatedInvitationReads) {
+        var reads = 0
+        for row in rows where (row[relatedCarriesColumn] as Bool) {
+            guard reads < relatedInvitationReads else { break }
+            reads += 1
             let message = try metadata(from: row)
             guard let invitation = try invitation(for: message.id, in: db),
                   InvitationUID.matches(invitation.uid, uid) else { continue }
@@ -512,6 +519,8 @@ enum MessageTable {
         return FullTextIndex.stringContent(words)
     }
 
+    /// `body(for:in:)`'s invitation alone, as it reads it (nil for an evicted body, nothing for one that no longer
+    /// decodes): one short text column, none of the compressed ones.
     static func invitation(for id: MessageID, in db: Database) throws -> CalendarInvitation? {
         let statement = try db.cachedStatement(sql: """
             SELECT invitation_json FROM bodies WHERE account_id = ? AND provider_id = ? AND evicted = 0

@@ -360,7 +360,7 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     }
 
     /// `MessageTable.invitationMessages`: the account's messages whose subject holds the title's first eight words
-    /// (case and diacritics aside), the same filters, the newest 40, at most 12 invitations read.
+    /// (case and diacritics aside), the same filters, the newest 40, at most 12 of their stored invitations read.
     public func invitationMessages(for event: CalendarEvent) throws -> [RelatedInvitation] {
         lock.lock(); defer { lock.unlock() }
         guard let uid = event.invitationUID, !uid.isEmpty, MessageTable.relatedPhrase(event.title) != nil else { return [] }
@@ -374,9 +374,12 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             .sorted { $0.date > $1.date }
             .prefix(MessageTable.relatedCandidates)
         var found: [RelatedInvitation] = []
-        for message in candidates.prefix(MessageTable.relatedInvitationReads) {
-            guard !evicted.contains(message.id), let invitation = bodies[message.id]?.invitation,
-                  InvitationUID.matches(invitation.uid, uid) else { continue }
+        let carrying = candidates.compactMap { message -> (MessageMetadata, CalendarInvitation)? in
+            guard !evicted.contains(message.id), let invitation = bodies[message.id]?.invitation else { return nil }
+            return (message, invitation)
+        }
+        for (message, invitation) in carrying.prefix(MessageTable.relatedInvitationReads)
+        where InvitationUID.matches(invitation.uid, uid) {
             found.append(RelatedInvitation(message: message, invitation: invitation))
         }
         return found

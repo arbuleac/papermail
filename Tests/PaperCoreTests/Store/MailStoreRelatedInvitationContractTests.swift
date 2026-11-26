@@ -59,6 +59,17 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.invitationMessages(for: relatedEvent()), [])
     }
 
+    func testNewerMailWithTheSameSubjectButNoInvitationSpendsNoRead() throws {
+        // A weekly meeting's replies and notes share its subject: they carry no invitation, so they are passed over.
+        for index in 0..<13 {
+            try store.upsertMessages([message("re\(index)", in: "c-re\(index)", subject: "Re: Design review notes",
+                                              date: date(Double(200 - index)))])
+        }
+        try seedRelated("invite", subject: "Invitation: Design review", at: 10)
+        XCTAssertEqual(try store.invitationMessages(for: relatedEvent()).map(\.message.id.providerID), ["invite"],
+                       "the invitation is the 14th newest match, the first with an invitation")
+    }
+
     func testAtMostTwelveInvitationsAreRead() throws {
         for index in 0..<14 {
             try seedRelated("m\(index)", subject: "Design review", uid: index < 13 ? "other-\(index)" : "uid-9@google.com",
