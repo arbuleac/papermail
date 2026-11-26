@@ -150,7 +150,8 @@ final class EventDetailsRowView: NSView {
     }
 
     override func accessibilityChildren() -> [Any]? {
-        lines.flatMap { $0 } + (copyButton.map { [$0] } ?? [])
+        let views: [NSView] = Array(lines.joined())
+        return views + (copyButton.map { [$0] } ?? [])
     }
 }
 
