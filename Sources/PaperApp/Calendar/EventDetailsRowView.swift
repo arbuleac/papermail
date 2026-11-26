@@ -112,11 +112,14 @@ final class EventDetailsRowView: NSView {
                 let remaining = max(0, valueX + width - x)
                 if let button = view as? QuireButton {
                     let size = button.intrinsicContentSize
-                    let w = min(size.width, remaining)
-                    // A link button's face starts where its words do: the row's words stay in one column.
-                    let visual = NSRect(x: x - Quire.Layout.Button.linkPadX, y: y + (lineHeight - size.height) / 2, width: w, height: size.height)
+                    let w = min(size.width, max(0, remaining - EventDetailsText.wordsInset))
+                    // A link's words start where a field's would at the same x (a field draws its words its cell's
+                    // inset in): the row's words stay in one column, links or not.
+                    let wordsX = x + EventDetailsText.wordsInset
+                    let visual = NSRect(x: wordsX - Quire.Layout.Button.linkPadX, y: y + (lineHeight - size.height) / 2, width: w,
+                                        height: size.height)
                     button.frame = button.frame(forVisualRect: visual)
-                    x += w - 2 * Quire.Layout.Button.linkPadX
+                    x += w - 2 * Quire.Layout.Button.linkPadX + EventDetailsText.wordsInset
                     tallest = max(tallest, lineHeight)
                 } else if let field = view as? NSTextField {
                     let w = min(ceil(field.attributedStringValue.size().width) + 8, remaining)
@@ -158,6 +161,9 @@ final class EventDetailsRowView: NSView {
 /// The card's text fields: Quire roles, wrapping, selectable where they are values.
 @MainActor
 enum EventDetailsText {
+    /// How far in from its frame a label draws its first word (its cell's inset, as `QuireInnerTextField`'s).
+    static let wordsInset: CGFloat = 2
+
     static func label(_ text: String, role: QuireFont.Role, color: NSColor, selectable: Bool = false, maxLines: Int = 0,
                       italic: Bool = false, struck: Bool = false, tabular: Bool = false) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)
