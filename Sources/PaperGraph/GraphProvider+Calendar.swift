@@ -34,8 +34,9 @@ extension GraphProvider: CalendarProvider {
         }
     }
 
-    /// What an event's details read selects: the body as Graph gives it (HTML), the people, the call.
-    static let detailsSelect = "body,organizer,attendees,isOrganizer,hideAttendees,onlineMeeting,changeKey,seriesMasterId,type"
+    /// What an event's details read selects: the body as Graph gives it (HTML), the people, the call (with what the row's
+    /// join address is read from: the online meeting's address and the location).
+    static let detailsSelect = "body,organizer,attendees,isOrganizer,hideAttendees,onlineMeeting,onlineMeetingUrl,location,changeKey,seriesMasterId,type"
 
     /// One GET of the event; with a series whose words are not known, one more of the series master's recurrence. Each is
     /// live spend on the mailbox's quota, counted by the tally as a window read is.

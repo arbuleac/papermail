@@ -36,9 +36,11 @@ enum GraphCalendarDetailsMapper {
         return details
     }
 
-    /// The event names its own call (the card then takes the row's join address, never one from the notes).
+    /// The event names its own call, as its row reads it: Teams' join address, else the online meeting's, else one in the
+    /// location (a Zoom or Teams link an organizer typed there). The card then takes the row's address, and the numbers
+    /// and codes the notes give go with that call, never with another the notes link to.
     private static func hasJoin(_ event: GraphEvent) -> Bool {
-        EventLinkPolicy.web(event.onlineMeeting?.joinUrl) != nil
+        GraphCalendarMapper.joinURL(of: event) != nil
     }
 
     /// The numbers Teams states (the toll number, then each toll-free one), each dialled with the conference ID; the

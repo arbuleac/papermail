@@ -59,6 +59,38 @@ enum GraphCalendarDetailsFixtures {
     }
     """#
 
+    /// No online meeting: the organizer typed a Zoom link in the location, and the body holds the invitation Zoom wrote,
+    /// with another of its links (a personal room) first. The event's call is the location's.
+    static let zoomInTheLocation = #"""
+    {
+     "id": "AAMkZOOM=",
+     "changeKey": "DwAAABYAAAE",
+     "type": "singleInstance",
+     "isOrganizer": false,
+     "onlineMeeting": null,
+     "onlineMeetingUrl": null,
+     "location": {"displayName": "https://acme.zoom.us/j/81234567890?pwd=x", "locationType": "default"},
+     "body": {"contentType": "html", "content": "<p>Rachel's personal room: <a href=\"https://acme.zoom.us/my/rachel.kim\">https://acme.zoom.us/my/rachel.kim</a></p><p>Join Zoom Meeting <a href=\"https://acme.zoom.us/j/81234567890?pwd=x\">https://acme.zoom.us/j/81234567890</a></p><p>Meeting ID: 812 3456 7890<br>Passcode: 551902</p>"},
+     "organizer": {"emailAddress": {"name": "Rachel Kim", "address": "rachel.kim@northwind.test"}},
+     "attendees": []
+    }
+    """#
+
+    /// No Teams join address, but the older online meeting address Exchange still fills; the body links elsewhere.
+    static let onlineMeetingURLOnly = #"""
+    {
+     "id": "AAMkSKYPE=",
+     "changeKey": "DwAAABYAAAF",
+     "type": "singleInstance",
+     "isOrganizer": false,
+     "onlineMeetingUrl": "https://meet.lync.northwind.test/rachel/K7P2",
+     "location": {"displayName": "Bay 4"},
+     "body": {"contentType": "html", "content": "<p>Or join from a browser: <a href=\"https://teams.microsoft.com/l/meetup-join/19%3ameeting_y\">Teams</a></p><p>Meeting ID: 512 774 309 118<br>Passcode: Tn4wQs</p>"},
+     "organizer": {"emailAddress": {"name": "Rachel Kim", "address": "rachel.kim@northwind.test"}},
+     "attendees": []
+    }
+    """#
+
     /// The series master's recurrence, weekly with a count, in the zone it was made in.
     static let seriesMaster = #"""
     {

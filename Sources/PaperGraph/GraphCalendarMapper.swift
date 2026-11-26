@@ -29,8 +29,7 @@ struct GraphCalendarMapper {
         let isOrganizer = graph.isOrganizer ?? false
         let response = Self.response(graph.responseStatus?.response, isOrganizer: isOrganizer)
         let location = Self.nonEmpty(graph.location?.displayName)
-        let joinURL = Self.webAddress(graph.onlineMeeting?.joinUrl) ?? Self.webAddress(graph.onlineMeetingUrl)
-            ?? EventLinkPolicy.callAddress(inLocation: location)
+        let joinURL = Self.joinURL(of: graph)
         let type = graph.type?.lowercased()
         let isOccurrence = type == "occurrence" || type == "exception"
         return CalendarEvent(
@@ -58,6 +57,13 @@ struct GraphCalendarMapper {
             callService: Self.callService(graph.onlineMeetingProvider, joinURL: joinURL),
             version: Self.nonEmpty(graph.changeKey)
         )
+    }
+
+    /// The event's own call: Teams' join address, else the online meeting's address, else a call address the location
+    /// holds. What the row's Join opens, and what an event's details take as the call (`GraphCalendarDetailsMapper`).
+    static func joinURL(of graph: GraphEvent) -> String? {
+        webAddress(graph.onlineMeeting?.joinUrl) ?? webAddress(graph.onlineMeetingUrl)
+            ?? EventLinkPolicy.callAddress(inLocation: nonEmpty(graph.location?.displayName))
     }
 
     /// Out of office and working elsewhere; every other `showAs` is an ordinary event.

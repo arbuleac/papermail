@@ -36,7 +36,8 @@ final class GraphCalendarDetailsTests: GraphTestCase {
         XCTAssertEqual(read.requestCount, 2, "both counted as live spend")
         XCTAssertEqual(read.version, "DwAAABYAAAB")
         let get = try XCTUnwrap(requests.first)
-        XCTAssertEqual(get.query["$select"], "body,organizer,attendees,isOrganizer,hideAttendees,onlineMeeting,changeKey,seriesMasterId,type")
+        XCTAssertEqual(get.query["$select"],
+                       "body,organizer,attendees,isOrganizer,hideAttendees,onlineMeeting,onlineMeetingUrl,location,changeKey,seriesMasterId,type")
         XCTAssertTrue((get.header("Prefer") ?? "").contains("outlook.timezone=\"UTC\""))
         XCTAssertFalse((get.header("Prefer") ?? "").contains("outlook.body-content-type"), "the body comes as Graph gives it: HTML")
         XCTAssertEqual(requests.last?.query["$select"], "recurrence,originalStartTimeZone,start")
@@ -104,6 +105,35 @@ final class GraphCalendarDetailsTests: GraphTestCase {
         XCTAssertEqual(details.call?.meetingID, "812 3456 7890")
         XCTAssertEqual(details.call?.passcode, "551902")
         XCTAssertEqual(requests.count, 1, "a single event: one request")
+    }
+
+    /// With no online meeting, the event's call is the one its row reads: a call address in the location, or the online
+    /// meeting's address. The details then name no other from the notes, and the notes' codes go with that call.
+    func testTheRowsCallFromTheLocationOrTheMeetingAddressIsTheCall() async throws {
+        routeEvent("AAMkZOOM=", GraphCalendarDetailsFixtures.zoomInTheLocation)
+        let provider = makeProvider()
+        let zoom = try self.read(try await provider.calendarEventDetails(
+            providerID: "AAMkZOOM=", seriesID: nil, knownRepeats: nil, account: facts)).details
+        let zoomEvent = try JSONDecoder().decode(GraphEvent.self, from: Data(GraphCalendarDetailsFixtures.zoomInTheLocation.utf8))
+        XCTAssertEqual(GraphCalendarMapper.joinURL(of: zoomEvent), "https://acme.zoom.us/j/81234567890?pwd=x", "the row's Join")
+        let call = try XCTUnwrap(zoom.call)
+        XCTAssertNil(call.joinURL, "the location names the call: the personal room the notes link to first is not it")
+        XCTAssertEqual(call.meetingID, "812 3456 7890")
+        XCTAssertEqual(call.passcode, "551902")
+
+        routeEvent("AAMkSKYPE=", GraphCalendarDetailsFixtures.onlineMeetingURLOnly)
+        let older = try self.read(try await provider.calendarEventDetails(
+            providerID: "AAMkSKYPE=", seriesID: nil, knownRepeats: nil, account: facts)).details
+        let olderEvent = try JSONDecoder().decode(GraphEvent.self, from: Data(GraphCalendarDetailsFixtures.onlineMeetingURLOnly.utf8))
+        XCTAssertEqual(GraphCalendarMapper.joinURL(of: olderEvent), "https://meet.lync.northwind.test/rachel/K7P2")
+        XCTAssertNil(older.call?.joinURL, "the online meeting's address is the call")
+        XCTAssertEqual(older.call?.meetingID, "512 774 309 118")
+
+        // A call only the body names is still found there (the row has none).
+        routeEvent("AAMkHIDDEN=", GraphCalendarDetailsFixtures.hiddenAttendees)
+        let bodyOnly = try self.read(try await provider.calendarEventDetails(
+            providerID: "AAMkHIDDEN=", seriesID: nil, knownRepeats: nil, account: facts)).details
+        XCTAssertEqual(bodyOnly.call?.joinURL, "https://acme.zoom.us/j/81234567890?pwd=x")
     }
 
     func testAGoneEventIsNil() async throws {
