@@ -63,7 +63,9 @@ extension CalendarFit {
             // The card keeps any web meeting link; the calendar's Join opens only https, so it offers no other.
             joinURL: invitation.conferenceURL.flatMap { CalendarInvitationReader.webAddress($0)?.scheme?.lowercased() == "https" ? $0 : nil },
             organizer: invitation.organizer?.displayName,
-            invitationUID: invitation.uid
+            invitationUID: invitation.uid,
+            // Where it was written, so its details say the time there too.
+            timeZone: invitation.isAllDay ? nil : invitation.timeZoneID.flatMap { TimeZone(identifier: $0) == nil ? nil : $0 }
         )
     }
 
