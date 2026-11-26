@@ -135,7 +135,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Calendar.dayColumn` | D, View › Hide Day or Show Day, or the column's toggle shows or hides the day column. | `state`, `trigger` |
 | `Calendar.weekOpened` | W, View › Show Week or the column's Week button opens the week. | `trigger` |
 | `Calendar.timeBlocked` | B, a drop on the calendar or a mail's own time sets 30 minutes aside. | `trigger` |
-| `Calendar.invitationAnswered` | Accept, Tentative or Decline on an invitation card or in an event's details (This Event or All Events picked, on a repeating event). Clicking the answer already chosen is none. | `answer`, `surface`, `span`, `route` |
+| `Calendar.invitationAnswered` | Accept, Tentative or Decline on an invitation card or in an event's details (This Event or All Events picked, on a repeating event), sent once the answer is queued. Clicking the answer already chosen is none, and so is an answer that queues nothing (the card already shows it). | `answer`, `surface`, `span`, `route` |
 | `Calendar.detailsOpened` | An event's details open: a click, ↩, Space or VoiceOver's press on an event, a pencilled invitation, or a Later or Send Later mark. The details the week opens by itself beside the selected conversation's invitation are none. | `eventKind`, `trigger` |
 | `Calendar.eventAction` | A step in an event's details (Join, a phone number, More phone numbers, a copy, a link in the place or the notes, Show all, Show more, Show the mail, Remove, Open in…), or Join on an event in the day column or the week. A copy counts once the pasteboard took it, a link once it opened. | `eventAction`, `surface`, `trigger` |
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
@@ -186,7 +186,7 @@ Every value a parameter can take:
 | `eventKind` | `invitee` (an event the user is a guest of), `own` (the user's own: organized, a kind, no guests), `setAside` (time set aside for a mail), `pencil` (the selected mail's invitation drawn from the mail), `later` (a Later mark), `sendLater` (a Send Later mark) |
 | `eventAction` | `join` (Join), `copyLink` (the call's Copy), `phone` (a number dialled), `copyPhone` (the number's Copy), `morePhones` (More phone numbers), `copyMeetingID`, `copyPasscode`, `placeLink` (the place's link), `notesLink` (a link in the notes), `showAllGuests` (Show all), `showMoreNotes` (Show more), `showMail` (Show the mail), `remove` (Remove), `openIn` (Open in Google Calendar or Outlook) |
 | `surface` | `reader` the reader's invitation card, `details` an event's details, `face` an event's own Join |
-| `span` | `single`, `occurrence` (This Event, or an invitation to one occurrence), `series` (All Events, or an invitation to the series) |
+| `span` | `single`, `occurrence` (This Event, an invitation to one occurrence, or an occurrence of a series answered with no menu because its mail invites to it alone), `series` (All Events, or an invitation to the series) |
 | `route` | `mail` (through the invitation's mail), `calendar` (on the calendar with no mail) |
 | `provider` | `gmail`, `microsoft` |
 | `aiProvider` | `claudeAPI`, `claudeCode`, `openAIAPI`, `codex` (the kind of provider chosen in Settings › AI, never the model) |
