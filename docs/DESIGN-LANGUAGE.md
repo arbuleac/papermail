@@ -3273,7 +3273,7 @@ A click on a Later or Send Later chip opens its details: “Later” or “Send 
 | Width | 300 pt. A row is a 72 pt label (`snippet` `ink3`, top-aligned) and a value (`snippet` `ink2`, wrapping, selectable); a row with a copy button keeps its trailing 22 pt + 4 pt for it. Lines in a row 2 pt apart, rows 4 pt apart |
 | Column | to the column's leading side over the reader, 8 pt from it, never closer than 8 pt to the window's leading edge; top level with the clicked face |
 | Week | 8 pt after the face; before it where there is no room; under it where neither fits, and over it when there is no room under it either, so the card never hides its own event while the window has room |
-| Height | its content, at most 560 pt and the room from the timeline's top to 8 pt above the window's bottom; the top (kicker, title, when) and the footer never scroll, the middle does (overlay scrollers; a hairline on an edge while content is cut off there), keeping at least 80 pt |
+| Height | its content, at most 560 pt and the room from the timeline's top to 8 pt above the window's bottom; the top (kicker, title, when) and the footer never scroll, the middle does (overlay scrollers; a hairline on an edge while content is cut off there), keeping at least 80 pt. Its parts keep room for a focus ring all round (the widest, in IC) where they meet its edges, so the Mail row's ring or Show more's at its top or bottom is never cut; that room, past the hairline, shows the card's surface while content is cut off there |
 | Anchor | the face clicked or focused (a multi-day event's part that was clicked), placed again on every change, resize and refit |
 
 | Part | Spec |

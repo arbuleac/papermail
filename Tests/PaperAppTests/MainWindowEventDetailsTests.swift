@@ -343,5 +343,56 @@ final class MainWindowEventDetailsTests: XCTestCase {
         let ring = QuireFocusRing.outset(gap: QuireFocusRing.gap, width: QuireFocusRing.width(increasedContrast: true))
         XCTAssertLessThanOrEqual(face.maxX + ring, clip.bounds.maxX, "the right side of the face and its ring stay in view")
         XCTAssertGreaterThanOrEqual(face.minX - ring, clip.bounds.minX)
+        // Time set aside has the Mail row alone in its middle: its first part and its last.
+        XCTAssertGreaterThanOrEqual(face.minY - ring, clip.bounds.minY, "the ring fits above it, at the middle's top")
+        XCTAssertLessThanOrEqual(face.maxY + ring, clip.bounds.maxY, "and below it, at the middle's bottom")
+        let middleTop = card.convert(button.bounds, from: button).minY
+        let covers = descendants(of: card).compactMap { $0 as? EdgeCover }
+        XCTAssertEqual(covers.count, 2)
+        XCTAssertTrue(covers.allSatisfy(\.isHidden), "nothing is cut, so no hairline and no cover")
+        XCTAssertEqual(covers.map { $0.frame.maxY - 1 }.min() ?? 0, middleTop, accuracy: 0.5,
+                       "the top hairline would sit on the middle's edge, where the face starts")
+    }
+
+    /// Show more under clamped notes is the middle's last part: scrolled to the end, its ring is drawn whole; the top
+    /// hairline sits on the middle's edge and its cover hides what scrolled past it.
+    func testShowMoresRingFitsTheBottomOfAScrolledMiddle() throws {
+        let harness = try self.harness()
+        let event = try invitation(harness)
+        let notes = (1...30).map { "Line \($0) of the agenda, long enough to wrap once or twice in the card." }.joined(separator: "\n")
+        XCTAssertTrue(try harness.environment.store.saveCalendarEventDetails(
+            CalendarEventDetails(notes: EventNotes(text: notes)), eventID: event.id, version: nil, readAt: Support.today))
+        let column = harness.controller.desk.column
+        column.timeline.activate(.event(event.id))
+        harness.spin { column.details.card?.model?.notes != nil }
+        let card = try XCTUnwrap(column.details.card)
+        card.maxHeight = 220
+        card.apply(try XCTUnwrap(card.model))
+        XCTAssertTrue(card.middleScrolls)
+        let more = try XCTUnwrap(card.buttons.first { $0.title == "Show more" })
+        let scroll = try XCTUnwrap(more.enclosingScrollView)
+        let clip = scroll.contentView
+        let document = try XCTUnwrap(scroll.documentView)
+        clip.scroll(to: NSPoint(x: 0, y: document.frame.height - clip.bounds.height))
+        scroll.reflectScrolledClipView(clip)
+        card.layoutSubtreeIfNeeded()
+
+        let face = clip.convert(more.alignmentRect(forFrame: more.frame), from: more.superview)
+        let ring = QuireFocusRing.outset(gap: QuireFocusRing.gap, width: QuireFocusRing.width(increasedContrast: true))
+        XCTAssertLessThanOrEqual(face.maxY + ring, clip.bounds.maxY, "the ring fits below Show more, at the middle's bottom")
+        let covers = descendants(of: card).compactMap { $0 as? EdgeCover }.sorted { $0.frame.minY < $1.frame.minY }
+        XCTAssertEqual(covers.map(\.isHidden), [false, true], "cut at the top only")
+        let topCover = try XCTUnwrap(covers.first)
+        XCTAssertEqual(topCover.frame.minY, scroll.frame.minY, accuracy: 0.5, "the cover hides the clip's room above the edge")
+        XCTAssertEqual(topCover.frame.width, scroll.frame.width, accuracy: 0.5)
+        let middleTop = scroll.frame.minY + EventDetailsCardView.middleRingRoom
+        XCTAssertEqual(topCover.frame.maxY - 1, middleTop, accuracy: 0.5, "its hairline on the middle's edge")
+
+        // At the top again, the first part sits on that edge, and nothing is covered.
+        clip.scroll(to: .zero)
+        scroll.reflectScrolledClipView(clip)
+        let firstTop = descendants(of: document).filter { $0.superview === document }.map { card.convert($0.bounds, from: $0).minY }.min()
+        XCTAssertEqual(firstTop ?? 0, middleTop, accuracy: 0.5)
+        XCTAssertEqual(covers.map(\.isHidden), [true, false], "cut at the bottom only")
     }
 }

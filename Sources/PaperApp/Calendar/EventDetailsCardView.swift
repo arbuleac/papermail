@@ -29,8 +29,8 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
     private let scroll = NSScrollView()
     private let middle = CardStack()
     private let footer = CardStack()
-    private let middleTopRule = NSBox()
-    private let middleBottomRule = NSBox()
+    private let middleTopRule = EdgeCover(ruleAt: .bottom)
+    private let middleBottomRule = EdgeCover(ruleAt: .top)
     private(set) var model: EventDetailsModel?
     /// The controls by stable key, in Tab order.
     private(set) var keyed: [(key: String, view: NSView)] = []
@@ -58,13 +58,7 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
                                                object: scroll.contentView)
-        for rule in [middleTopRule, middleBottomRule] {
-            rule.boxType = .custom
-            rule.borderWidth = 0
-            rule.fillColor = .qRule
-            rule.isHidden = true
-            rule.setAccessibilityElement(false)
-        }
+        for rule in [middleTopRule, middleBottomRule] { rule.isHidden = true }
         sheet.contentView.addSubview(top)
         sheet.contentView.addSubview(scroll)
         sheet.contentView.addSubview(footer)
@@ -85,6 +79,12 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
     override var mouseDownCanMoveWindow: Bool { false }
 
     private var inner: CGFloat { Pane.detailsWidth - 2 * Pane.detailsPadX }
+
+    /// Room the middle's document keeps above its first part and below its last, and the clip beyond the middle's edges,
+    /// so a focus ring there (the Mail row's, Show more's: the widest, `margin`, in Increase Contrast) is drawn whole. The
+    /// sides have theirs (`middleSideRoom`). An edge cover hides the room while content is cut there.
+    static let middleRingRoom = QuireFocusRing.margin
+    private static let middleSideRoom: CGFloat = 4
 
     // MARK: Building
 
@@ -307,12 +307,24 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
         let middleHeight = middle.height(forWidth: inner)
         let middleTop = Pane.detailsPadTop + topHeight + (middleHeight > 0 ? Pane.detailsSectionTop : 0)
         let middleBottom = footerHeight > 0 ? footerTop - Quire.Layout.Invitation.actionsTop : bounds.height - Pane.detailsPadBottom
-        scroll.frame = NSRect(x: x - 4, y: middleTop, width: inner + 8, height: max(0, middleBottom - middleTop))
-        middle.frame = NSRect(x: 0, y: 0, width: inner + 8, height: middleHeight)
-        middle.insetX = 4
+        // The clip reaches past the middle's edges by the ring room, into the gaps above (`detailsSectionTop`) and below
+        // (`actionsTop`, or the padding), and the document starts and ends with that room: the parts sit where they would
+        // without it.
+        let side = Self.middleSideRoom
+        let room = middleHeight > 0 ? Self.middleRingRoom : 0
+        scroll.frame = NSRect(x: x - side, y: middleTop - room, width: inner + 2 * side,
+                              height: max(0, middleBottom - middleTop) + 2 * room)
+        scroll.scrollerInsets = NSEdgeInsets(top: room, left: 0, bottom: room, right: 0)
+        middle.frame = NSRect(x: 0, y: 0, width: inner + 2 * side, height: middleHeight + 2 * room)
+        middle.insetX = side
+        middle.insetY = room
         middle.layoutStack()
-        middleTopRule.frame = NSRect(x: x, y: middleTop, width: inner, height: 1)
-        middleBottomRule.frame = NSRect(x: x, y: scroll.frame.maxY - 1, width: inner, height: 1)
+        // Each cover spans the clip's room beyond one edge, its hairline on the middle's edge itself.
+        middleTopRule.frame = NSRect(x: scroll.frame.minX, y: scroll.frame.minY, width: scroll.frame.width, height: room + 1)
+        middleBottomRule.frame = NSRect(x: scroll.frame.minX, y: scroll.frame.maxY - room - 1, width: scroll.frame.width,
+                                        height: room + 1)
+        middleTopRule.ruleInset = side
+        middleBottomRule.ruleInset = side
         updateScrollRules()
         pointerRegionsDidChange()
     }
@@ -321,17 +333,17 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
         updateScrollRules()
     }
 
-    /// A hairline on an edge of the middle while content is cut off there.
+    /// A hairline on an edge of the middle while content is cut off there, its cover over the ring room beyond it.
     private func updateScrollRules() {
         let visible = scroll.contentView.bounds
         middleTopRule.isHidden = visible.minY <= 0.5
         middleBottomRule.isHidden = visible.maxY >= middle.frame.height - 0.5
     }
 
-    /// Scrolls the middle so `view` (Show more's text, a focused control) is in sight.
+    /// Scrolls the middle so `view` (Show more's text, a focused control) is in sight, clear of the covered room.
     func reveal(_ view: NSView) {
         let rect = middle.convert(view.bounds, from: view)
-        middle.scrollToVisible(rect)
+        middle.scrollToVisible(rect.insetBy(dx: 0, dy: -Self.middleRingRoom))
     }
 
     // MARK: Actions
@@ -432,6 +444,8 @@ final class EventDetailsCardView: NSView, QuirePointerCover {
 final class CardStack: NSView {
     private var parts: [(view: NSView, gap: CGFloat, height: CGFloat?, measure: ((CGFloat) -> CGFloat)?, inset: CGFloat)] = []
     var insetX: CGFloat = 0
+    /// Room above the first part (the middle's ring room); `height(forWidth:)` leaves it out.
+    var insetY: CGFloat = 0
     /// What VoiceOver reads for the whole stack, when it reads as one line (the card's top).
     var spoken: String? {
         didSet {
@@ -473,7 +487,7 @@ final class CardStack: NSView {
 
     func layoutStack() {
         let width = bounds.width - 2 * insetX
-        var y: CGFloat = 0
+        var y: CGFloat = insetY
         for part in parts {
             y += part.gap
             let h = height(of: part, width: width)
@@ -489,6 +503,41 @@ final class CardStack: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         spoken != nil ? nil : parts.map(\.view)
+    }
+}
+
+/// The ring room beyond one edge of the scrolling middle, covered in the card's surface while content is cut off there
+/// (so nothing shows past the edge), with the hairline on the edge itself. Never a VoiceOver stop.
+@MainActor
+final class EdgeCover: NSView {
+    enum Rule { case top, bottom }
+
+    private let ruleAt: Rule
+    /// How far the hairline starts in from each side: it spans the middle's width, the cover the clip's.
+    var ruleInset: CGFloat = 0 {
+        didSet { if oldValue != ruleInset { needsDisplay = true } }
+    }
+
+    init(ruleAt: Rule) {
+        self.ruleAt = ruleAt
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("built in code") }
+
+    override var isFlipped: Bool { true }
+
+    /// A click on the cover stays on the card: what lies under it is out of sight.
+    override func mouseDown(with event: NSEvent) {}
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.qRaised.setFill()
+        bounds.fill()
+        NSColor.qRule.setFill()
+        let y = ruleAt == .top ? 0 : bounds.height - 1
+        NSRect(x: ruleInset, y: y, width: max(0, bounds.width - 2 * ruleInset), height: 1).fill()
     }
 }
 
