@@ -535,7 +535,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         if !operations.isEmpty { registry.context(for: accountID)?.syncer.wake(.operations) }
     }
 
-    public func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws {
+    @discardableResult
+    public func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws -> Bool {
         // The invitations alone, from their column: never a whole body decompressed on the main thread.
         guard let metadata = try store.message(message), let invitation = try store.invitation(for: message) else {
             throw StoreError.notFound
@@ -555,17 +556,28 @@ public final class MailEngine: MailClient, @unchecked Sendable {
                                             previous: metadata.invitationReply) else {
             throw StoreError.conflict("This invitation can't be answered")
         }
-        // The same answer again changes nothing and sends nothing.
-        guard metadata.invitationReply != response else { return }
+        // A floating time is read on the Mac's clock, as the calendar and the reader's card draw it.
+        let pencil = CalendarFit.pencil(for: invitation, message: message, timeZone: .current)
+        // The same answer again changes nothing and sends nothing: the answer the card shows, which is the calendar
+        // copy's when the account's calendar holds one (`InvitationCalendarAnswer`), else the message's own. The
+        // message's reply alone may be older than the copy (changed on the phone since), and would refuse the answer
+        // that puts the organizer right.
+        var chosen = metadata.invitationReply
+        if let pencil {
+            let over = DateInterval(start: pencil.start, end: max(pencil.end, pencil.start.addingTimeInterval(60)))
+            let copies = try store.calendarEvents(in: over, accountIDs: [message.accountID])
+            chosen = InvitationCalendarAnswer.response(uid: invitation.uid, near: pencil.start, accountID: message.accountID,
+                                                       in: copies) ?? chosen
+        }
+        guard chosen != response else { return false }
         // The calendar's copy of the invitation (Google and Exchange put invitations on the calendar themselves) takes the
         // answer in the enqueue's transaction, so a decline leaves the day column and an accept is drawn solid at once;
         // the account's calendar lane reads the provider's own word once the outbox has sent the answer. An answer to one
-        // occurrence is that occurrence's alone; a floating time is read on the Mac's clock, as the calendar draws it.
-        let occurrence = invitation.recurrenceID == nil
-            ? nil
-            : CalendarFit.pencil(for: invitation, message: message, timeZone: .current)?.start
+        // occurrence is that occurrence's alone.
+        let occurrence = invitation.recurrenceID == nil ? nil : pencil?.start
         answer.calendar = CalendarCopies(scope: .invitation(uid: invitation.uid, near: occurrence))
         try perform(.answerInvitation(answer), on: [message])
+        return true
     }
 
     @discardableResult
@@ -642,9 +654,13 @@ public final class MailEngine: MailClient, @unchecked Sendable {
                 return .notThisRoute
             }
         }
-        if try store.message(message)?.invitationReply == response { return .alreadySaid }
+        // The event's row is what the details show chosen: the same answer again sends nothing. The message's own reply
+        // never decides this alone, since the row may say something newer (an answer changed on the phone).
+        if let wanted = CalendarEvent.Response(rawValue: response.rawValue), event.response == wanted { return .alreadySaid }
         do {
-            try answerInvitation(response, to: message)
+            // Nothing queued: the invitation's calendar copy (for a series, the occurrence nearest its start) already
+            // says it, so this row is answered on the calendar.
+            guard try answerInvitation(response, to: message) else { return .notThisRoute }
         } catch let error as StoreError {
             guard case .conflict = error else { throw error }
             return .notThisRoute

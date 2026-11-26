@@ -285,17 +285,6 @@ struct OperationRunner: Sendable {
         }
     }
 
-    /// The organizer hears only the user's latest answer to an invitation, never each one they changed their mind
-    /// through while an earlier one waited (for the permission, a backoff, the network). So an answer that a newer
-    /// answer to the same message replaces is dropped before anything is sent: deleted, which keeps the local answer
-    /// (the newer one's). Dropping it is right whether or not it went out, since the newer answer is what must reach
-    /// the organizer last either way. The newest takes over the answer the first dropped one replaced
-    /// (`InvitationAnswer.previous`), so a give-up still puts back the last one recorded before this run of changes.
-    /// When nothing dropped was ever tried and the newest repeats that answer, the organizer already has it, so the
-    /// newest goes too. An answer names one message (`MailEngine.answerInvitation`).
-    ///
-    /// The newest is saved first and the dropped ones deleted after it: an interruption in between leaves an outbox
-    /// the next drain prunes the same way, never a lone stale answer. A write that fails keeps that operation queued.
     /// What an answer answers, for `droppingReplacedAnswers`: its one message, or with none (given from the calendar)
     /// the provider's event. Nil for an answer neither names, which is never dropped.
     static func answerKey(of operation: Operation) -> String? {
@@ -310,6 +299,19 @@ struct OperationRunner: Sendable {
         return nil
     }
 
+    /// The organizer hears only the user's latest answer to an invitation, never each one they changed their mind
+    /// through while an earlier one waited (for the permission, a backoff, the network). So an answer that a newer
+    /// answer to the same message replaces is dropped before anything is sent: deleted, which keeps the local answer
+    /// (the newer one's). Dropping it is right whether or not it went out, since the newer answer is what must reach
+    /// the organizer last either way. The newest takes over the answer the first dropped one replaced
+    /// (`InvitationAnswer.previous`), so a give-up still puts back the last one recorded before this run of changes.
+    /// When nothing dropped was ever tried, the newest repeats that answer and every calendar row it covers said it
+    /// before this run of changes, the organizer already has it, so the newest goes too. A row that said something else
+    /// (an occurrence of the series not answered yet, a copy changed on the phone) still needs the newest. An answer
+    /// names one message (`MailEngine.answerInvitation`), or none and the provider's event (`answerCalendarEvent`).
+    ///
+    /// The newest is saved first and the dropped ones deleted after it: an interruption in between leaves an outbox
+    /// the next drain prunes the same way, never a lone stale answer. A write that fails keeps that operation queued.
     private func droppingReplacedAnswers(from operations: [Operation]) -> [Operation] {
         var newest: [String: Int] = [:]
         for (index, operation) in operations.enumerated() {
@@ -365,7 +367,10 @@ struct OperationRunner: Sendable {
                     SyncLog.logger.error("outbox: could not drop a replaced answer: \(String(describing: error), privacy: .private)")
                 }
             }
-            guard deletedAll, carried.untried, survivor.attempts == 0, answer.response == carried.previous else { continue }
+            let rowsSaidIt = answer.calendar.map { copies in
+                copies.previous.values.allSatisfy { $0.rawValue == answer.response.rawValue }
+            } ?? true
+            guard deletedAll, carried.untried, survivor.attempts == 0, answer.response == carried.previous, rowsSaidIt else { continue }
             do {
                 try store.deleteOperation(id: survivor.id)
                 removed.insert(survivor.id)

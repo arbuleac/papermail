@@ -147,6 +147,74 @@ final class MailEngineCalendarAnswerTests: XCTestCase {
         await evicted.shutdown()
     }
 
+    /// The user accepted in Paper, then changed to Tentative on the phone: the message still carries the old reply, but
+    /// both cards show Tentative, and Accept from either goes out again.
+    func testAnOlderReplyOnTheMailNeverRefusesAnAnswerTheCalendarNoLongerSays() async throws {
+        let single = event("evt")
+        let window = DateInterval(start: start.addingTimeInterval(-86_400), duration: 30 * 86_400)
+        let harness = try await harness(events: [single], invitation: invitation())
+        func sentAndTheTentativeOnThePhone() throws {
+            for operation in try harness.store.pendingOperations(accountID: Fixtures.accountID, limit: 10) {
+                try harness.store.confirmOperation(id: operation.id)
+            }
+            var phone = single
+            phone.response = .tentative
+            try harness.store.replaceCalendarEvents([phone], accountID: Fixtures.accountID, window: window)
+        }
+        XCTAssertTrue(try harness.engine.answerInvitation(.accepted, to: message))
+        try sentAndTheTentativeOnThePhone()
+        XCTAssertEqual(try harness.store.message(message)?.invitationReply, .accepted)
+        XCTAssertEqual(try harness.store.calendarEvent(id: single.id)?.response, .tentative)
+
+        // From the details: the mail's span, so through the mail, though the mail's reply already says Accept.
+        XCTAssertEqual(try harness.engine.answerCalendarEvent(.accepted, eventID: single.id, span: .single, invitationMessage: message),
+                       .mail)
+        XCTAssertEqual(try harness.store.calendarEvent(id: single.id)?.response, .accepted)
+        let fromDetails = try queuedAnswers(harness)
+        XCTAssertEqual(fromDetails.count, 1)
+        XCTAssertEqual(fromDetails.first?.answer.calendar?.previous[single.id], .tentative, "a give-up puts the phone's back")
+
+        // From the reader's card, which shows the calendar copy's answer.
+        try sentAndTheTentativeOnThePhone()
+        XCTAssertTrue(try harness.engine.answerInvitation(.accepted, to: message))
+        XCTAssertEqual(try harness.store.calendarEvent(id: single.id)?.response, .accepted)
+        XCTAssertEqual(try queuedAnswers(harness).count, 1)
+        XCTAssertFalse(try harness.engine.answerInvitation(.accepted, to: message), "the card shows it now: nothing more")
+        XCTAssertEqual(try queuedAnswers(harness).count, 1)
+        await harness.shutdown()
+    }
+
+    /// Decline then Accept on All Events while the first waits: the clicked occurrence said Accept before, but the others
+    /// did not, so the series' Accept still goes out.
+    func testASeriesAnswerThatEndsWhereTheClickedOccurrenceStartedIsStillSent() async throws {
+        let rows = [event("s1", series: "S", response: .accepted), event("s2", series: "S", start: 7 * 86_400),
+                    event("s3", series: "S", start: 14 * 86_400)]
+        let harness = try await harness(events: rows)
+        XCTAssertEqual(try harness.engine.answerCalendarEvent(.declined, eventID: rows[0].id, span: .series, invitationMessage: nil),
+                       .calendar)
+        XCTAssertEqual(try harness.engine.answerCalendarEvent(.accepted, eventID: rows[0].id, span: .series, invitationMessage: nil),
+                       .calendar)
+        try await waitUntil("the replaced answer dropped") { try self.queuedAnswers(harness).count == 1 }
+        let kept = try XCTUnwrap(try queuedAnswers(harness).first)
+        XCTAssertEqual(kept.answer.response, .accepted)
+        XCTAssertEqual(kept.answer.previous, .accepted, "the clicked occurrence's, before the first")
+        XCTAssertEqual(kept.answer.calendar?.previous, [rows[0].id: .accepted, rows[1].id: .needsAction, rows[2].id: .needsAction])
+
+        _ = try await harness.engine.reconnect(Fixtures.account())
+        harness.provider.permissionNeeded = nil
+        harness.engine.syncNow(accountID: Fixtures.accountID)
+        try await waitUntil("sent after the grant") {
+            harness.provider.applyCalls.contains { if case .answerInvitation = $0.change { return true } else { return false } }
+        }
+        let sent = harness.provider.applyCalls.compactMap { call -> InvitationAnswer? in
+            guard case .answerInvitation(let answer) = call.change else { return nil }
+            return answer
+        }
+        XCTAssertEqual(sent.map(\.response), [.accepted], "the organizer hears the series' Accept, once")
+        XCTAssertEqual(sent.first?.calendar?.providerEventID, "S")
+        await harness.shutdown()
+    }
+
     func testOnlyAnInvitationOnTheCalendarCanBeAnswered() async throws {
         let mine = event("mine", response: .organizer)
         let focus = event("focus", kind: .focusTime)

@@ -1616,7 +1616,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// answer the shell marked as chosen.
     private func answerInvitation(_ response: InvitationResponse, _ id: MessageID) {
         do {
-            try client.answerInvitation(response, to: id)
+            // Nothing queued (the card already showed this answer): nothing to count.
+            guard try client.answerInvitation(response, to: id) else { return }
             if let answer = AnalyticsSignal.InvitationAnswer(response) {
                 let invitation = try? client.store.invitation(for: id)
                 Analytics.send(.invitationAnswered(answer, .reader, invitation.map(AnalyticsSignal.AnswerSpan.init) ?? .single, .mail))

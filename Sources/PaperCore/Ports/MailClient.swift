@@ -73,8 +73,10 @@ public protocol MailClient: AnyObject {
     /// invitation that does not name the account, one a later message in the conversation updates). An answer changed
     /// before the earlier one went out replaces it: only the latest reaches the organizer.
     /// An account without permission to update its calendar keeps the answer waiting and asks to reconnect
-    /// (`AccountSyncStatus.permissionsNeeded`); once granted, the answer goes out.
-    func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws
+    /// (`AccountSyncStatus.permissionsNeeded`); once granted, the answer goes out. Returns whether an answer was queued:
+    /// none when the card already shows this one (the calendar copy's answer, else the message's reply).
+    @discardableResult
+    func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws -> Bool
 
     /// Answers an event of the calendar from its details (docs/ARCHITECTURE.md, "Calendar invitations" › Answering):
     /// through `invitationMessage` when that message's invitation names exactly this span and still describes the

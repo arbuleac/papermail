@@ -538,7 +538,7 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     /// mail, no toast and no undo.
     func answerInvitation(_ response: InvitationResponse, for message: MessageID, surface: AnalyticsSignal.Surface) {
         do {
-            try environment.engine.answerInvitation(response, to: message)
+            guard try environment.engine.answerInvitation(response, to: message) else { return }
             if let answer = AnalyticsSignal.InvitationAnswer(response) {
                 let invitation = try? environment.store.invitation(for: message)
                 Analytics.send(.invitationAnswered(answer, surface, invitation.map(AnalyticsSignal.AnswerSpan.init) ?? .single, .mail))
@@ -556,11 +556,12 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
             guard let route = try environment.engine.answerCalendarEvent(response, eventID: eventID, span: span,
                                                                          invitationMessage: invitationMessage),
                   let answer = AnalyticsSignal.InvitationAnswer(response) else { return }
+            // The span the engine answered: an event of a series is answered as one occurrence when no menu asked.
             let event = try? environment.store.calendarEvent(id: eventID)
-            let sent: AnswerSpan = event?.seriesID == nil ? .single : span
+            let sent: AnswerSpan = event?.seriesID == nil ? .single : (span == .single ? .occurrence : span)
             Analytics.send(.invitationAnswered(answer, .details, AnalyticsSignal.AnswerSpan(sent), AnalyticsSignal.AnswerRoute(route)))
         } catch {
-            Self.log.error("answering an event failed: \(String(describing: error), privacy: .public)")
+            Self.log.error("answering an event failed: \(String(describing: error), privacy: .private)")
             NSSound.beep()
         }
     }
