@@ -231,8 +231,7 @@ struct EventDetailsModel {
             let words = CalendarText(calendar: there).when(event, now: inputs.now)
             let generic = zone.localizedName(for: .generic, locale: .current) ?? zone.identifier
             elsewhere = words + " " + generic
-            spokenElsewhere = "In " + generic + ", " + CalendarText(calendar: there).longDay(event.start) + ", "
-                + CalendarText(calendar: there).spokenRange(event.start, event.end)
+            spokenElsewhere = "In " + generic + ", " + CalendarText(calendar: there).spokenWhen(event)
         }
 
         if event.seriesID != nil {
@@ -300,9 +299,7 @@ struct EventDetailsModel {
 
         // The top as one line for VoiceOver.
         let kickerSpoken = ([inputs.accountName] + kicker.dropFirst().map { $0.lowercased() }).joined(separator: ", ")
-        let range = event.isAllDay ? "all day"
-            : inputs.text.spokenRange(event.start, event.end)
-        spokenTop = kickerSpoken + ". " + title + ". " + inputs.text.longDay(event.start) + ", " + range + "."
+        spokenTop = kickerSpoken + ". " + title + ". " + inputs.text.spokenWhen(event) + "."
     }
 
     /// The call's join address: the row's (https), else one the notes name on a known call host; a pencil's meeting link.
@@ -394,9 +391,14 @@ struct EventDetailsModel {
             answersKnown = details.answersKnown
             hidden = details.guestsHidden
         }
+        // The user organized it: the details or the pencil say so; before details arrive, the row's word, which names
+        // no organizer for the user's own (Google's `organizer.self`, Graph's `isOrganizer`). An event on the user's
+        // calendar that someone else organized and does not list the user (`response == .organizer` on Google) names
+        // its organizer, and is not the user's.
+        let ownsIt = isPencil ? userIsOrganizer : (details?.userIsOrganizer ?? (event.response == .organizer && event.organizer == nil))
         // The user's own line says the answer the card shows chosen (an answer on its way included): the details
         // were read before it, and the store's row is ahead of them until the next read.
-        if !userIsOrganizer, event.response != .organizer {
+        if !ownsIt {
             guests = guests.map { guest in
                 guard guest.isSelf else { return guest }
                 var own = guest
@@ -406,10 +408,8 @@ struct EventDetailsModel {
         }
         let others = guests.filter { !$0.isSelf }
         let hasGuests = !others.isEmpty && !hidden
-        if userIsOrganizer || event.response == .organizer {
-            if hasGuests, !isPencil || userIsOrganizer {
-                rows.append(Row(key: "row.organizer", label: "Organizer", lines: [[Piece(text: "You")]]))
-            }
+        if ownsIt {
+            if hasGuests { rows.append(Row(key: "row.organizer", label: "Organizer", lines: [[Piece(text: "You")]])) }
         } else if let name = organizer.map({ ($0.name?.isEmpty == false ? $0.name : nil) ?? $0.address }) ?? event.organizer {
             rows.append(Row(key: "row.organizer", label: "Organizer", lines: [[Piece(text: name, tooltip: organizer?.address)]]))
         }

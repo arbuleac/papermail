@@ -199,6 +199,25 @@ struct CalendarText {
             + time(event.end)
     }
 
+    /// When an event is, as VoiceOver reads the details' top: “Thursday 19 November, 19:00 to 20:00”, “Saturday 28
+    /// November to Sunday 29 November, all day”, “Thursday 19 November, 22:00 to Friday 20 November, 02:00”. All-day
+    /// dates are floating and read in UTC, as `when` reads them, so they name the days the card shows.
+    func spokenWhen(_ event: CalendarEvent) -> String {
+        if event.isAllDay {
+            var utc = calendar
+            utc.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
+            let floating = CalendarText(calendar: utc)
+            let lastDay = max(event.start, event.end.addingTimeInterval(-86_400))
+            if utc.isDate(lastDay, inSameDayAs: event.start) { return floating.longDay(event.start) + ", all day" }
+            return floating.longDay(event.start) + " to " + floating.longDay(lastDay) + ", all day"
+        }
+        if event.end <= event.start { return longDay(event.start) + ", " + time(event.start) }
+        if calendar.isDate(event.end, inSameDayAs: event.start) {
+            return longDay(event.start) + ", " + spokenRange(event.start, event.end)
+        }
+        return longDay(event.start) + ", " + time(event.start) + " to " + longDay(event.end) + ", " + time(event.end)
+    }
+
     /// A toast's span for time set aside or removed (spec §5.30), its day named as a row's time names it: “15:00 - 15:30”
     /// today, “Fri 10:00 - 10:30” within six days of it, “26 Nov 13:30 - 14:00” further off (with the year outside this
     /// one).

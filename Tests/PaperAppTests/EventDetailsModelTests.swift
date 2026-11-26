@@ -227,6 +227,54 @@ final class EventDetailsModelTests: XCTestCase {
                        ["Accepted: Priya Raman", "Not answered: You"], "a give-up put the row back: the row wins")
     }
 
+    /// On the user's calendar but organized by someone else who does not list them (Google: no `self` guest): the
+    /// organizer's name, before the details and after, never “You”.
+    func testSomeoneElsesEventNamesItsOrganizerAndTheUsersOwnSaysYou() {
+        var theirs = Support.event("t", title: "Board review", start: Support.at(15), end: Support.at(16), response: .organizer)
+        theirs.organizer = "Sam Okafor"
+        XCTAssertEqual(words(model(theirs).rows.first { $0.label == "Organizer" }), ["Sam Okafor"], "known before the details")
+        let priya = EventGuest(name: "Priya Raman", address: "p@x.test", response: .accepted)
+        let details = CalendarEventDetails(organizer: EmailAddress(name: "Sam Okafor", address: "sam@x.test"), userIsOrganizer: false,
+                                           guests: [priya], guestCount: 1, answersKnown: true)
+        let read = model(theirs, details: details)
+        XCTAssertEqual(words(read.rows.first { $0.label == "Organizer" }), ["Sam Okafor"])
+        XCTAssertEqual(read.rows.first { $0.label == "Organizer" }?.lines.first?.first?.tooltip, "sam@x.test")
+        XCTAssertNil(read.answers, "not invited: nothing to answer")
+
+        var mine = theirs
+        mine.organizer = nil
+        XCTAssertNil(model(mine).rows.first { $0.label == "Organizer" }, "the user's own, no guests known yet: no row")
+        let own = CalendarEventDetails(organizer: EmailAddress(name: "Alex", address: "alex@x.test"), userIsOrganizer: true,
+                                       guests: [priya], guestCount: 1, answersKnown: true)
+        XCTAssertEqual(words(model(mine, details: own).rows.first { $0.label == "Organizer" }), ["You"])
+    }
+
+    /// VoiceOver names the days the card shows: an all-day event's dates are floating, read in UTC wherever the Mac is,
+    /// and an event across days says the day it ends.
+    func testTheSpokenTopNamesTheDaysTheCardShows() {
+        var newYork = Support.calendar
+        newYork.timeZone = TimeZone(identifier: "America/New_York")!
+        let westText = CalendarText(calendar: newYork)
+        var utc = Support.calendar
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let saturday = utc.date(from: DateComponents(year: 2026, month: 11, day: 28))!
+        let weekend = Support.event("w", title: "Cabin", start: saturday, end: saturday.addingTimeInterval(2 * 86_400),
+                                    response: .organizer, isAllDay: true)
+        let card = EventDetailsModel(.init(event: weekend, accountName: "Demo Gmail", text: westText, now: Support.today))
+        XCTAssertEqual(card.when, "Sat 28 Nov - Sun 29 Nov · All day")
+        XCTAssertEqual(card.spokenTop, "Demo Gmail. Cabin. Saturday 28 November to Sunday 29 November, all day.")
+        let oneDay = Support.event("d", title: "Holiday", start: saturday, end: saturday.addingTimeInterval(86_400),
+                                   response: .organizer, isAllDay: true)
+        XCTAssertEqual(EventDetailsModel(.init(event: oneDay, accountName: "Demo Gmail", text: westText, now: Support.today)).spokenTop,
+                       "Demo Gmail. Holiday. Saturday 28 November, all day.")
+
+        let late = Support.event("l", title: "Release night", start: Support.at(22), end: Support.at(2, on: Support.day(20)),
+                                 response: .organizer)
+        let night = model(late)
+        XCTAssertEqual(night.when, "Thu 19 Nov, 22:00 - Fri 20 Nov, 02:00")
+        XCTAssertEqual(night.spokenTop, "Demo Gmail. Release night. Thursday 19 November, 22:00 to Friday 20 November, 02:00.")
+    }
+
     func testTheMailRowAndItsTrashAndTheSelectedConversation() throws {
         let invitation = CalendarInvitation(method: .request, uid: "uid-1", title: "Design critique", start: Support.at(19), end: Support.at(20),
                                             organizer: .init(name: "Rachel Kim", address: "rachel@example.test"))
