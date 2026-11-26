@@ -140,6 +140,11 @@ final class RailNamesTests: XCTestCase {
             forward?(showsNames)
         }
         defer { split.onRailEdgeDrag = forward }
+        // The drag goes behind whatever the queue holds. In the whole suite that is hundreds of AppKit events no test
+        // pumps (the window server's, fetched by the first tracking loop), and drags queued behind them were dropped
+        // while the release still arrived, so a there-and-back drag read as no drag. They go first: only this drag is
+        // queued.
+        while NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
         for offset in offsets {
             NSApp.postEvent(try mouse(.leftMouseDragged, at: NSPoint(x: press.x + offset, y: press.y), in: window), atStart: false)
         }
