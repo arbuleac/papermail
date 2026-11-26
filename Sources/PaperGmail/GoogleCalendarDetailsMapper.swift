@@ -34,7 +34,8 @@ enum GoogleCalendarDetailsMapper {
         return details
     }
 
-    /// The call's numbers and codes, and a join address from the notes when the conference names none.
+    /// The call's numbers and codes, and a join address, meeting ID and passcode from the notes when the conference
+    /// names none.
     static func call(from item: GoogleCalendarEvent, notes: EventNotes?) -> EventCall? {
         var call = EventCall()
         let entries = item.conferenceData?.entryPoints ?? []
@@ -55,6 +56,13 @@ enum GoogleCalendarDetailsMapper {
         call.morePhonesURL = entries.first { $0.entryPointType == "more" && EventLinkPolicy.web($0.uri) != nil }?.uri
         let videoJoin = video.flatMap { EventLinkPolicy.web($0.uri) }
         if videoJoin == nil { call.joinURL = EventNotesReader.joinAddress(in: notes) }
+        // A call the conference does not state (a Teams or Zoom meeting an Exchange organizer sent, its description kept
+        // as written): its meeting ID and passcode as the notes write them, as Outlook's own copy reads them.
+        if call.meetingID == nil, call.passcode == nil, let notes {
+            let codes = EventNotesReader.callCodes(in: notes.text)
+            call.meetingID = codes.meetingID
+            call.passcode = codes.passcode
+        }
         return call.isEmpty ? nil : call
     }
 

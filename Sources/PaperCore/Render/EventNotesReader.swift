@@ -13,7 +13,9 @@ public enum EventNotesReader {
     /// The notes, nil when there are none (nothing but white space, images or markup).
     public static func notes(from source: String?) -> EventNotes? {
         guard var source, !source.isEmpty else { return nil }
-        if source.utf8.count > maxParsed { source = String(decoding: source.utf8.prefix(maxParsed), as: UTF8.self) }
+        // The rest of a longer one is dropped: the notes then say so (`isCut`), as when the text itself is cut.
+        let sourceCut = source.utf8.count > maxParsed
+        if sourceCut { source = String(decoding: source.utf8.prefix(maxParsed), as: UTF8.self) }
         source = source.replacingOccurrences(of: String(Marker.open), with: "")
             .replacingOccurrences(of: String(Marker.close), with: "")
         var builder = NotesBuilder()
@@ -23,21 +25,50 @@ public enum EventNotesReader {
         } else {
             builder.appendPlain(source)
         }
-        return builder.finish()
+        return builder.finish(sourceCut: sourceCut)
     }
 
-    /// HTML when it holds a `<` followed by a letter, `/` or `!`; otherwise plain text (Google's descriptions are often
-    /// plain, and a plain one that says “a < b” is not HTML).
+    /// HTML when it holds a closing tag (`</` and a letter), a comment or doctype (`<!`), or the opening of a tag
+    /// descriptions are written with (`<br>`, `<p>`, `<a href=…>`, `<div>`…: the name, then `>`, `/` or white space);
+    /// otherwise plain text. Google keeps an invitation's DESCRIPTION as the organizer wrote it, often plain, and
+    /// Exchange's plain text puts addresses in angle brackets (“Click here to join<https://teams…>”, “Jane Doe
+    /// <jane@example.test>”): read as HTML, those would be taken for tags and dropped, and the lines run together.
     static func isHTML(_ text: String) -> Bool {
-        var previousWasOpen = false
-        for scalar in text.unicodeScalars {
-            if previousWasOpen, scalar == "/" || scalar == "!" || (scalar.isASCII && CharacterSet.letters.contains(scalar)) {
+        let scalars = Array(text.unicodeScalars)
+        var index = 0
+        while index < scalars.count - 1 {
+            defer { index += 1 }
+            guard scalars[index] == "<" else { continue }
+            let next = scalars[index + 1]
+            if next == "!" { return true }
+            if next == "/", index + 2 < scalars.count, isASCIILetter(scalars[index + 2]) { return true }
+            var end = index + 1
+            while end < scalars.count, end - index <= 11, isASCIILetter(scalars[end]) || (end > index + 1 && isDigit(scalars[end])) {
+                end += 1
+            }
+            guard end > index + 1 else { continue }
+            let name = String(String.UnicodeScalarView(scalars[(index + 1)..<end])).lowercased()
+            guard knownTags.contains(name) else { continue }
+            if end == scalars.count || scalars[end] == ">" || scalars[end] == "/" || CharacterSet.whitespacesAndNewlines.contains(scalars[end]) {
                 return true
             }
-            previousWasOpen = scalar == "<"
         }
         return false
     }
+
+    /// The tags a description is written with, by the editors of Google Calendar and Outlook and the mail they quote.
+    private static let knownTags: Set<String> = [
+        "a", "b", "i", "u", "s", "p", "br", "hr", "em", "strong", "span", "div", "font", "small", "big", "sub", "sup", "code",
+        "pre", "blockquote", "ul", "ol", "li", "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "img",
+        "html", "head", "body", "meta", "style", "title", "center", "h1", "h2", "h3", "h4", "h5", "h6", "strike", "del", "ins",
+        "section", "article", "header", "footer",
+    ]
+
+    private static func isASCIILetter(_ scalar: Unicode.Scalar) -> Bool {
+        (scalar >= "a" && scalar <= "z") || (scalar >= "A" && scalar <= "Z")
+    }
+
+    private static func isDigit(_ scalar: Unicode.Scalar) -> Bool { scalar >= "0" && scalar <= "9" }
 
     /// The meeting ID and passcode written in the notes, for a call whose provider states none (Teams and Zoom
     /// scheduled in Outlook write them as lines of text). The one heuristic: English labels only (`Meeting ID`,
@@ -222,7 +253,7 @@ private struct NotesBuilder {
 
     /// The text cleaned (runs of spaces folded, separator lines blank, at most one blank line in a row, trimmed), cut to
     /// `EventNotes.maxLength`, and its markers turned into ranges.
-    mutating func finish() -> EventNotes? {
+    mutating func finish(sourceCut: Bool = false) -> EventNotes? {
         var lines: [String] = []
         for raw in out.split(separator: "\n", omittingEmptySubsequences: false) {
             var line = ""
@@ -245,7 +276,7 @@ private struct NotesBuilder {
         var text = lines.joined(separator: "\n")
         guard !Self.visible(text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
-        var isCut = false
+        var isCut = sourceCut
         if Self.visible(text).utf16.count > EventNotes.maxLength {
             text = Self.cut(text, to: EventNotes.maxLength - 1)
             isCut = true

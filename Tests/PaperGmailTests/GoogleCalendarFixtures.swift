@@ -413,6 +413,23 @@ enum GoogleCalendarFixtures {
     }
     """#
 
+    /// A Teams meeting an Exchange organizer sent to a Google account: no conference, the location only the service's
+    /// name, and the invitation's DESCRIPTION kept as Exchange wrote it, plain text with its addresses in angle brackets.
+    static let eventDetailsExchangeTeams = #"""
+    {
+     "id": "exchteams0001",
+     "etag": "\"3512345678901005\"",
+     "description": "Weekly look at the numbers.\nContact: Jane Doe <jane@fabrikam.test>\n________________________________________________________________________________\nMicrosoft Teams meeting\nJoin on your computer, mobile app or room device\nClick here to join the meeting<https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0?context=%7b%7d>\nMeeting ID: 284 113 905 771\nPasscode: Qx7bTe\nDownload Teams<https://www.microsoft.com/microsoft-teams/download-app> | Join on the web<https://www.microsoft.com/microsoft-teams/join-a-meeting>\n________________________________________________________________________________",
+     "location": "Microsoft Teams Meeting",
+     "organizer": {"email": "jane@fabrikam.test", "displayName": "Jane Doe"},
+     "attendees": [
+      {"email": "jane@fabrikam.test", "displayName": "Jane Doe", "organizer": true, "responseStatus": "accepted"},
+      {"email": "ada@example.com", "self": true, "responseStatus": "needsAction"}
+     ],
+     "start": {"dateTime": "2026-11-20T15:00:00Z"}
+    }
+    """#
+
     /// The series of the standup instances: weekly on Thursday, twelve times, one exception.
     static let seriesParent = #"""
     {

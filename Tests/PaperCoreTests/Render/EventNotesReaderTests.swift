@@ -99,6 +99,47 @@ final class EventNotesReaderTests: XCTestCase {
         XCTAssertEqual(notes.text, "Budget < 5k & > 2k")
     }
 
+    /// Exchange's plain text, as Google keeps an Exchange organizer's DESCRIPTION: an address in angle brackets is no
+    /// tag, so the lines stay lines, the join address is a link and the codes can be read off their lines.
+    func testPlainTextWithAddressesInAngleBracketsIsNotHTML() throws {
+        let source = """
+            Click here to join the meeting<https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0>
+            Meeting ID: 284 113 905 771
+            Passcode: Qx7bTe
+            Contact: Jane Doe <jane@example.test>
+            """
+        XCTAssertFalse(EventNotesReader.isHTML(source))
+        let notes = try XCTUnwrap(EventNotesReader.notes(from: source))
+        XCTAssertEqual(notes.text, source)
+        XCTAssertEqual(linked(notes), ["https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0 -> "
+                                       + "https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0"])
+        XCTAssertEqual(EventNotesReader.joinAddress(in: notes), "https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0")
+        let codes = EventNotesReader.callCodes(in: notes.text)
+        XCTAssertEqual(codes.meetingID, "284 113 905 771")
+        XCTAssertEqual(codes.passcode, "Qx7bTe")
+    }
+
+    func testOnlyRealTagsMakeHTML() {
+        for html in ["a<br>b", "<p>x</p>", "x</div>", "<!-- c -->x", #"<a href="https://x.test">y</a>"#, "<B>bold", "<h2 id=t>x",
+                     "<span\nclass=x>y"] {
+            XCTAssertTrue(EventNotesReader.isHTML(html), html)
+        }
+        for plain in ["a < b", "x<y", "<https://x.test/a>", "Jane <jane@x.test>", "<brian@x.test>", "<pizza>", "if x<y and y>z",
+                      "<", "<1>"] {
+            XCTAssertFalse(EventNotesReader.isHTML(plain), plain)
+        }
+    }
+
+    func testASourcePastWhatIsParsedIsCutToo() throws {
+        let source = "Agenda\n" + String(repeating: "x", count: EventNotesReader.maxParsed)
+        let notes = try XCTUnwrap(EventNotesReader.notes(from: "Agenda\n" + String(repeating: "word ", count: 600)
+                                                         + String(repeating: " ", count: EventNotesReader.maxParsed)
+                                                         + "Meeting ID: 1"))
+        XCTAssertTrue(notes.isCut, "the rest was dropped: the card says where it is")
+        XCTAssertTrue(notes.text.hasSuffix("…"))
+        XCTAssertTrue(try XCTUnwrap(EventNotesReader.notes(from: source)).isCut)
+    }
+
     func testTheEnglishCallCodesAreLifted() {
         let teams = """
             Microsoft Teams meeting

@@ -107,6 +107,20 @@ final class GmailCalendarDetailsTests: XCTestCase {
         XCTAssertEqual(details.call?.joinURL, "https://acme.zoom.us/j/999", "a known call host in the notes")
     }
 
+    func testAnExchangeOrganizersPlainDescriptionKeepsItsLinesLinksAndCallCodes() async throws {
+        server.on("GET", "/calendar/v3/calendars/primary/events/exchteams0001", .json(GoogleCalendarFixtures.eventDetailsExchangeTeams))
+        let details = try await XCTUnwrapAsync(try await provider().calendarEventDetails(
+            providerID: "exchteams0001", seriesID: nil, knownRepeats: nil, account: facts)).details
+        let notes = try XCTUnwrap(details.notes)
+        XCTAssertTrue(notes.text.hasPrefix("Weekly look at the numbers.\nContact: Jane Doe <jane@fabrikam.test>\n"), notes.text)
+        XCTAssertTrue(notes.text.contains("\nMeeting ID: 284 113 905 771\nPasscode: Qx7bTe\n"), "its lines kept")
+        let join = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0?context=%7b%7d"
+        XCTAssertEqual(notes.links.first?.url, join, "the address in angle brackets is a link")
+        XCTAssertEqual(details.call?.joinURL, join, "a known call host in the notes: the card's Call and Join")
+        XCTAssertEqual(details.call?.meetingID, "284 113 905 771")
+        XCTAssertEqual(details.call?.passcode, "Qx7bTe")
+    }
+
     func testAGoneEventIsNil() async throws {
         server.on("GET", eventPath, .json(#"{"error": {"code": 404, "message": "Not Found"}}"#, status: 404))
         let read = try await provider().calendarEventDetails(providerID: "standup_20261119T080000Z", seriesID: nil, knownRepeats: nil,
