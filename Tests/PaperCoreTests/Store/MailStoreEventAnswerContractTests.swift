@@ -237,6 +237,32 @@ extension MailStoreContractTests {
         expect("the row gone") { $0 == nil }
     }
 
+    /// A given-up answer stays in the outbox for a day, but once a later answer to the event went out (and left it) the
+    /// row says that one, and the card no longer says the failure.
+    func testAGivenUpAnswerIsPastOnceALaterOneWentOut() throws {
+        try store.replaceCalendarEvents([invitedEvent("e", start: 3_600)], accountID: accountA, window: answerWeek)
+        let id = CalendarEvent.localID(accountID: accountA, providerID: "e")
+        let box = CardBox()
+        let observation = store.observeEventCard(id: id) { box.append($0) }
+        defer { observation.cancel() }
+        func expect(_ step: String, _ check: @escaping (EventCardState?) -> Bool) {
+            let deadline = Date().addingTimeInterval(3)
+            while !(box.last.map(check) ?? false), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            XCTAssertTrue(box.last.map(check) ?? false, step)
+        }
+        try store.enqueue(answerOperation(.accepted, scope: .event(id: id), id: "op-1"))
+        var first = try XCTUnwrap(try store.pendingOperations(accountID: accountA, limit: 10).first)
+        first.status = .failed
+        first.nextAttemptAt = date(86_400)
+        try store.updateOperation(first)
+        expect("given up, put back") { $0?.event.response == .needsAction && $0?.answer == .failed }
+
+        try store.enqueue(answerOperation(.accepted, scope: .event(id: id), at: 1, id: "op-2"))
+        expect("again, on its way") { $0?.event.response == .accepted && $0?.answer == .live(.accepted) }
+        try store.confirmOperation(id: "op-2")
+        expect("sent: the failure is past") { $0?.event.response == .accepted && $0?.answer == nil }
+    }
+
     func testOnlyFailedAnswersWithNoMessageAreReported() throws {
         try store.upsertMessages([message("m1", in: "c1")])
         let box = ObservedValues()

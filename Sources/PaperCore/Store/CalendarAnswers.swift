@@ -109,11 +109,14 @@ enum CalendarAnswers {
         return (putBack, rewritten)
     }
 
-    /// Where the newest answer covering the row stands, from the account's answers (live and failed), oldest first.
+    /// Where the newest answer covering the row stands, from the account's answers (live and failed), oldest first. A
+    /// given-up answer says so only while the row still says what the give-up put back: a later answer that went out
+    /// (and left the outbox) or a read with the provider's word has moved the row on since, and the failure is past.
     static func cardAnswer(for row: CalendarEvent, answers: [(status: OperationStatus, answer: InvitationAnswer)]) -> EventAnswerState? {
         guard let newest = answers.last(where: { covers($0.answer, row) }) else { return nil }
         if newest.status.isLive { return .live(newest.answer.response) }
-        return newest.status == .failed ? .failed : nil
+        guard newest.status == .failed, let putBack = newest.answer.calendar?.previous[row.id], putBack == row.response else { return nil }
+        return .failed
     }
 
     /// The answers of the outbox that have a calendar part.
