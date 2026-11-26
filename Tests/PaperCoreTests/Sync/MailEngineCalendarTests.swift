@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import XCTest
 @testable import PaperCore
 
@@ -849,6 +850,32 @@ final class MailEngineCalendarTests: XCTestCase {
         await harness.shutdown()
     }
 
+    // MARK: Details
+
+    /// A card asks for its event's details: read once and stored; asked again while they are fresh, nothing is read, and
+    /// an ask repeated within the minute is not passed on.
+    func testAnAskedEventIsReadOnceAndAFreshOneIsNotAskedAgain() async throws {
+        let clock = HandClock()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let weekly = provider.seedEvent("Weekly", start: clock.now.addingTimeInterval(3 * 86_400), version: "v1")
+        let harness = try await started(provider, clock: clock) { $0.calendarDetailsAskInterval = 0 }
+        harness.engine.setAppActive(false)
+        let id = CalendarEvent.localID(accountID: account, providerID: weekly)
+        try await waitUntil("stored") { try harness.store.calendarEvent(id: id) != nil }
+
+        harness.engine.readCalendarEventDetails(eventID: id)
+        try await waitUntil("read and stored") { try harness.store.calendarEventDetails(id: id) != nil }
+        XCTAssertEqual(provider.detailsCalls.count, 1)
+        harness.engine.readCalendarEventDetails(eventID: id)
+        try await waitForPolls(3, of: provider)
+        XCTAssertEqual(provider.detailsCalls.count, 1, "fresh at the event's version")
+
+        harness.engine.readCalendarEventDetails(eventID: "acct|none")
+        try await waitForPolls(2, of: provider)
+        XCTAssertEqual(provider.detailsCalls.count, 1, "an event the store does not have")
+        await harness.shutdown()
+    }
+
     private func sent(_ provider: ScriptedCalendarProvider, _ index: Int) -> String? {
         provider.createCalls[index].clientKey
     }
@@ -920,6 +947,161 @@ final class CalendarLaneQuotaTests: XCTestCase {
         XCTAssertEqual(ProviderQuota.standard(for: .microsoft).calendarRequestCost, 1)
         XCTAssertNil(ProviderQuota.standard(for: .gmail).calendarRequestCost)
         XCTAssertNil(ProviderQuota.unlimited.calendarRequestCost)
+    }
+}
+
+/// An event's details (docs/ARCHITECTURE.md, "Calendar" › A turn): read when a card asks, after the writes and before
+/// the window; read ahead for the next day's changed events after a window read while the app is in front; quiet when
+/// they fail; charged like any calendar request.
+final class CalendarLaneDetailsTests: XCTestCase {
+    private let account = Fixtures.accountID
+
+    private func lane(_ provider: ScriptedCalendarProvider, quota: ProviderQuota = .unlimited, active: Bool = true,
+                      statusCenter: SyncStatusCenter = SyncStatusCenter(),
+                      tune: (inout SyncTuning) -> Void = { _ in }) throws -> (CalendarLane, QuotaBudget, InMemoryMailStore) {
+        let store = InMemoryMailStore()
+        try store.upsertAccount(Fixtures.account())
+        // The budget's clock stands still, so nothing refills between two readings.
+        let start = Date()
+        let budget = QuotaBudget(quota: quota, now: { start })
+        var tuning = SyncTuning()
+        tune(&tuning)
+        let lane = CalendarLane(accountID: account, store: store, provider: provider, statusCenter: statusCenter,
+                                tuning: tuning, budget: budget, link: LaneLink(), isAppActive: { active })
+        return (lane, budget, store)
+    }
+
+    private func id(_ providerID: String) -> String {
+        CalendarEvent.localID(accountID: account, providerID: providerID)
+    }
+
+    func testAnAskedEventIsReadAfterTheWritesAndBeforeTheWindowAndStored() async throws {
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let later = provider.seedEvent("Weekly", start: Date().addingTimeInterval(3 * 86_400), seriesID: "S", version: "v1")
+        // Every turn reads the window, so the order of the three is seen.
+        let (lane, _, store) = try lane(provider, active: false) { $0.calendarBackgroundInterval = 0 }
+        await lane.turn()
+        try store.addCalendarEvent(CalendarEvent(id: CalendarEvent.newLocalID(accountID: account), accountID: account, providerID: nil,
+                                                 title: "Q3", start: Date().addingTimeInterval(7_200), end: Date().addingTimeInterval(9_000),
+                                                 sourceMessage: MessageID(accountID: account, providerID: "2"), sync: .creating))
+        await lane.ask(details: id(later))
+        await lane.turn()
+
+        XCTAssertEqual(Array(provider.calendarCalls.suffix(3)), ["create", "details \(later)", "read"], "writes, details, then the window")
+        let stored = try XCTUnwrap(try store.calendarEventDetails(id: id(later)))
+        XCTAssertEqual(stored.version, "v1")
+        XCTAssertEqual(stored.details.repeats, "Every week")
+        XCTAssertEqual(stored.details.organizer?.address, "erin@example.com")
+
+        // A second ask reads it once more, handed the series' words already known: the series request is spared.
+        await lane.ask(details: id(later))
+        await lane.turn()
+        XCTAssertEqual(provider.detailsCalls.last?.knownRepeats, "Every week")
+    }
+
+    func testTheNextDaysChangedEventsAreReadAheadInFrontOnly() async throws {
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let soon = (0..<10).map { provider.seedEvent("Soon \($0)", start: Date().addingTimeInterval(3_600 + Double($0) * 600), version: "v1") }
+        let farOff = provider.seedEvent("Next week", start: Date().addingTimeInterval(5 * 86_400), version: "v1")
+        let (lane, _, store) = try lane(provider)
+        await lane.turn()
+        XCTAssertEqual(provider.detailsCalls.map(\.providerID), Array(soon.prefix(8)), "at most eight, the next 24 hours, by start")
+        XCTAssertFalse(provider.detailsCalls.contains { $0.providerID == farOff })
+
+        // Read already at this version: nothing more until one changes.
+        await lane.turn()
+        XCTAssertEqual(provider.detailsCalls.count, 10, "the two left over, then nothing")
+        provider.edit(soon[0], version: "v2")
+        await lane.turn()
+        XCTAssertEqual(provider.detailsCalls.last?.providerID, soon[0])
+        XCTAssertEqual(try store.calendarEventDetails(id: id(soon[0]))?.version, "v2")
+
+        let behindProvider = ScriptedCalendarProvider(accountID: account)
+        behindProvider.seedEvent("Soon", start: Date().addingTimeInterval(3_600), version: "v1")
+        let (behind, _, _) = try self.lane(behindProvider, active: false)
+        await behind.turn()
+        XCTAssertTrue(behindProvider.detailsCalls.isEmpty, "never in the background")
+    }
+
+    func testADetailsFailureIsQuiet() async throws {
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let event = provider.seedEvent("Weekly", start: Date().addingTimeInterval(3_600), version: "v1")
+        let center = SyncStatusCenter()
+        let (lane, _, store) = try lane(provider, active: false, statusCenter: center)
+        await lane.turn()
+        provider.detailsResults = [ProviderError.server(status: 500, message: "boom")]
+        await lane.ask(details: id(event))
+        await lane.turn()
+        XCTAssertNil(try store.calendarEventDetails(id: id(event)))
+        let asked = await lane.hasDetailsAsked
+        XCTAssertFalse(asked, "a failure of its own drops the ask")
+        guard case .current = center.status(for: account)?.calendar else {
+            return XCTFail("the calendar's state is not the details'")
+        }
+
+        // One every request would meet stops the turn with the ask kept.
+        provider.detailsResults = [ProviderError.network("offline")]
+        await lane.ask(details: id(event))
+        let reads = provider.readWindows.count
+        await lane.turn()
+        let kept = await lane.hasDetailsAsked
+        XCTAssertTrue(kept)
+        XCTAssertEqual(provider.readWindows.count, reads, "the turn stopped there")
+        guard case .current = center.status(for: account)?.calendar else {
+            return XCTFail("still not the calendar's state")
+        }
+    }
+
+    /// The lane says what it did in ids and counts: no title, organizer, address or answer of an event reaches the log at
+    /// info or above, whether a read, a details read or a failed one.
+    func testNothingOfAnEventReachesTheLogAboveDebug() async throws {
+        let start = Date()
+        let provider = ScriptedCalendarProvider(accountID: account)
+        let title = "Zebra Quorum Ninefold"
+        let event = provider.seedEvent(title, start: Date().addingTimeInterval(3_600), invitationUID: "uid-zebra@larkspur.test",
+                                       response: .needsAction, seriesID: "S", version: "v1")
+        let (lane, _, store) = try lane(provider, active: false)
+        await lane.turn()
+        XCTAssertEqual(try store.calendarEvent(id: id(event))?.title, title)
+        await lane.ask(details: id(event))
+        await lane.turn()
+        XCTAssertEqual(try store.calendarEventDetails(id: id(event))?.details.organizer?.address, "erin@example.com")
+        provider.edit(event, version: "v2")
+        provider.detailsResults = [ProviderError.server(status: 500, message: "boom")]
+        await lane.ask(details: id(event))
+        await lane.turn()
+        // A line the capture must find, so an empty capture never passes for a clean one.
+        let sentinel = "lane log check \(UUID().uuidString)"
+        SyncLog.logger.notice("\(sentinel, privacy: .public)")
+        // The store hands lines over late while the whole suite logs: read it again until the sentinel is there.
+        var loud: [OSLogEntryLog] = []
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            try await Task.sleep(for: .milliseconds(250))
+            let logs = try OSLogStore(scope: .currentProcessIdentifier)
+            loud = try logs.getEntries(at: logs.position(date: start.addingTimeInterval(-1)),
+                                       matching: NSPredicate(format: "subsystem == %@", AppIdentity.bundleIdentifier))
+                .compactMap { $0 as? OSLogEntryLog }.filter { $0.level != .debug && $0.level != .undefined }
+        } while !loud.contains(where: { $0.composedMessage == sentinel }) && Date() < deadline
+        XCTAssertTrue(loud.contains { $0.composedMessage == sentinel }, "the capture sees this process's lines")
+        XCTAssertTrue(loud.contains { $0.composedMessage.hasPrefix("calendar: details not read for") }, "the failure was said")
+        let leaks = loud.map(\.composedMessage).filter { line in
+            [title, "Zebra", "larkspur", "erin@example.com", "Erin", "Every week"].contains { line.contains($0) }
+        }
+        XCTAssertEqual(leaks, [], "ids and counts only")
+    }
+
+    func testAGraphDetailsReadIsLiveSpend() async throws {
+        let provider = ScriptedCalendarProvider(accountID: account, kind: .microsoft)
+        provider.requestsPerDetails = 2
+        let event = provider.seedEvent("Weekly", start: Date().addingTimeInterval(3 * 86_400), seriesID: "S", version: "v1")
+        let (lane, budget, _) = try lane(provider, quota: .standard(for: .microsoft), active: false)
+        await lane.turn()
+        let before = await budget.liveHeadroom
+        await lane.ask(details: id(event))
+        await lane.turn()
+        let after = await budget.liveHeadroom
+        XCTAssertEqual(before - after, 2, accuracy: 1e-9, "the event and its series")
     }
 }
 

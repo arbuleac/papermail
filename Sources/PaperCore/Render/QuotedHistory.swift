@@ -24,6 +24,24 @@ public enum QuotedHistory {
         return limited(kept.joined(separator: "\n"), to: limit)
     }
 
+    /// What `ownWords` leaves out because the sender quoted it rather than wrote it: the “>” lines, and everything from
+    /// the first line that introduces quoted history on. Empty when the text quotes nothing. A signature's “-- ” and the
+    /// card under it are not quoted mail, so they are in neither part. Whoever a message is forwarded to gets all of it,
+    /// so Help Me Write reads this part too when the sender's own words are few (`ForwardContext`).
+    static func quotedPart(of plainText: String) -> String {
+        var kept: [Substring] = []
+        let lines = plainText.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
+            if isQuoteLine(line) {
+                kept.append(line)
+            } else if introducesQuote(lines, at: index, folding: false), line.trimmingCharacters(in: .whitespaces) != "--" {
+                kept.append(contentsOf: lines[index...])
+                break
+            }
+        }
+        return kept.joined(separator: "\n")
+    }
+
     /// The line where the replies a message quotes begin, by the lines that introduce them (an attribution, “-----Original
     /// Message-----”, Outlook's From:/Sent: header); nil when none does. A signature's “-- ” is not one: what follows it is
     /// the sender's own card, which reader mode leaves in sight. Lines starting with “>” are not looked at: a quote marked

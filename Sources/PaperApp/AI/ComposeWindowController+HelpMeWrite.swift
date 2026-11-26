@@ -2,8 +2,10 @@ import AppKit
 import PaperCore
 import PaperDesign
 
-/// Help me write in a reply composer (spec §5.56): ⌘J writes in place in the body, ⇧⌘J opens the prompt line under the
-/// caret's line; everything it shows is in the body's text, at the caret, none of it in the bottom bar.
+/// Help me write in a composer (spec §5.56), whatever it writes (a reply, a new message, the message above a forward):
+/// ⌘J writes in place in the body where there is something to write from and asks what to write where there is not,
+/// ⇧⌘J opens the prompt line under the caret's line; everything it shows is in the body's text, at the caret, none of
+/// it in the bottom bar.
 extension ComposeWindowController {
     @objc func helpMeWrite(_ sender: Any?) {
         guard canHelpMeWrite, let session = bodyWriteSession else {
@@ -21,30 +23,33 @@ extension ComposeWindowController {
         session.showPrompt()
     }
 
-    /// The body's session, for a reply or reply all: new messages and forwards answer no one, so they have none.
+    /// The body's session, made the first time Help me write is reached there (a key, a selection, the window coming
+    /// forward). Making it reads this Mac only (`HelpMeWrite.availability(for:)`): nothing of the message is read, and
+    /// nothing is sent, until the user asks for a write.
     var bodyWriteSession: WriteSession? {
         if let writeSession { return writeSession }
-        guard repliesTo != nil, let center = HelpMeWrite.current else { return nil }
+        guard let center = HelpMeWrite.current else { return nil }
         let session = WriteSession(center: center, field: ComposerWriteField(composer: self))
         writeSession = session
         bodyEditor.markAreas = { [weak session] in session?.layer.pointerHoles ?? [] }
         return session
     }
 
-    /// ⌘J and ⇧⌘J apply while the keyboard is in the body (or its prompt line) of a reply that can be written in, and no
-    /// write runs there. New messages and forwards answer no one, so they never apply there.
+    /// ⌘J and ⇧⌘J apply while the keyboard is in the body (or its prompt line) of a message that can be written in, and
+    /// no write runs there: never from To, Cc, Bcc or Subject. Nor under a sheet (“Send without a subject?”), whose
+    /// Send Anyway would take the body as a write fills it.
     var canHelpMeWrite: Bool {
-        guard repliesTo != nil, HelpMeWrite.current != nil, writeSession?.isWriting != true, !isSending, let window else {
+        guard HelpMeWrite.current != nil, writeSession?.isWriting != true, !isSending, let window, window.attachedSheet == nil else {
             return false
         }
         let inBody = window.firstResponder === bodyEditor || (writeSession?.layer.promptHoldsFocus ?? false)
         return inBody && bodyEditor.isEditable
     }
 
-    /// The menu items' titles for what ⌘J and ⇧⌘J do now; on a new message or a forward, why they do nothing (§5.35).
+    /// The menu items' titles for what ⌘J and ⇧⌘J do now (§5.35).
     func validateHelpMeWrite(_ item: NSMenuItem) -> Bool {
         let instructions = item.action == #selector(helpMeWriteWithInstructions(_:))
-        item.toolTip = repliesTo == nil ? "Help Me Write works on replies" : nil
+        item.toolTip = nil
         guard canHelpMeWrite, let session = bodyWriteSession else {
             item.title = instructions ? MainMenu.helpMeWriteWithInstructionsTitle : MainMenu.helpMeWriteTitle
             return false
@@ -53,27 +58,48 @@ extension ComposeWindowController {
         return true
     }
 
-    /// Ends Help me write on the body: a reply streaming in is put back first, the prompt line closes, Try again is
+    /// Ends Help me write on the body: a draft streaming in is put back first, the prompt line closes, Try again is
     /// forgotten.
     func endHelpMeWrite() {
         writeSession?.end()
     }
 }
 
-/// A reply composer's body as Help me write's field: the user's own text is the body above the signature (the quoted
-/// original is never in the text), its marks are the body's own (the pill floats on the body's page, under the
-/// selection), and the reply answers the message the composer replies to.
+/// A composer's body as Help me write's field: the user's own text is the body above the signature (the quoted
+/// original is never in the text), and its marks are the body's own (the pill floats on the body's page, under the
+/// selection). What is written there follows what the composer was opened as: a reply answers the message it replies
+/// to, read from the store as the quick reply's is; a new message and a forward are written from what the window
+/// itself holds, handed over as plain values (`ComposeWriteInputs`).
 @MainActor
 final class ComposerWriteField: WriteField {
     private weak var composer: ComposeWindowController?
+    /// What the composer was opened as, which it never changes: kept here so the kind of write outlives the window.
+    private let mode: ComposeMode
 
     init(composer: ComposeWindowController) {
         self.composer = composer
+        mode = composer.mode
     }
 
     private var editor: ComposeTextView? { composer?.bodyEditor }
 
     var writeTextView: NSTextView { editor ?? NSTextView() }
+
+    /// A forward is one while it holds its forwarded message, or is still fetching it. Once that is known not to come
+    /// (the original gone, its body not loaded, a draft kept without it) there is nothing here but what the user gives,
+    /// so it is written, worded and offered as a new message is (§5.56). The window gone, it is what it was opened as.
+    var writeKind: WriteKind {
+        switch mode {
+        case .new: return .newMessage
+        case .reply: return .reply
+        case .forward:
+            guard let composer else { return .forward }
+            return composer.hasForwardedMessage || composer.isLoadingForwardedMessage ? .forward : .newMessage
+        }
+    }
+
+    /// From the mode, so a kept reply or forward opened again counts as what it is, never as `draft`.
+    var analyticsKind: AnalyticsSignal.ComposeKind { AnalyticsSignal.ComposeKind(mode) }
 
     var ownTextRange: NSRange {
         guard let editor else { return NSRange(location: 0, length: 0) }
@@ -138,11 +164,54 @@ final class ComposerWriteField: WriteField {
         editor.window?.makeFirstResponder(editor)
     }
 
-    func writeContext() -> WriteContextInputs? {
-        // A send under way, or one waiting for dropped attachments (§5.20), has taken the body as it stands: a reply
-        // streaming in now would go with it half-written.
-        guard let composer, !composer.isSending, !composer.isWaitingToSend, let editor, let original = composer.repliesTo else {
+    /// Where the composer cannot tell the user's words from quoted mail (a provider's draft continued here, a Send
+    /// Later message rebuilt from the outbox), a whole draft would send that mail as notes and replace it: only a
+    /// selection is rewritten there. A forward waits for its forwarded message, which is what it is written from.
+    var selectionOnlyReason: String? {
+        guard let composer else { return nil }
+        if composer.bodyIsOfUnknownOrigin { return WriteWords.selectionOnly }
+        if composer.isLoadingForwardedMessage { return WriteWords.forwardLoading }
+        return nil
+    }
+
+    /// A provider's draft continued here, or a message rebuilt from the outbox, holds quoted mail and a signature in one
+    /// unmarked text: nothing around a selection is read there (§5.56). The window gone, nothing is.
+    var textAroundSelectionIsOwn: Bool { !(composer?.bodyIsOfUnknownOrigin ?? true) }
+
+    func blocksSeam(at index: Int) -> Bool {
+        guard let storage = editor?.textStorage, index >= 0, index < storage.length else { return true }
+        return storage.attribute(.link, at: index, effectiveRange: nil) != nil
+            || storage.attribute(.attachment, at: index, effectiveRange: nil) != nil
+    }
+
+    func seamAttributes(in range: NSRange) -> [NSAttributedString.Key: Any]? {
+        guard let storage = editor?.textStorage, range.location >= 0, range.length > 0, NSMaxRange(range) <= storage.length else {
             return nil
+        }
+        var run = NSRange(location: NSNotFound, length: 0)
+        let attributes = storage.attributes(at: range.location, longestEffectiveRange: &run, in: range)
+        return run == range ? ComposeTextView.typingSafe(attributes) : nil
+    }
+
+    func commitSubject(_ subject: String, undo: UndoManager?) -> Bool {
+        composer?.commitWrittenSubject(subject, undo: undo) ?? false
+    }
+
+    func writeContext() -> WriteContextInputs? {
+        // A send under way, or one waiting for dropped attachments (§5.20), has taken the body as it stands: a draft
+        // streaming in now would go with it half-written. So would one started under a sheet whose answer sends
+        // (“Send without a subject?”).
+        guard let composer, !composer.isSending, !composer.isWaitingToSend, composer.window?.attachedSheet == nil,
+              let editor else { return nil }
+        let appendsSignature = ComposeSignature.range(in: editor.attributedString()) != nil
+        guard let original = composer.repliesTo else {
+            // A new message or a forward: what this window holds, and nothing read from the store. Of the recipients
+            // only To is handed over, and a subject is asked for only where the composer would take one.
+            return .composed(ComposeWriteInputs(subject: composer.subjectText, to: composer.toRecipients, account: composer.account,
+                                                appendsSignature: appendsSignature,
+                                                wantsSubject: composer.takesWrittenSubject && !composer.bodyIsUntouchedPrefill,
+                                                redactsOwnText: composer.bodyIsUntouchedPrefill,
+                                                forwarded: composer.forwardedMessage))
         }
         let store = composer.client.store
         var messages: [MessageMetadata] = []
@@ -153,7 +222,7 @@ final class ComposerWriteField: WriteField {
         guard !messages.isEmpty else { return nil }
         // What the context reads stays whole for the write: a Keep mail clean-up reads the marks inside its write.
         composer.client.keepBodies(of: messages.map(\.id))
-        return WriteContextInputs(store: store, messages: messages, target: original, accounts: composer.accounts,
-                                  appendsSignature: ComposeSignature.range(in: editor.attributedString()) != nil)
+        return .reply(ReplyWriteInputs(store: store, messages: messages, target: original, accounts: composer.accounts,
+                                       appendsSignature: appendsSignature))
     }
 }

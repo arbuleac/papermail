@@ -5,11 +5,12 @@ import PaperDesign
 /// caret's line), at the text column's leading edge. After a reply lands: `pencil.line` and “Written by Claude”
 /// (`ink3`), then its actions, each its words then its quiet keycap: Try again ⌘J · Shorter · Say how ⇧⌘J · Undo ⌘Z
 /// (`metaStrong` `ink2`, `accent` under the pointer, no borders). After a failure: the failed glyph, the reason in
-/// `danger`, Try again ⌘J and, when the fix is there, Settings….
+/// `danger`, Try again ⌘J and, when the fix is there, Settings…. A notice, where nothing failed but ⌘J cannot write as
+/// things stand: the info glyph in `ink3`, the words in `ink2`, and no action.
 ///
 /// The row never draws past the column. Where it is tight it gives way in a fixed order, each step measured: a reply's
 /// keycaps first, then Shorter, then “Written by Claude”'s words (the glyph stays), then Say how; a failure's keycap,
-/// then its reason cut at a character with an ellipsis.
+/// then its reason cut at a character with an ellipsis; a notice's words, cut the same way.
 @MainActor
 final class WriteAfterline: NSView {
     enum Content: Equatable {
@@ -17,6 +18,9 @@ final class WriteAfterline: NSView {
         /// tooltip.
         case written(writer: String, rewrite: Bool, source: String?)
         case failed(reason: String, offersSettings: Bool)
+        /// Why ⌘J cannot write here as things stand, where nothing failed (“The forwarded message is still loading”,
+        /// “Select the text to rewrite”): no action, since there is nothing to try again or set up.
+        case notice(String)
     }
 
     enum Action: CaseIterable {
@@ -54,7 +58,7 @@ final class WriteAfterline: NSView {
         actions[.tryAgain]?.title = WriteWords.tryAgain
         actions[.tryAgain]?.keycap = "\u{2318}J"
         actions[.tryAgain]?.toolTip = "Try Again  \u{2318}J"
-        actions[.shorter]?.title = WriteWords.presets[0]
+        actions[.shorter]?.title = WriteWords.shorter
         actions[.shorter]?.toolTip = "Write It Shorter"
         actions[.sayHow]?.title = WriteWords.sayHow
         actions[.sayHow]?.keycap = "\u{21e7}\u{2318}J"
@@ -80,27 +84,35 @@ final class WriteAfterline: NSView {
 
     // MARK: Content
 
-    private var glyphName: String {
-        if case .failed = content { return Quire.Icon.failed }
-        return Quire.Icon.helpMeWrite
+    /// The row's glyph, and the colours of the glyph and the words (tests read them).
+    var glyphName: String {
+        switch content {
+        case .written: return Quire.Icon.helpMeWrite
+        case .failed: return Quire.Icon.failed
+        case .notice: return Quire.Icon.info
+        }
     }
 
-    private var glyphColor: NSColor {
+    var glyphColor: NSColor {
         if case .failed = content { return .qDanger }
         return .qInk3
     }
 
-    /// The row's words before its actions: “Written by Claude”, or a failure's reason.
+    /// The row's words before its actions: “Written by Claude”, a failure's reason, or a notice.
     var words: String {
         switch content {
         case .written(let writer, let rewrite, _): return WriteWords.written(by: writer, rewrite: rewrite)
         case .failed(let reason, _): return reason
+        case .notice(let words): return words
         }
     }
 
-    private var wordsColor: NSColor {
-        if case .failed = content { return .qDanger }
-        return .qInk3
+    var wordsColor: NSColor {
+        switch content {
+        case .written: return .qInk3
+        case .failed: return .qDanger
+        case .notice: return .qInk2
+        }
     }
 
     /// The actions the content offers, in order.
@@ -108,6 +120,7 @@ final class WriteAfterline: NSView {
         switch content {
         case .written: return [.tryAgain, .shorter, .sayHow, .undo]
         case .failed(_, let settings): return settings ? [.tryAgain, .settings] : [.tryAgain]
+        case .notice: return []
         }
     }
 
@@ -122,7 +135,7 @@ final class WriteAfterline: NSView {
     /// What the row shows now, as its room left it (tests and renders).
     var shownWords: String {
         var parts: [String] = []
-        if form.words || content.isFailure { parts.append(shownReason) }
+        if form.words || content.isReason { parts.append(shownReason) }
         for action in offered {
             guard let link = actions[action], !link.isHidden else { continue }
             parts.append(link.showsKeycap ? "\(link.title) \(link.keycap ?? "")".trimmingCharacters(in: .whitespaces) : link.title)
@@ -140,6 +153,10 @@ final class WriteAfterline: NSView {
         case .failed(let reason, _):
             toolTip = reason
             setAccessibilityLabel("Couldn\u{2019}t write. " + lineWords)
+        case .notice(let words):
+            // Nothing failed: VoiceOver reads the words alone.
+            toolTip = words
+            setAccessibilityLabel(words)
         }
         actions[.tryAgain]?.isRemedy = content.isFailure
         actions[.settings]?.isRemedy = true
@@ -157,6 +174,8 @@ final class WriteAfterline: NSView {
                     Form(keycaps: false, shorter: false, words: false, sayHow: false)]
         case .failed:
             return [Form(), Form(keycaps: false), Form(keycaps: false, cutsReason: true)]
+        case .notice:
+            return [Form(), Form(cutsReason: true)]
         }
     }
 
@@ -193,7 +212,7 @@ final class WriteAfterline: NSView {
         let actionsWidth = offered.filter { include($0, form) }.reduce(CGFloat(0)) { sum, action in
             sum + 2 * c.afterGap + dotWidth + (actions[action]?.width(showingKeycap: form.keycaps) ?? 0)
         }
-        if form.words || content.isFailure {
+        if form.words || content.isReason {
             var reason = words
             var width = ceil(Self.text(reason, .meta, wordsColor).size().width)
             if form.cutsReason {
@@ -343,5 +362,11 @@ private extension WriteAfterline.Content {
     var isFailure: Bool {
         if case .failed = self { return true }
         return false
+    }
+
+    /// The row says why no draft is here (a failure or a notice): its words stay whatever the room, cut if need be.
+    var isReason: Bool {
+        if case .written = self { return false }
+        return true
     }
 }

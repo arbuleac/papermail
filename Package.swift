@@ -6,6 +6,17 @@ let settings: [SwiftSetting] = [
     .unsafeFlags(["-warnings-as-errors"], .when(configuration: .release)),
 ]
 
+// The SDK generation the app says it is built for. SwiftPM's link step stamps the executable's SDK version as the
+// deployment target (clang gets `--sysroot`, which does not tell it the SDK's version), and macOS then runs the app
+// as one built for macOS 15: AppKit's compatibility behaviour and the older window chrome, while the tests, hosted
+// by `xctest`, run the current one (docs/ARCHITECTURE.md, "Testing"). Stated here, the app and its tests run the
+// same AppKit. `scripts/build-app.sh` checks the stamp against the installed SDK; raise it to a new major version
+// once the app has been looked at there.
+let sdkStamp = "27.0"
+let currentSDK: [LinkerSetting] = [
+    .unsafeFlags(["-Xlinker", "-platform_version", "-Xlinker", "macos", "-Xlinker", "15.0", "-Xlinker", sdkStamp]),
+]
+
 let package = Package(
     name: "Paper",
     platforms: [.macOS(.v15)],
@@ -65,7 +76,7 @@ let package = Package(
                 .linkedFramework("Security"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("UserNotifications"),
-            ]
+            ] + currentSDK
         ),
         .testTarget(name: "PaperCoreTests", dependencies: ["PaperCore"], swiftSettings: settings),
         .testTarget(name: "PaperGmailTests", dependencies: ["PaperGmail"], swiftSettings: settings),

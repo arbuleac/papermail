@@ -14,7 +14,8 @@ class HTTPProviderTestCase: XCTestCase {
     static let task = "Instruction: say yes and that I'll bring the draft. TASK-MARK"
 
     var writeRequest: AIWriteRequest {
-        AIWriteRequest(instructions: Self.instructions, transcript: Self.transcript, task: Self.task, model: "ignored-by-api-providers")
+        AIWriteRequest(kind: .reply, instructions: Self.instructions, transcript: Self.transcript, task: Self.task,
+                       model: "ignored-by-api-providers")
     }
 
     override func setUp() {
@@ -39,7 +40,7 @@ class HTTPProviderTestCase: XCTestCase {
                 switch event {
                 case .text(let more): text += more
                 case .replaceAll(let all): text = all
-                case .usage, .finished: break
+                case .usage, .finished, .subject, .join: break
                 }
             }
             return text

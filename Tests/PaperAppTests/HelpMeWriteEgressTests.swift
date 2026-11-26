@@ -8,8 +8,9 @@ import XCTest
 /// The app runs here with the real providers (`AIProviderFactory`), their HTTP routed to a recording `URLProtocol` and
 /// their CLI a fake `claude` that logs each launch, so every contact is seen three ways: the stub, the fake's log and
 /// `AIEgress`. Launch, opening Settings › AI, choosing a provider (its sheet and Turn On), typing notes, the ghost, the
-/// pill, opening the prompt line, the text's menu showing, switching conversations, opening a composer and quitting make
-/// none; each allowed action exactly its own.
+/// pill, opening the prompt line, the text's menu showing, switching conversations, opening a composer of any kind (a
+/// reply, a new message, a forward while its forwarded message loads and once it is in) and quitting make none; nor
+/// does ⌘J where there is nothing to write from; each allowed action exactly its own.
 @MainActor
 final class HelpMeWriteEgressTests: XCTestCase {
     private var folder: URL!
@@ -232,6 +233,10 @@ final class HelpMeWriteEgressTests: XCTestCase {
         composer.closeWithoutSaving()
 
         assertNoContact(log, "typing, the ghost, the pill, the prompt line, the text's menu, switching, a composer")
+        try walkANewMessage(harness, event: event)
+        assertNoContact(log, "a new message: its ghost, its menu, ⌘J and ↩ with nothing to write from, typing, a selection, closing")
+        try walkAForward(harness, event: event)
+        assertNoContact(log, "a forward: while its forwarded message loads, with it in, and without one")
 
         // Quitting as the app does, with Settings › AI open again.
         let reopened = openSettings(harness)
@@ -239,6 +244,120 @@ final class HelpMeWriteEgressTests: XCTestCase {
         quitting = true
         quit(harness, settings: reopened)
         assertNoContact(log, "quitting")
+    }
+
+    private var composeItem: NSMenuItem {
+        NSMenuItem(title: "", action: #selector(ComposeWindowController.helpMeWrite(_:)), keyEquivalent: "j")
+    }
+
+    /// ↩ in a composer's open prompt line, as its field sends it.
+    private func pressReturn(in composer: ComposeWindowController) {
+        let prompt = composer.bodyWriteLayer.prompt
+        let editor = prompt.field.currentEditor() as? NSTextView ?? NSTextView()
+        XCTAssertTrue(prompt.control(prompt.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+    }
+
+    /// A new message with Help me write ready, walked as a user would who never asks for a write: the window opens
+    /// (its session is made on the way, reading this Mac only), the empty body's ghost, menu validation, the text's
+    /// menu, ⌘J (which opens the prompt line there), ↩ and ⌘J on the empty line with and without a subject, Esc, the
+    /// first keys, the notes ghost, a selection and its pill, the prompt line again, and closing.
+    private func walkANewMessage(_ harness: MainWindowHarness, event: NSEvent) throws {
+        let accounts = harness.controller.accounts
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       link: MailtoLink(to: [EmailAddress(name: "Priya Raman", address: "priya@example.test")]))
+        let editor = composer.bodyEditor
+        composer.window?.makeFirstResponder(editor)
+        let session = try XCTUnwrap(composer.bodyWriteSession)
+        session.assumesKeyWindow = true
+        XCTAssertTrue(session.availability.isReady, "ready, from this Mac")
+        XCTAssertEqual(session.layer.state.ghost?.words, WriteWords.ghostSayWhat, "the empty new message's ghost is local")
+        let validate = composeItem
+        XCTAssertTrue(composer.validateMenuItem(validate))
+        XCTAssertEqual(validate.title, "Write Message\u{2026}")
+        let shown = composer.textView(editor, menu: NSMenu(), for: event, at: 0)
+        XCTAssertEqual(shown?.items.first?.title, "Write Message\u{2026}", "the text's menu shows the group, locally")
+
+        composer.helpMeWrite(nil)
+        XCTAssertTrue(session.isPromptShown, "⌘J on the empty body opens the prompt line, and that is all it does")
+        for subject in ["", "Q3 budget"] {
+            composer.setSubjectText(subject)
+            pressReturn(in: composer)
+            XCTAssertTrue(composer.validateMenuItem(validate))
+            composer.helpMeWrite(nil)
+            XCTAssertTrue(session.isPromptShown, "↩ and ⌘J on the empty line send nothing, with or without a subject")
+            XCTAssertFalse(session.isWriting)
+        }
+        composer.escapeComposer(nil)
+        XCTAssertFalse(session.isPromptShown, "Esc closes the line")
+
+        editor.insertText("lunch thursday at noon", replacementRange: NSRange(location: 0, length: 0))
+        session.showNotesGhostNow()
+        XCTAssertEqual(session.layer.state.ghost?.words, WriteWords.ghostNotes)
+        editor.setSelectedRange(NSRange(location: 0, length: 5))
+        XCTAssertNotNil(session.layer.state.pill, "the pill is local")
+        XCTAssertTrue(composer.validateMenuItem(validate))
+        composer.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(session.isPromptShown)
+        ListTestSupport.spin(for: 0.3)
+        composer.window?.performClose(nil)
+        ComposeDraftStore.shared.waitForWrites()
+    }
+
+    /// A forward walked the same way: while its forwarded message loads (nothing to write from yet: ⌘J says so), once
+    /// it is in (the ghost, the menus, the prompt line with its chips; never ⌘J, which would write), and one whose
+    /// original is gone (⌘J opens the prompt line, ↩ on the empty line sends nothing).
+    private func walkAForward(_ harness: MainWindowHarness, event: NSEvent) throws {
+        let accounts = harness.controller.accounts
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+        try harness.environment.store.saveBody(StoredBody(body: MessageBody(html: "<p>The venue is booked.</p>", text: "The venue is booked."),
+                                                          renderedHTML: "<p>The venue is booked.</p>", plainText: "The venue is booked."),
+                                               for: original)
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       mode: .forward(original))
+        let editor = composer.bodyEditor
+        composer.window?.makeFirstResponder(editor)
+        let session = try XCTUnwrap(composer.bodyWriteSession)
+        session.assumesKeyWindow = true
+        XCTAssertTrue(composer.isLoadingForwardedMessage, "prefill has not run yet")
+        XCTAssertNil(session.layer.state.ghost, "no ghost while the forwarded message loads")
+        let validate = composeItem
+        XCTAssertTrue(composer.validateMenuItem(validate))
+        composer.helpMeWrite(nil)
+        XCTAssertEqual(session.phase, .notice(WriteWords.forwardLoading), "⌘J says it is loading")
+        _ = composer.textView(editor, menu: NSMenu(), for: event, at: 0)
+
+        XCTAssertTrue(ListTestSupport.spin(until: { composer.hasForwardedMessage }, timeout: 5), "the forwarded message folds in")
+        editor.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertEqual(session.layer.state.ghost?.words, WriteWords.ghostMessage, "its ghost, once there is something to write from")
+        XCTAssertTrue(composer.validateMenuItem(validate))
+        XCTAssertEqual(validate.title, "Write Message")
+        XCTAssertEqual(composer.textView(editor, menu: NSMenu(), for: event, at: 0)?.items.first?.title, "Write Message")
+        composer.helpMeWriteWithInstructions(nil)
+        XCTAssertTrue(session.isPromptShown, "⇧⌘J opens the line")
+        XCTAssertFalse(session.layer.prompt.chips.isEmpty)
+        composer.escapeComposer(nil)
+        editor.insertText("fyi before thursday", replacementRange: NSRange(location: 0, length: 0))
+        editor.setSelectedRange(NSRange(location: 0, length: 3))
+        XCTAssertNotNil(session.layer.state.pill)
+        ListTestSupport.spin(for: 0.3)
+        composer.window?.performClose(nil)
+
+        let bare = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                   mode: .forward(MessageID(accountID: ListTestSupport.accountA.id, providerID: "gone")))
+        XCTAssertTrue(ListTestSupport.spin(until: { !bare.isLoadingForwardedMessage }, timeout: 5))
+        bare.window?.makeFirstResponder(bare.bodyEditor)
+        let bareSession = try XCTUnwrap(bare.bodyWriteSession)
+        bareSession.assumesKeyWindow = true
+        XCTAssertEqual(bareSession.layer.state.ghost?.words, WriteWords.ghostSayWhat, "with no forwarded message, as an empty new message")
+        bare.helpMeWrite(nil)
+        XCTAssertTrue(bareSession.isPromptShown)
+        pressReturn(in: bare)
+        bare.helpMeWrite(nil)
+        XCTAssertTrue(bareSession.isPromptShown)
+        XCTAssertFalse(bareSession.isWriting)
+        ListTestSupport.spin(for: 0.3)
+        bare.window?.performClose(nil)
+        ComposeDraftStore.shared.waitForWrites()
     }
 
     /// Launched with a provider already on (Claude Code turned on, or Claude's API with a key stored), Settings › AI
@@ -346,6 +465,108 @@ final class HelpMeWriteEgressTests: XCTestCase {
         assertNoContact(log, "a check after shutdown")
     }
 
+    /// Runs a write of `writing` through `center`'s writer to its end: the error it ended with, if any.
+    private func failure(of writing: WriteKind, _ center: HelpMeWrite, _ configuration: AIProviderConfiguration) -> AIError? {
+        let request = AIWriteRequest(kind: writing, instructions: "Write it.", transcript: "", task: "Say yes")
+        let field = AIFieldID(name: "egress")
+        let stream = center.writer.write(request, using: configuration, in: field, action: AIUserAction(userPressed: .write))
+        var failure: AIError?
+        var isOver = false
+        Task { @MainActor in
+            do { for try await _ in stream {} } catch { failure = AIError.from(error) }
+            isOver = true
+        }
+        // The stream ends a turn before the writer lets go of the field: the next write here waits for both.
+        XCTAssertTrue(ListTestSupport.spin(until: { isOver && !center.writer.isWriting(in: field) }, timeout: 10),
+                      "\(writing): the write ends")
+        return failure
+    }
+
+    /// A Turn On from before the sheet named new messages and forwards never sends one (§5.56). With the real providers
+    /// on that permission alone, a new message's or a forward's request handed to the writer reaches nothing and starts
+    /// nothing, whatever asked for it; the reply's request, on the same permission, goes as it always did.
+    func testANewMessageOrAForwardOnAnEarlierTurnOnReachesNothing() throws {
+        let log = try installFakeClaude()
+        for kind in [AIProviderKind.claudeCode, .claudeAPI] {
+            let suite = "HelpMeWriteEgress.earlier.\(UUID().uuidString)"
+            addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            // As a version before 1.21 left them: chosen, and turned on past the sheet that asked about replies.
+            defaults.set(kind.rawValue, forKey: "aiProvider")
+            defaults.set([kind.rawValue], forKey: "aiConsent")
+            let settings = AppSettings(defaults: defaults)
+            let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
+            center.settings = settings
+            let configuration = try XCTUnwrap(center.configuration)
+            XCTAssertEqual(configuration.kind, kind)
+            XCTAssertTrue(center.availability(for: .reply).isReady, "\(kind): replies are ready, from this Mac")
+            for writing in [WriteKind.newMessage, .forward] {
+                XCTAssertEqual(center.availability(for: writing), .unavailable(reason: "Help Me Write is on for replies only"),
+                               "\(kind) \(writing)")
+                XCTAssertEqual(failure(of: writing, center, configuration), .consentRequired, "\(kind) \(writing): refused by the writer")
+            }
+            ListTestSupport.spin(for: 0.2)
+            assertNoContact(log, "\(kind): a new message and a forward on a Turn On given for replies")
+
+            guard kind == .claudeAPI else { continue }
+            XCTAssertNotEqual(failure(of: .reply, center, configuration), .consentRequired, "the reply is allowed")
+            XCTAssertEqual(contacts, ["write: POST api.anthropic.com/v1/messages"], "and is the one contact")
+            XCTAssertEqual(launches(log), [], "no CLI for the API")
+        }
+    }
+
+    /// The same in the composers themselves: on a Turn On given for replies, ⌘J with notes in a new message and in a
+    /// forward (its forwarded message in hand) says “Help Me Write is on for replies only” under the caret's line and
+    /// reaches nothing; so do the prompt line's ↩ with an instruction and a selection's ⌘J.
+    func testCommandJInANewMessageOrAForwardOnAnEarlierTurnOnSaysWhyAndReachesNothing() throws {
+        let log = try installFakeClaude()
+        for kind in [AIProviderKind.claudeCode, .claudeAPI] {
+            let suite = "HelpMeWriteEgress.earlier.composer.\(UUID().uuidString)"
+            addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defaults.set(kind.rawValue, forKey: "aiProvider")
+            defaults.set([kind.rawValue], forKey: "aiConsent")
+            let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
+            let harness = try MainWindowHarness(settings: AppSettings(defaults: defaults), helpMeWrite: center)
+            defer { harness.close() }
+            let accounts = harness.controller.accounts
+            let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+            try harness.environment.store.saveBody(StoredBody(body: MessageBody(html: "<p>The venue is booked.</p>", text: "The venue is booked."),
+                                                              renderedHTML: "<p>The venue is booked.</p>", plainText: "The venue is booked."),
+                                                   for: original)
+            for mode in [ComposeMode.new, .forward(original)] {
+                let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                               mode: mode)
+                if mode.isForward { XCTAssertTrue(ListTestSupport.spin(until: { composer.hasForwardedMessage }, timeout: 5)) }
+                let editor = composer.bodyEditor
+                composer.window?.makeFirstResponder(editor)
+                let session = try XCTUnwrap(composer.bodyWriteSession)
+                session.assumesKeyWindow = true
+                XCTAssertEqual(session.availability, .unavailable(reason: "Help Me Write is on for replies only"), "\(kind) \(mode)")
+                editor.insertText("lunch thursday at noon", replacementRange: NSRange(location: 0, length: 0))
+                session.showNotesGhostNow()
+                XCTAssertNil(session.layer.state.ghost, "\(kind) \(mode): no ghost")
+                let expected = WritePhase.failed(reason: "Help Me Write is on for replies only", offersSettings: true)
+                XCTAssertTrue(composer.validateMenuItem(composeItem))
+                composer.helpMeWrite(nil)
+                XCTAssertEqual(session.phase, expected, "\(kind) \(mode): ⌘J with notes says why")
+                composer.helpMeWriteWithInstructions(nil)
+                XCTAssertTrue(session.isPromptShown, "⇧⌘J still opens the line")
+                session.layer.prompt.instruction = "Friendlier"
+                pressReturn(in: composer)
+                XCTAssertEqual(session.phase, expected, "\(kind) \(mode): and so does ↩ with an instruction")
+                editor.setSelectedRange(NSRange(location: 0, length: 5))
+                XCTAssertNil(session.layer.state.pill, "\(kind) \(mode): no pill")
+                composer.helpMeWrite(nil)
+                XCTAssertEqual(session.phase, expected, "\(kind) \(mode): nor is a selection rewritten")
+                ListTestSupport.spin(for: 0.3)
+                XCTAssertEqual(editor.string, "lunch thursday at noon")
+                composer.closeWithoutSaving()
+            }
+            assertNoContact(log, "\(kind): ⌘J in a new message and a forward on a Turn On given for replies")
+        }
+    }
+
     func testEachAllowedActionMakesExactlyItsOwnContacts() throws {
         let log = try installFakeClaude()
         let keys = InMemoryAIKeyStore()
@@ -397,6 +618,86 @@ final class HelpMeWriteEgressTests: XCTestCase {
         XCTAssertTrue(ListTestSupport.spin(until: { EgressStubProtocol.requests.count == 3 && model.status != .checking }, timeout: 10))
         XCTAssertEqual(contacts.filter { $0.hasPrefix("check:") }.count, 2)
         XCTAssertEqual(launches(log).count, 4, "no CLI for the API")
+
+        // A new message: ⌘J on its empty body asks what to write and reaches nothing; the words and ↩ send once.
+        EgressRecorder.shared.reset()
+        EgressStubProtocol.reset()
+        let accounts = harness.controller.accounts
+        let refused = WritePhase.failed(reason: "The Anthropic API key was refused", offersSettings: true)
+        let fresh = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts, mode: .new)
+        fresh.window?.makeFirstResponder(fresh.bodyEditor)
+        fresh.helpMeWrite(nil)
+        let freshSession = try XCTUnwrap(fresh.writeSession)
+        XCTAssertTrue(freshSession.isPromptShown)
+        ListTestSupport.spin(for: 0.2)
+        XCTAssertEqual(contacts, [], "⌘J on an empty new message reaches nothing")
+        freshSession.layer.prompt.instruction = "ask Priya to lunch"
+        pressReturn(in: fresh)
+        XCTAssertTrue(ListTestSupport.spin(until: { freshSession.phase == refused }, timeout: 10))
+        XCTAssertEqual(contacts, ["write: POST api.anthropic.com/v1/messages"], "↩ with an instruction is the user's write: one request")
+        fresh.closeWithoutSaving()
+
+        // A forward with its forwarded message in hand: ⌘J writes at once, once.
+        EgressRecorder.shared.reset()
+        EgressStubProtocol.reset()
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+        try harness.environment.store.saveBody(StoredBody(body: MessageBody(html: "<p>The venue is booked.</p>", text: "The venue is booked."),
+                                                          renderedHTML: "<p>The venue is booked.</p>", plainText: "The venue is booked."),
+                                               for: original)
+        let forward = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                      mode: .forward(original))
+        XCTAssertTrue(ListTestSupport.spin(until: { forward.hasForwardedMessage }, timeout: 5))
+        XCTAssertEqual(contacts, [], "opening it, and its forwarded message folding in, reach nothing")
+        forward.window?.makeFirstResponder(forward.bodyEditor)
+        forward.helpMeWrite(nil)
+        let forwardSession = try XCTUnwrap(forward.writeSession)
+        XCTAssertTrue(ListTestSupport.spin(until: { forwardSession.phase == refused }, timeout: 10))
+        XCTAssertEqual(contacts, ["write: POST api.anthropic.com/v1/messages"], "⌘J on a forward: one request")
+        XCTAssertEqual(EgressStubProtocol.requests, ["POST api.anthropic.com/v1/messages"])
+        XCTAssertEqual(launches(log).count, 4, "and still no CLI for the API")
+        forward.closeWithoutSaving()
+    }
+
+    /// A selection's rewrite reads the user's draft around it only as the user asks for the write (§5.56): a selection
+    /// in mid-sentence, its settled pill, the text's menu offering Rewrite Selection and the prompt line opened over it
+    /// reach nothing and build nothing. ⌘J then makes exactly one request, which carries the draft, and nothing follows.
+    func testARewriteReadsTheDraftAroundItOnlyOnTheUsersWrite() throws {
+        let log = try installFakeClaude()
+        let center = realCenter(keys: InMemoryAIKeyStore([.claudeAPI: "sk-ant-test-key"]))
+        let harness = try MainWindowHarness(helpMeWrite: center)
+        defer { harness.close() }
+        var built: [AIWriteRequest] = []
+        WriteSession.requestObserver = { built.append($0) }
+        defer { WriteSession.requestObserver = nil }
+        settingsModel(harness).setProvider(.claudeAPI)
+        try select("thread-2", harness)
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let field = harness.reader.quickReplyBar.writingTextView
+        field.insertText("Thanks for the notes. John is coming tomorrow, I think.", replacementRange: NSRange(location: 0, length: 0))
+        let session = try XCTUnwrap(harness.reader.quickReplyWriteSession)
+        session.assumesKeyWindow = true
+        field.setSelectedRange((field.string as NSString).range(of: "John"))
+        session.selectionDidChange()
+        XCTAssertNotNil(session.layer.state.pill, "the settled pill")
+        XCTAssertEqual(session.contextMenuItems().first?.title, "Rewrite Selection", "the text's menu")
+        session.showPrompt()
+        XCTAssertTrue(session.isPromptShown, "the prompt line over the selection")
+        XCTAssertTrue(session.promptEscape())
+        ListTestSupport.spin(for: 0.3)
+        assertNoContact(log, "a selection, its pill, the text's menu and the prompt line")
+        XCTAssertTrue(built.isEmpty, "nothing was even built")
+
+        field.setSelectedRange((field.string as NSString).range(of: "John"))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { session.phase.isFailed }, timeout: 10), "the stub refuses the key")
+        XCTAssertEqual(contacts, ["write: POST api.anthropic.com/v1/messages"], "⌘J: one request")
+        XCTAssertEqual(built.count, 1)
+        XCTAssertTrue(built.first?.userTurn.contains("<<<DRAFT \(built.first?.fence ?? "-")>>>") == true, "carrying the draft around it")
+        XCTAssertEqual(built.first?.rewrite?.lead, "Thanks ", "the draft before the selection")
+        XCTAssertEqual(built.first?.rewrite?.before, "for the notes.", "and its few words beside it")
+        ListTestSupport.spin(for: 0.3)
+        XCTAssertEqual(contacts.count, 1, "and no second request follows")
+        XCTAssertEqual(launches(log), [], "no CLI for the API")
     }
 
     // MARK: One gate in code

@@ -103,7 +103,7 @@ final class GmailCalendarTests: XCTestCase {
         XCTAssertEqual(pages[1].query["pageToken"], ["CiAKGjBpNDd2Nmp2Zml2cXRwYjBpOXA"])
         XCTAssertEqual(listing.events.map(\.providerID), [
             "7k2m4n6p8r0t2v4x6z8b0d2f4h", "zoomcall0001", "alldayown001", "holiday00001", "declined0001", "unanswered01",
-            "absence00001", "focus0000001", "0123456789abcdef0123456789abcdef", "freeevent001", "untitled0001",
+            "standup_20261119T080000Z", "absence00001", "focus0000001", "0123456789abcdef0123456789abcdef", "freeevent001", "untitled0001",
         ])
         for event in listing.events {
             XCTAssertEqual(event.id, CalendarEvent.localID(accountID: account, providerID: try XCTUnwrap(event.providerID)))
@@ -114,13 +114,82 @@ final class GmailCalendarTests: XCTestCase {
     }
 
     func testTheFieldsMaskAsksForEverythingTheMapperReads() {
-        for field in ["id", "status", "summary", "location", "start", "end", "transparency", "attendees(self,responseStatus)",
-                      "organizer(self,displayName,email)", "hangoutLink", "conferenceData(entryPoints(entryPointType,uri))",
-                      "htmlLink", "iCalUID", "updated", "eventType", "extendedProperties/private"] {
-            XCTAssertTrue(GmailProvider.calendarFields.contains(field), field)
-        }
-        XCTAssertTrue(GmailProvider.calendarFields.hasPrefix("items("))
-        XCTAssertTrue(GmailProvider.calendarFields.hasSuffix("),nextPageToken"))
+        XCTAssertEqual(GmailProvider.calendarFields,
+                       "items(id,etag,status,summary,location,start,end,transparency,attendees(self,responseStatus),"
+                       + "organizer(self,displayName,email),hangoutLink,conferenceData(conferenceSolution(name,key/type),"
+                       + "entryPoints(entryPointType,uri)),htmlLink,iCalUID,updated,eventType,extendedProperties/private,"
+                       + "recurringEventId,originalStartTime),nextPageToken")
+    }
+
+    /// An instance of a repeating event names its series and its original start; a single event names neither.
+    func testAnInstanceKeepsItsSeriesAndOriginalStart() async throws {
+        let listing = try await readAll()
+
+        let standup = try event("standup_20261119T080000Z", in: listing)
+        XCTAssertEqual(standup.seriesID, "standup")
+        XCTAssertEqual(standup.originalStart, date("2026-11-19T08:00:00Z"))
+        let review = try event("7k2m4n6p8r0t2v4x6z8b0d2f4h", in: listing)
+        XCTAssertNil(review.seriesID)
+        XCTAssertNil(review.originalStart)
+    }
+
+    /// A timed event keeps the zone it was written in when this Mac knows it; an all-day event and an unknown zone keep none.
+    func testTheZoneIsKeptForTimedEventsInAZoneTheMacKnows() async throws {
+        let listing = try await readAll()
+
+        XCTAssertEqual(try event("7k2m4n6p8r0t2v4x6z8b0d2f4h", in: listing).timeZone, "Europe/Athens")
+        XCTAssertEqual(try event("unanswered01", in: listing).timeZone, "Europe/Paris")
+        XCTAssertNil(try event("zoomcall0001", in: listing).timeZone, "a zone the Mac does not know")
+        XCTAssertNil(try event("alldayown001", in: listing).timeZone, "all day: no zone")
+        XCTAssertNil(try event("declined0001", in: listing).timeZone, "none named")
+    }
+
+    func testOutOfOfficeAndFocusTimeAreKinds() async throws {
+        let listing = try await readAll()
+
+        XCTAssertEqual(try event("absence00001", in: listing).kind, .outOfOffice)
+        XCTAssertEqual(try event("focus0000001", in: listing).kind, .focusTime)
+        XCTAssertNil(try event("7k2m4n6p8r0t2v4x6z8b0d2f4h", in: listing).kind)
+    }
+
+    /// The call's service comes from the conference: Meet, an add-on by its name, else the join address's host.
+    func testTheCallServiceIsTheConferencesOrTheJoinAddresss() async throws {
+        let listing = try await readAll()
+
+        XCTAssertEqual(try event("7k2m4n6p8r0t2v4x6z8b0d2f4h", in: listing).callService, .meet)
+        XCTAssertEqual(try event("zoomcall0001", in: listing).callService, .zoom, "the add-on's name")
+        XCTAssertEqual(try event("standup_20261119T080000Z", in: listing).callService, .zoom, "the place's host")
+        XCTAssertNil(try event("declined0001", in: listing).callService, "no call")
+        XCTAssertNil(try event("untitled0001", in: listing).callService, "a link that is not https is no call")
+    }
+
+    func testTheVersionIsTheEtag() async throws {
+        let listing = try await readAll()
+
+        XCTAssertEqual(try event("7k2m4n6p8r0t2v4x6z8b0d2f4h", in: listing).version, "\"3512345678901001\"")
+        XCTAssertNil(try event("zoomcall0001", in: listing).version)
+    }
+
+    /// A place that is one https address on a known call host is the call; a look-alike or another host stays a place.
+    func testAPlaceThatIsACallsAddressIsTheJoinLink() async throws {
+        server.on("GET", eventsPath, .json(#"""
+        {"items": [
+          {"id": "placezoom001", "status": "confirmed", "start": {"dateTime": "2026-11-19T09:00:00Z"},
+           "end": {"dateTime": "2026-11-19T09:30:00Z"}, "location": "https://acme.zoom.us/j/1"},
+          {"id": "placelook001", "status": "confirmed", "start": {"dateTime": "2026-11-19T10:00:00Z"},
+           "end": {"dateTime": "2026-11-19T10:30:00Z"}, "location": "https://securezoom.us/j/1"},
+          {"id": "placeuser001", "status": "confirmed", "start": {"dateTime": "2026-11-19T11:00:00Z"},
+           "end": {"dateTime": "2026-11-19T11:30:00Z"}, "location": "https://zoom.us@evil.test/j/1"}
+        ]}
+        """#))
+        let listing = try await provider().calendarEvents(in: window)
+
+        let zoom = try event("placezoom001", in: listing)
+        XCTAssertEqual(zoom.joinURL, "https://acme.zoom.us/j/1")
+        XCTAssertEqual(zoom.callService, .zoom)
+        XCTAssertEqual(zoom.location, "https://acme.zoom.us/j/1", "the place is kept as written")
+        XCTAssertNil(try event("placelook001", in: listing).joinURL, "a look-alike is no call")
+        XCTAssertNil(try event("placeuser001", in: listing).joinURL, "a user name hides another host")
     }
 
     func testAnEmptyWindowIsOneRequest() async throws {

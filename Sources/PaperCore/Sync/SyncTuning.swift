@@ -66,6 +66,13 @@ struct SyncTuning: Sendable {
     /// How much newer a read must be than the one `AccountSyncStatus.calendar` shows before it is published again: only
     /// a change of state is news to the views that observe the statuses, which lay out again on each.
     var calendarStatusRefresh: TimeInterval = 300
+    /// How long an event's details stay fresh once read at its version: a card opened within it asks nothing.
+    var calendarDetailsFresh: TimeInterval = 600
+    /// The most events of the next 24 hours whose details a window read reads ahead, while the app is frontmost, and
+    /// only those changed since: Graph spends up to two requests each.
+    var calendarDetailsPrefetch = 8
+    /// How long the engine waits before asking again for one event's details it asked for.
+    var calendarDetailsAskInterval: TimeInterval = 60
     /// The clocks the calendar lane reads by: the wall clock its window is worked out on and its reads are dated by
     /// (`CalendarSyncState.current`), and the continuous clock its intervals and backoff run on, so setting the Mac's
     /// clock never holds a read back. It never sleeps: the live lane's cycles wake it. Tests replace it to move time by hand.

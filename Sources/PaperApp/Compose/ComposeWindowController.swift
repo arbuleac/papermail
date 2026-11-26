@@ -35,6 +35,13 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// The provider's draft this message continues (Continue Editing on a synced Drafts row); sending it
     /// discards the provider's copy, so Drafts never keeps the original beside the sent message.
     private(set) var continuesDraft: MessageID?
+    /// The body is a Send Later message's text as it would have gone (`ComposeDraft.bodyIsAsSent`): what the user
+    /// wrote, the quoted original and the signature as one unmarked text.
+    private(set) var bodyIsAsSent = false
+    /// A mail link or a Service put text into the body (§5.20): the digest of that text (`ComposeDraft.filledInDigest`).
+    /// Until the user changes it, someone else may have written it (`bodyIsUntouchedPrefill`). Kept with the draft, so
+    /// a window reopened on it (a kept draft, Undo Send, a failed send) knows it too.
+    private var filledInDigest: String?
 
     /// The account the message is sent from.
     var accountID: AccountID { account.id }
@@ -89,7 +96,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
     }
     private var quoted: QuotedReply.Rendering? {
-        didSet { quoteView.rendering = quoted }
+        didSet {
+            quoteView.rendering = quoted
+            // A forward's forwarded message is what Help me write writes from (§5.56): its ghost follows.
+            writeSession?.fieldDidChange()
+        }
     }
     private var threading: ReplyThreading?
     private var sendFailure: String? {
@@ -108,7 +119,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// A draft of this window is on disk, so “nothing worth keeping” must remove it.
     private var hasStoredDraft = false
     private var linkPopover: ComposeLinkPopover?
-    /// Help me write on the body of a reply (§5.56), made the first time it is reached (`bodyWriteSession`).
+    /// Help me write on the body (§5.56), made the first time it is reached (`bodyWriteSession`).
     var writeSession: WriteSession?
     /// Help me write's marks in the body's text (§5.56), made with the session; the pill floats on the body's page, which
     /// holds it where it hangs under the body's last line.
@@ -703,8 +714,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         updateFormatState()
     }
 
-    /// The body's right-click menu opens with Help Me Write's group on a reply (§5.56): the mouse's way to it, now that the
-    /// bar has no Write button. Showing it sends nothing.
+    /// The body's right-click menu opens with Help Me Write's group (§5.56): the mouse's way to it, now that the bar has
+    /// no Write button. Showing it sends nothing.
     func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
         guard view === textView, let session = bodyWriteSession else { return menu }
         for (index, item) in session.contextMenuItems().enumerated() { menu.insertItem(item, at: index) }
@@ -798,6 +809,15 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         }
         applyHeaders(from: original)
 
+        #if DEBUG
+        // `--snapshot-state=…,forward,loading`: a render of a forward whose forwarded message is still on its way
+        // (§5.56). The headers are in, as when a body is being fetched; the body never comes while the render runs.
+        if WriteSnapshotStates.holdsForwardLoading {
+            try? await Task.sleep(for: .seconds(3_600))
+            return
+        }
+        #endif
+
         let body: StoredBody
         do {
             body = try await client.ensureBody(for: originalID)
@@ -884,6 +904,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         statusBoard.finishLoadingOriginal()
         if let status { statusBoard.post(status) }
         updateSendEnabled()
+        // A forward whose forwarded message did not come is written as a new message is (§5.56).
+        writeSession?.fieldDidChange()
     }
 
     // MARK: Draft state
@@ -902,13 +924,17 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             quoted: quoted,
             threading: threading,
             sendFailure: sendFailure,
-            continuesDraft: continuesDraft
+            continuesDraft: continuesDraft,
+            bodyIsAsSent: bodyIsAsSent,
+            filledInDigest: filledInDigest
         )
     }
 
     private func restore(_ draft: ComposeDraft) {
         draftID = draft.id
         continuesDraft = draft.continuesDraft
+        bodyIsAsSent = draft.bodyIsAsSent
+        filledInDigest = draft.filledInDigest
         // The draft remembers the From the user chose, which `init` replaced with the original's owner.
         account = draft.account
         selectAccountInFromPopup()
@@ -945,6 +971,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         subjectField.stringValue = link.subject
         subjectField.updateFont()
         let bodyEnd = startBody(typed: link.body.isEmpty ? nil : ComposeTextView.plainBody(link.body))
+        filledInDigest = link.body.isEmpty ? nil : ComposeDraft.typedTextDigest(of: textView.attributedString())
         baseline = currentDraft().fingerprint
         updateTitle()
         updateSendEnabled()
@@ -957,6 +984,7 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
         switch service {
         case .selection(let text):
             startBody(typed: text.isEmpty ? nil : ComposeTextView.plainBody(text))
+            filledInDigest = text.isEmpty ? nil : ComposeDraft.typedTextDigest(of: textView.attributedString())
         case .files(let urls):
             startBody(typed: nil)
             attach(urls)
@@ -1044,6 +1072,125 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
                 MainActor.assumeIsolated { self?.statusBoard.setOffline(offline) }
             }
         }
+    }
+
+    // MARK: What Help Me Write reads and sets (§5.56)
+
+    // Read as the user asks for a write and never before: plain values this window already holds, and nothing from the
+    // store. `ComposerWriteField` hands them to PaperCore, which decides what of them is sent.
+
+    /// The Subject as it stands.
+    var subjectText: String { subjectField.stringValue }
+
+    /// Sets the Subject in code, then does by hand what typing in it does, since AppKit reports no change for a set in
+    /// code: the font follows the text's script, the window takes its title, “Draft saved” goes stale and the autosave
+    /// restarts its pause.
+    func setSubjectText(_ subject: String) {
+        subjectField.stringValue = subject
+        subjectField.updateFont()
+        updateTitle()
+        draftChanged(body: false)
+    }
+
+    /// Whether the Subject would be asked about by Send (“Send without a subject?”): Send's own test.
+    private var subjectIsEmpty: Bool {
+        subjectField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The To recipients as the field holds them, in order: the people a message greets. Never Cc, never Bcc.
+    var toRecipients: [EmailAddress] { toField.addresses }
+
+    /// A forward whose forwarded message has not arrived yet: prefill is still fetching it, and can still write the
+    /// Subject.
+    var isLoadingForwardedMessage: Bool { mode.isForward && isPrefilling && quoted == nil }
+
+    /// The forwarded message this forward holds, when there is one to read: its own `quoted`, exactly what the
+    /// recipients will get. Nil for anything but a forward, while it loads, when the original is gone or its body
+    /// could not be loaded, and for a quote that holds neither text nor an author (a draft kept before those were).
+    private var readableForward: QuotedReply.Rendering? {
+        guard mode.isForward, let quoted else { return nil }
+        let isBlank: (String) -> Bool = { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return isBlank(quoted.originalText) && isBlank(quoted.author) ? nil : quoted
+    }
+
+    /// Whether this forward holds its forwarded message to write from; without it, it is written as a new message is.
+    var hasForwardedMessage: Bool { readableForward != nil }
+
+    /// The forwarded message as Help me write takes it: its text, author and date as this window holds them, and the
+    /// files on the strip as a count. Never `quoted.header` or `quoted.text`, which carry addresses.
+    var forwardedMessage: ComposeWriteInputs.Forwarded? {
+        readableForward.map {
+            ComposeWriteInputs.Forwarded(text: $0.originalText, author: $0.author, date: $0.date, attachmentCount: fileChipCount)
+        }
+    }
+
+    /// The files on the strip that would go with the message now: not the pictures a quote shows inline, and not a
+    /// file that failed, which stays in sight but is never sent.
+    var fileChipCount: Int {
+        attachments.filter { !$0.isInline && !$0.state.isFailed }.count
+    }
+
+    /// The body is one this composer cannot tell the user's words from quoted mail in: a provider's draft continued
+    /// here, or a Send Later message rebuilt from the outbox. Both hold whatever the message held (quoted mail, a
+    /// signature) as unmarked text, so Help me write rewrites a selection there and nothing else.
+    var bodyIsOfUnknownOrigin: Bool { continuesDraft != nil || bodyIsAsSent }
+
+    /// The body is still exactly the text a mail link or a Service filled in: someone else may have written it, so
+    /// what is sent of it goes through the redactor as mail does. Once the user changes the body it is theirs. Only the
+    /// body is compared: a recipient added to a link's message does not make its text the user's. Compared by the
+    /// digest the draft keeps, so it holds in a window reopened on the draft too; a fill puts no picture in the body,
+    /// so a body with one is the user's.
+    var bodyIsUntouchedPrefill: Bool {
+        guard let filledInDigest else { return false }
+        let body = textView.attributedString()
+        return ComposeInlineImages.pictures(in: body).isEmpty && ComposeDraft.typedTextDigest(of: body) == filledInDigest
+    }
+
+    /// Whether a draft written here may bring a subject with it: a new message whose body is the user's own to write
+    /// from, and whose Subject Send would ask about. Never a reply or a forward, whose Subject prefill writes (or
+    /// leaves empty for good when the original is gone).
+    var takesWrittenSubject: Bool {
+        mode == .new && !bodyIsOfUnknownOrigin && subjectIsEmpty
+    }
+
+    /// A draft landed with `subject` (`WriteField.commitSubject`): set if the message still takes one, as part of the
+    /// draft's one undo step. Called inside that step's open group on `undo`, where the inverse is registered with this
+    /// controller as its target and no name of its own, so “Undo Help Me Write” takes body and subject back together.
+    func commitWrittenSubject(_ subject: String, undo: UndoManager?) -> Bool {
+        guard takesWrittenSubject, !subject.isEmpty else { return false }
+        let earlier = subjectField.stringValue
+        setSubjectText(subject)
+        registerSubjectSwap(on: undo, from: subject, to: earlier)
+        return true
+    }
+
+    /// Registers on `undo` a step that puts `other` in the Subject only if it still holds exactly `current`, and
+    /// then registers its inverse. So Undo takes back a subject the write set and no other, and Redo sets it again
+    /// only over what was there before; a subject the user changed or removed since stays theirs, and with nothing
+    /// registered for it, Redo cannot bring the written one back.
+    private func registerSubjectSwap(on undo: UndoManager?, from current: String, to other: String) {
+        guard let undo else { return }
+        undo.registerUndo(withTarget: self) { [weak undo] composer in
+            MainActor.assumeIsolated {
+                guard composer.subjectField.stringValue == current else { return }
+                composer.setSubjectText(other)
+                composer.registerSubjectSwap(on: undo, from: other, to: current)
+            }
+        }
+    }
+
+    /// The keyboard is in the Subject.
+    private var subjectHoldsKeyboard: Bool {
+        guard let responder = window?.firstResponder else { return false }
+        return responder === subjectField || (responder as? NSTextView)?.delegate === subjectField
+    }
+
+    /// ⌘Z or ⇧⌘Z is about to take or bring back a draft Help me write wrote, with the caret in the Subject that step
+    /// may set: the keyboard goes to the body first, as the afterline's Undo puts it, so the Subject is at rest when
+    /// the step changes it.
+    func moveKeyboardFromSubjectToBody() {
+        guard subjectHoldsKeyboard else { return }
+        window?.makeFirstResponder(textView)
     }
 
     // MARK: Attachments
@@ -1365,6 +1512,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     /// the Drafts row stands in for: opening the row brings it back as written. The window closes and the main window
     /// says when it sends, with Undo. The draft is kept before the send is queued, so a send never waits without one.
     private func performSchedule(at date: Date) {
+        // “Send without a subject?” was answered while a draft streams into the body (§5.56): it is not the user's yet.
+        guard !refusesBodyEdits else {
+            NSSound.beep()
+            return
+        }
         guard mailFetches.isEmpty else { return afterDroppedAttachments { [weak self] in self?.performSchedule(at: date) } }
         autosaveTimer?.invalidate()
         var current = currentDraft()
@@ -1452,6 +1604,11 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
     }
 
     private func performSend(_ action: SendAction) {
+        // “Send without a subject?” was answered while a draft streams into the body (§5.56): it is not the user's yet.
+        guard !refusesBodyEdits else {
+            NSSound.beep()
+            return
+        }
         guard mailFetches.isEmpty else { return afterDroppedAttachments { [weak self] in self?.performSend(action) } }
         autosaveTimer?.invalidate()
         let draft = currentDraft()
@@ -1646,7 +1803,6 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
             menuItem.title = content.showsFormatRow ? "Hide Format Row" : "Show Format Row"
             return true
         case #selector(helpMeWrite(_:)), #selector(helpMeWriteWithInstructions(_:)):
-            // New messages and forwards answer no one: the item says so rather than writing to nobody (§5.56).
             return validateHelpMeWrite(menuItem)
         default:
             return true
@@ -1700,6 +1856,8 @@ final class ComposeWindowController: NSWindowController, NSWindowDelegate, NSTex
 
     func windowWillClose(_ notification: Notification) {
         endHelpMeWrite()
+        // The steps that put a written subject back and forth name this controller (`commitWrittenSubject`).
+        window?.undoManager?.removeAllActions(withTarget: self)
         prefillTask?.cancel()
         for fetch in mailFetches.values { fetch.cancel() }
         mailFetches = [:]
@@ -1768,10 +1926,18 @@ final class ComposeWindow: NSWindow {
             return
         }
         switch undoTarget {
-        case .typing: undoManager?.undo()
+        case .typing:
+            if undoManager?.undoActionName == WriteStreamEdit.actionName { leaveSubjectForTheDraftsStep() }
+            undoManager?.undo()
         case .send(let id): UndoSendPanel.panel(sendID: id)?.undo()
         case .group, .nothing: NSSound.beep()
         }
+    }
+
+    /// The step on top is a draft Help me write wrote, which may have set the Subject with it (§5.56): with the caret
+    /// in Subject the keyboard goes to the body first, so the whole step is undone or redone with the Subject at rest.
+    private func leaveSubjectForTheDraftsStep() {
+        (windowController as? ComposeWindowController)?.moveKeyboardFromSubjectToBody()
     }
 
     /// While Help me write streams a reply into a field here, Undo and Redo wait: the stack's text steps belong to the text
@@ -1781,6 +1947,7 @@ final class ComposeWindow: NSWindow {
             NSSound.beep()
             return
         }
+        if undoManager?.canRedo == true, undoManager?.redoActionName == WriteStreamEdit.actionName { leaveSubjectForTheDraftsStep() }
         undoManager?.redo()
     }
 

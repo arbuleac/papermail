@@ -268,26 +268,35 @@ struct AppAlert {
     }
 
     /// Settings › AI, as a provider is chosen (§5.40, §5.56): the privacy notice, at that moment and only then, never while
-    /// writing. What goes, when, and to whom, in few words. Cancel is the default and Esc, and puts the popup back; Turn On
-    /// keeps the choice and gives that provider permission (Off withdraws it). The CLIs add whose rules then apply. The
-    /// demo's writer makes replies up on the Mac and sends nothing, so its sheet says only that.
+    /// writing. What goes, when, and to whom, in few words, for each thing Help Me Write writes: a reply, a new message, a
+    /// forward. Cancel is the default and Esc, and puts the popup back; Turn On keeps the choice and gives that provider
+    /// permission for all of it (Off withdraws it). The CLIs add whose rules then apply. The demo's writer makes drafts up
+    /// on the Mac and sends nothing, so its sheet says only that.
+    ///
+    /// Until 1.21 the sheet asked about replies alone and promised that no other mail was sent, so a Turn On given then
+    /// stands for replies only (`AppSettings.aiConsentBeyondReplies`), and Settings › AI shows this sheet again for the rest.
     static func helpMeWriteTurnOn(_ kind: AIProviderKind, demo: Bool = false) -> AppAlert {
         if demo {
             return AppAlert(title: "Try Help Me Write?",
-                            body: "In the demo, replies are made up on this Mac. Nothing is sent.",
+                            body: "In the demo, drafts are made up on this Mac. Nothing is sent.",
                             buttons: [Button(title: "Cancel"), Button(title: "Turn On")])
         }
         let company = kind.destination.displayName
-        // The user's own notes go as typed (an address there is one they want in the reply); the conversation's go redacted.
-        var body = "When you press Write, the conversation you\u{2019}re replying to (newest messages first, older ones "
-            + "shortened), your notes and your first name go to \(company) to draft a reply. Email addresses from the conversation, "
-            + "attachments and other mail are never sent. Nothing is sent until you press Write."
+        // The user's own notes go as typed (an address there is one they want in the message), so the promise about
+        // addresses is about the mail's and the recipients', which are never sent.
+        // A forward's request carries its Subject and the first names in To as a new message's does, so the sheet
+        // names them for both.
+        var body = "When you press Write, what the draft is written from goes to \(company): for a reply, the conversation "
+            + "you\u{2019}re replying to (newest messages first, older ones shortened); for a new message, its subject and the "
+            + "first names of the people in To; for a forward, the same and the message you\u{2019}re forwarding. Your notes go "
+            + "with each, and your first name when Paper knows it. Email addresses from your mail, your recipients\u{2019} "
+            + "addresses, attachments and any other mail are never sent. Nothing is sent until you press Write."
         switch kind {
         case .claudeCode: body += " Through Claude Code, under your Claude plan\u{2019}s privacy settings."
         case .codex: body += " Through Codex, under your OpenAI account\u{2019}s privacy settings."
         default: break
         }
-        return AppAlert(title: "Use \(kind.displayName) to help write replies?", body: body,
+        return AppAlert(title: "Use \(kind.displayName) to help you write?", body: body,
                         buttons: [Button(title: "Cancel"), Button(title: "Turn On")])
     }
 

@@ -102,7 +102,7 @@ def face_picker(chosen, acct, monogram, focus=None):
 
 ACCT_IDX = {'C': 1, 'G': 2, 'F': 3}
 FOLDERS = [('tray', 'Inbox  G I'), ('star', 'Starred  G S'), ('paperplane', 'Sent  G T'), ('doc', 'Drafts  G D'), ('trash', 'Trash  G #'),
-           ('archivebox', 'All Mail  G A')]
+           (T.ICON['viewAllMail'], 'All Mail  G A')]
 def rail_folders(selected=0, badge=None, later=False):
     """The rail's folder tiles (spec §5.2): Inbox to Trash at the folder pitch, a hairline, All Mail. The selected
     folder is a raised tile with no margin rule; Inbox carries the scope's unread count. With `later` (something in the

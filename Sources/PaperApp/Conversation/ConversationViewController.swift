@@ -1094,6 +1094,7 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
             colorsNoticeDismissed: settings.originalColorsNoticeDismissed, adaptsColours: appSettings.adaptsMailColours,
             blocksTrackers: appSettings.blocksTrackers,
             pending: pending, invitationPermissionNeeded: invitationPermissionNeeded, invitationOverlaps: overlaps.lines,
+            invitationCalendarAnswers: overlaps.answers,
             sendLater: laterStates, outbox: outboxStates, readerMode: readerMode
         )
         return (payload, RenderInputs(messages: all, sendLater: laterStates, outbox: outboxStates, invitationOverlaps: overlaps,
@@ -1121,7 +1122,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         let cards = builder.overlapCards(messages: messages, bodies: bodies, pending: pending)
         guard let interval = InvitationOverlaps(cards: cards).interval else { return .none }
         let events = (try? client.store.calendarEvents(in: interval, accountIDs: nil)) ?? []
-        return InvitationOverlaps(cards: cards, lines: builder.overlapLines(for: cards, events: events))
+        return InvitationOverlaps(cards: cards, lines: builder.overlapLines(for: cards, events: events),
+                                  answers: builder.calendarAnswers(for: cards, events: events))
     }
 
     private func applyMessages(_ messages: [MessageMetadata], for id: ConversationID) {
@@ -1614,8 +1616,12 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     /// answer the shell marked as chosen.
     private func answerInvitation(_ response: InvitationResponse, _ id: MessageID) {
         do {
-            try client.answerInvitation(response, to: id)
-            if let answer = AnalyticsSignal.InvitationAnswer(response) { Analytics.send(.invitationAnswered(answer)) }
+            // Nothing queued (the card already showed this answer): nothing to count.
+            guard try client.answerInvitation(response, to: id) else { return }
+            if let answer = AnalyticsSignal.InvitationAnswer(response) {
+                let invitation = try? client.store.invitation(for: id)
+                Analytics.send(.invitationAnswered(answer, .reader, invitation.map(AnalyticsSignal.AnswerSpan.init) ?? .single, .mail))
+            }
         } catch {
             ConversationSignposts.log.error("answering an invitation failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
@@ -1664,7 +1670,8 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func calendarDidChange(_ events: [CalendarEvent], over interval: DateInterval) {
         guard interval == overlapInterval, let id = currentConversationID, let current = pool.current, current.renderedID == id,
               let rendered = current.renderedInputs?.invitationOverlaps, rendered.interval == interval,
-              builder.overlapLines(for: rendered.cards, events: events) != rendered.lines else { return }
+              builder.overlapLines(for: rendered.cards, events: events) != rendered.lines
+                || builder.calendarAnswers(for: rendered.cards, events: events) != rendered.answers else { return }
         let prepared = prepare(currentMessages)
         pool.refresh(prepared.payload, inputs: prepared.inputs, id: id, into: current)
     }
@@ -1686,10 +1693,14 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
         }
     }
 
-    /// A location or meeting link on the card: only web addresses, in the browser.
+    /// A location or meeting link on the card: https only (`EventLinkPolicy`), through the pool's opener, so Block
+    /// trackers strips it as it strips a link in a message.
     private func openInvitationLink(_ value: String) {
-        guard let url = CalendarInvitationReader.webAddress(value) else { return }
-        NSWorkspace.shared.open(url)
+        guard let url = EventLinkPolicy.web(value) else {
+            NSSound.beep()
+            return
+        }
+        pool.openLink(url)
     }
 
     /// The accounts whose answered invitations wait for permission to update the calendar, as the cards show them.

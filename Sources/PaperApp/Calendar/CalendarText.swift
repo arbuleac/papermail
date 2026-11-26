@@ -199,6 +199,25 @@ struct CalendarText {
             + time(event.end)
     }
 
+    /// When an event is, as VoiceOver reads the details' top: “Thursday 19 November, 19:00 to 20:00”, “Saturday 28
+    /// November to Sunday 29 November, all day”, “Thursday 19 November, 22:00 to Friday 20 November, 02:00”. All-day
+    /// dates are floating and read in UTC, as `when` reads them, so they name the days the card shows.
+    func spokenWhen(_ event: CalendarEvent) -> String {
+        if event.isAllDay {
+            var utc = calendar
+            utc.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0)!
+            let floating = CalendarText(calendar: utc)
+            let lastDay = max(event.start, event.end.addingTimeInterval(-86_400))
+            if utc.isDate(lastDay, inSameDayAs: event.start) { return floating.longDay(event.start) + ", all day" }
+            return floating.longDay(event.start) + " to " + floating.longDay(lastDay) + ", all day"
+        }
+        if event.end <= event.start { return longDay(event.start) + ", " + time(event.start) }
+        if calendar.isDate(event.end, inSameDayAs: event.start) {
+            return longDay(event.start) + ", " + spokenRange(event.start, event.end)
+        }
+        return longDay(event.start) + ", " + time(event.start) + " to " + longDay(event.end) + ", " + time(event.end)
+    }
+
     /// A toast's span for time set aside or removed (spec §5.30), its day named as a row's time names it: “15:00 - 15:30”
     /// today, “Fri 10:00 - 10:30” within six days of it, “26 Nov 13:30 - 14:00” further off (with the year outside this
     /// one).
@@ -224,20 +243,22 @@ struct CalendarText {
         return url
     }
 
-    /// The call's service, read from its join address: “Google Meet”, “Teams”, “Zoom”, “Webex”, else “Video call”.
-    static func service(of joinURL: String) -> String {
-        let host = URL(string: joinURL)?.host?.lowercased() ?? ""
-        if isDomain(host, "meet.google.com") { return "Google Meet" }
-        if isDomain(host, "teams.microsoft.com") || isDomain(host, "teams.live.com") { return "Teams" }
-        if isDomain(host, "zoom.us") || isDomain(host, "zoom.com") { return "Zoom" }
-        if isDomain(host, "webex.com") { return "Webex" }
-        return "Video call"
+    /// The call's service as words: “Google Meet”, “Teams”, “Zoom”, “Webex”, “Skype”, else “Video call”.
+    static func serviceName(_ service: CallService) -> String {
+        switch service {
+        case .meet: return "Google Meet"
+        case .teams: return "Teams"
+        case .zoom: return "Zoom"
+        case .webex: return "Webex"
+        case .skype: return "Skype"
+        case .other: return "Video call"
+        }
     }
 
-    /// `host` is `domain` or one of its subdomains: a bare suffix would name a look-alike (`securezoom.us`, a link from
-    /// a stranger's invitation) after the service it imitates.
-    private static func isDomain(_ host: String, _ domain: String) -> Bool {
-        host == domain || host.hasSuffix("." + domain)
+    /// The service a call at `joinURL` runs on: the provider's word (`CalendarEvent.callService`) when it gave one, else
+    /// the address's host.
+    static func serviceName(of joinURL: String, stated: CallService? = nil) -> String {
+        serviceName(stated ?? CallService(joinURL: joinURL) ?? .other)
     }
 
     /// The provider's web calendar, for Open in … and the failed line.

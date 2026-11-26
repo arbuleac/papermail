@@ -242,6 +242,7 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         }
         placeNow()
         updateJoin()
+        details?.timelineDidLayout()
     }
 
     /// A mark chip's top: centred on its line, but never over a fold, whose range it would hide (a 09:00 mark sits on the
@@ -385,7 +386,7 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         }
         var place: (glyph: String, text: String)?
         if let join = event.joinURL, CalendarText.link(join) != nil {
-            place = (Quire.Icon.joinCall, CalendarText.service(of: join))
+            place = (Quire.Icon.joinCall, CalendarText.serviceName(of: join, stated: event.callService))
         } else if let location = event.location, !location.isEmpty {
             place = (Quire.Icon.eventPlace, location)
         }
@@ -484,7 +485,8 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
     @objc private func joinClicked(_ sender: Any?) {
         guard let id = joinEventID, let event = placed.first(where: { $0.event.id == id })?.event,
               let url = CalendarText.link(event.joinURL) else { return }
-        delegate?.openURL(url)
+        let trigger: AnalyticsSignal.Trigger = NSApp.currentEvent?.type == .keyDown ? .key : .toolbar
+        if delegate?.openEventLink(url) == true { Analytics.send(.eventAction(.join, .face, trigger)) }
     }
 
     // MARK: Hit testing
@@ -499,18 +501,27 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
 
     func placed(withID id: String) -> Placed? { placed.first { $0.event.id == id } }
 
+    /// Every face the event has (a timed event over several days has one a day).
+    func faces(withID id: String) -> [NSRect] { placed.filter { $0.event.id == id }.map(\.face) }
+
+    /// The first event drawn after `start`, in time order: where focus goes when the event it was on is gone.
+    func nextEvent(after start: Date) -> String? {
+        placed.map(\.event).filter { $0.start >= start }.min { ($0.start, $0.id) < ($1.start, $1.id) }?.id
+    }
+
+
     /// A click (or ↩ and Space on a focused event): details beside it, its conversation for the mail's pencil, 30
     /// minutes set aside for the mail's time.
-    func activate(_ target: Target, fromKeyboard: Bool = false) {
+    func activate(_ target: Target, fromKeyboard: Bool = false, at point: NSPoint? = nil) {
         if willActivate?(target) == true { return }
         switch target {
         case .event(let id):
             guard let placed = placed(withID: id) else { return }
-            if CalendarFit.isPencil(placed.event) {
-                if let conversation = state.selection?.conversationID { delegate?.selectConversation(conversation) }
-                return
-            }
-            details?.show(placed.event, anchor: placed.face, in: self, fromKeyboard: fromKeyboard)
+            // The part of a multi-day event that was clicked or focused, not its first.
+            let faces = faces(withID: id)
+            let face = point.flatMap { p in faces.first { $0.contains(p) } }
+                ?? (focusedPlaced?.event.id == id ? focusedPlaced?.face : nil) ?? placed.face
+            details?.show(placed.event, anchor: face, in: self, fromKeyboard: fromKeyboard)
         case .mark(let id):
             guard let mark = placedMarks.first(where: { $0.mark.id == id }) else { return }
             switch mark.mark.kind {
@@ -569,8 +580,9 @@ final class CalendarTimelineView: NSView, QuirePointerTarget {
         let start = pressStart
         pressStart = nil
         setPressed(nil)
-        guard let start, target(at: convert(event.locationInWindow, from: nil)) == start else { return }
-        activate(start)
+        let point = convert(event.locationInWindow, from: nil)
+        guard let start, target(at: point) == start else { return }
+        activate(start, at: point)
     }
 
     private func setPressed(_ target: Target?) {

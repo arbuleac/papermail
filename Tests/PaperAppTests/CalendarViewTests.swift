@@ -74,10 +74,11 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertEqual(cardFrame.maxX, columnFrame.minX - Quire.Layout.CalendarPane.detailsGap, accuracy: 0.5,
                        "to the column's leading side, 8 pt from it")
         XCTAssertEqual(card.frame.width, Quire.Layout.CalendarPane.detailsWidth)
-        XCTAssertEqual(card.model.title, "Roadmap review")
-        XCTAssertEqual(card.model.kicker, "Contoso")
-        XCTAssertEqual(card.model.when, "Thu 19 Nov · 13:00 - 14:00")
-        XCTAssertEqual(card.buttons.map(\.title), ["Open in Google Calendar"], "no Join, no Remove: not set aside here")
+        XCTAssertEqual(card.model?.title, "Roadmap review")
+        XCTAssertEqual(card.model?.kicker, "Contoso")
+        XCTAssertEqual(card.model?.when, "Thu 19 Nov · 13:00 - 14:00")
+        XCTAssertEqual(card.buttons.map(\.title), ["Accept", "Tentative", "Decline", "Open in Google Calendar"],
+                       "an invitation: its answers, and no Join or Remove")
 
         XCTAssertTrue(column.dismissDetails(), "Esc closes them")
         XCTAssertNil(column.details.card)
@@ -114,11 +115,17 @@ final class CalendarViewTests: XCTestCase {
         defer { window.close(); state.tearDown() }
         try store.addCalendarEvent(block)
         try store.failCalendarEvent(id: block.id)
-        let model = column.details.model(for: try XCTUnwrap(state.events.first))
-        XCTAssertEqual(model.actions.map(\.title), ["Show the mail", "Remove"])
+        XCTAssertTrue(Support.spin(until: { column.timeline.placed(withID: block.id) != nil }))
+        column.timeline.activate(.event(block.id))
+        let card = try XCTUnwrap(column.details.card)
+        XCTAssertTrue(Support.spin(until: { card.model?.mail != nil }), "its mail, looked up")
+        let model = try XCTUnwrap(card.model)
+        XCTAssertEqual(model.actions.map(\.title), ["Remove"], "Show the mail is the Mail row now")
         XCTAssertEqual(model.kicker, "Contoso · Set aside for a mail")
-        XCTAssertTrue(model.lines.contains { $0.text == "Couldn't add this to Google Calendar." }, "the failed line")
-        model.actions[1].handler()
+        XCTAssertEqual(model.status?.text, "Couldn't add this to Google Calendar.", "the failed line")
+        XCTAssertTrue(model.rows.isEmpty, "no rows for time set aside but its mail")
+        XCTAssertNil(model.answers)
+        card.buttons.first { $0.title == "Remove" }?.performClick(nil)
         XCTAssertEqual(delegate.removed.map(\.id), [block.id])
     }
 
@@ -142,8 +149,10 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertTrue(column.timeline.isPencilled(pencil.event))
         XCTAssertEqual(column.timeline.placed.last?.event.id, pencil.event.id, "the selection is drawn above its neighbours")
         try click(column.timeline, at: centre(pencil.face))
-        XCTAssertEqual(delegate.selectedConversations, [conversation], "a pencil from mail selects its conversation")
-        XCTAssertNil(column.details.card, "and opens no details")
+        XCTAssertTrue(delegate.selectedConversations.isEmpty, "a pencil from mail opens its details (1.22), selecting nothing")
+        let details = try XCTUnwrap(column.details.card)
+        XCTAssertTrue(details.model?.kicker.contains("Invitation") == true, details.model?.kicker ?? "")
+        XCTAssertTrue(column.dismissDetails())
 
         let mark = try XCTUnwrap(column.timeline.placedMarks.first { $0.mark.isMailTime })
         XCTAssertEqual(column.timeline.target(at: centre(mark.chip)), .mark(mark.mark.id), "marks lie above events")
@@ -181,9 +190,10 @@ final class CalendarViewTests: XCTestCase {
                                    joinURL: "http://meet.example.com/abc", webURL: "http://calendar.example.com/event")
         let (column, state, _, window) = try column(events: [legacy], height: 900)
         defer { window.close(); state.tearDown() }
-        let model = column.details.model(for: try XCTUnwrap(state.events.first))
+        column.timeline.activate(.event(try XCTUnwrap(state.events.first).id))
+        let model = try XCTUnwrap(column.details.card?.model)
         XCTAssertTrue(model.actions.isEmpty, "no Join and no Open in Google Calendar that would do nothing")
-        XCTAssertFalse(model.lines.contains { $0.text == "Video call" })
+        XCTAssertFalse(model.rows.contains { $0.label == "Call" })
         let join = try XCTUnwrap(column.timeline.subviews.compactMap { $0 as? QuireButton }.first)
         XCTAssertTrue(join.isHidden, "the event's own Join neither")
         XCTAssertNotNil(CalendarText.link("https://meet.google.com/abc-defg-hij"))
@@ -242,6 +252,30 @@ final class CalendarViewTests: XCTestCase {
         let inHost = host.convert(frame, from: timeline)
         XCTAssertGreaterThanOrEqual(inHost.minX, Quire.Layout.CalendarPane.detailsGap, "inside the reader area")
         XCTAssertEqual(inHost.width, Quire.Layout.CalendarPane.detailsWidth)
+    }
+
+    /// In the week at about 1,000 pt, a mid-week afternoon face has room on neither side and none under it: the card goes
+    /// over it, never on it. Only when there is no room over it either does it move up onto the face.
+    func testDetailsInTheWeekNeverCoverTheirEventWhileThereIsRoomOverIt() {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let timeline = FlippedView(frame: NSRect(x: 340, y: 0, width: 600, height: 640))
+        host.addSubview(timeline)
+        let gap = Quire.Layout.CalendarPane.detailsGap
+        let thursday = NSRect(x: 260, y: 430, width: 80, height: 50)
+        let frame = CalendarDetailsPresenter.frame(for: 320, anchor: thursday, in: timeline, host: host, placement: .besideEvent)
+        XCTAssertFalse(frame.intersects(thursday), "the face stays in sight")
+        XCTAssertEqual(frame.maxY, thursday.minY - gap, "over it, the gap between")
+        XCTAssertGreaterThanOrEqual(frame.minY, timeline.bounds.minY)
+
+        let morning = NSRect(x: 260, y: 60, width: 80, height: 50)
+        let under = CalendarDetailsPresenter.frame(for: 320, anchor: morning, in: timeline, host: host, placement: .besideEvent)
+        XCTAssertEqual(under.minY, morning.maxY + gap, "under it while that fits")
+
+        let tall = CalendarDetailsPresenter.frame(for: 560, anchor: thursday, in: timeline, host: host, placement: .besideEvent)
+        XCTAssertGreaterThanOrEqual(tall.minY, timeline.bounds.minY, "neither fits: never above the timeline's top")
+        let wide = CalendarDetailsPresenter.frame(for: 320, anchor: NSRect(x: 40, y: 430, width: 80, height: 50), in: timeline,
+                                                  host: host, placement: .besideEvent)
+        XCTAssertEqual(wide.minX, 40 + 80 + gap, "after the face when it fits")
     }
 
     func testDayCellsAndWeekHeadingsShowTheirDay() throws {
@@ -394,13 +428,14 @@ final class CalendarViewTests: XCTestCase {
         let window = Support.host(week, size: NSSize(width: 1_100, height: 800))
         defer { window.close() }
         state.select(conversation)
-        XCTAssertTrue(Support.spin(until: { week.invitationCard != nil }))
-        let card = try XCTUnwrap(week.invitationCard)
-        XCTAssertEqual(card.model.kicker, "Invitation · not answered")
-        XCTAssertTrue(card.model.lines.contains { $0.text == "Bay 4 · from Rachel Kim" })
-        XCTAssertTrue(card.model.lines.contains { $0.text == "Overlaps Roadmap review, 13:30 - 14:00, and 1 more" },
-                      "the first overlap by start, and how many more")
-        XCTAssertEqual(card.buttons.map(\.title), ["Accept", "Tentative", "Decline"])
+        XCTAssertTrue(Support.spin(until: { week.selectionDetails != nil }))
+        let card = try XCTUnwrap(week.selectionDetails)
+        let model = try XCTUnwrap(card.model)
+        XCTAssertTrue(model.kicker.hasSuffix(" · Invitation · Not answered"), model.kicker)
+        XCTAssertEqual(model.rows.first { $0.label == "Where" }?.lines.first?.first?.text, "Bay 4")
+        XCTAssertEqual(model.rows.first { $0.label == "Organizer" }?.lines.first?.first?.text, "Rachel Kim")
+        XCTAssertEqual(model.overlap, "Overlaps Roadmap review, 13:30 - 14:00, and 1 more", "the first overlap by start, and how many more")
+        XCTAssertEqual(Array(card.buttons.map(\.title).prefix(3)), ["Accept", "Tentative", "Decline"])
         let pencil = try XCTUnwrap(week.timeline.placed.first { CalendarFit.isPencil($0.event) })
         let cardInTimeline = week.timeline.convert(card.frame, from: week)
         XCTAssertFalse(cardInTimeline.intersects(pencil.face), "beside its slot, never on it")
@@ -408,11 +443,11 @@ final class CalendarViewTests: XCTestCase {
         XCTAssertEqual(delegate.answers.map(\.0), [.accepted])
         XCTAssertEqual(delegate.answers.map(\.1), [message])
 
-        XCTAssertTrue(week.hideInvitationCard(), "Esc hides it")
-        XCTAssertNil(week.invitationCard)
-        XCTAssertFalse(week.hideInvitationCard())
+        XCTAssertTrue(week.hideSelectionDetails(), "Esc hides it")
+        XCTAssertNil(week.selectionDetails)
+        XCTAssertFalse(week.hideSelectionDetails())
         try click(week.timeline, at: centre(pencil.face))
-        XCTAssertNotNil(week.invitationCard, "a click on its event brings it back")
+        XCTAssertNotNil(week.selectionDetails, "a click on its event brings it back")
         XCTAssertTrue(delegate.selectedConversations.isEmpty, "that click only brings the card back")
     }
 
@@ -430,17 +465,18 @@ final class CalendarViewTests: XCTestCase {
         ], to: store)
         let state = Support.state(store: store)
         defer { state.tearDown() }
-        func card(_ reply: InvitationResponse?) -> CalendarCardModel? {
-            let selection = CalendarSelection(conversationID: conversation, invitation: invitation, invitationMessage: message,
-                                              invitationReply: reply)
-            let pencil = CalendarFit.pencil(for: invitation, message: message, timeZone: state.calendar.timeZone, response: selection.response)
-            let overlap = CalendarFit.invitationOverlap(uid: invitation.uid, near: pencil?.start, in: state.events, pencil: pencil)
-            return WeekInvitationCard.model(for: selection, overlap: overlap, event: overlap?.event, state: state, answer: { _, _ in })
+        func card(_ response: CalendarEvent.Response) throws -> EventDetailsModel {
+            var copy = try XCTUnwrap(state.events.first { $0.invitationUID == "mail-uid" })
+            copy.response = response
+            let overlap = CalendarFit.invitationOverlap(uid: invitation.uid, near: copy.start, in: state.events, pencil: nil,
+                                                        accountID: copy.accountID)
+            let words = WeekOverlapWords.line(overlap, startingOn: copy.start, state: state)
+            return EventDetailsModel(.init(event: copy, accountName: "Contoso", overlap: words, text: state.text, now: state.now))
         }
-        XCTAssertTrue(try XCTUnwrap(card(nil)).lines.contains { $0.text == "Overlaps an event with no title, 13:30 - 14:00" })
-        let declined = try XCTUnwrap(card(.declined))
-        XCTAssertEqual(declined.kicker, "Declined")
-        XCTAssertFalse(declined.lines.contains { $0.text.hasPrefix("Overlaps") }, "it goes the moment the user declines")
+        XCTAssertEqual(try card(.needsAction).overlap, "Overlaps an event with no title, 13:30 - 14:00")
+        let declined = try card(.declined)
+        XCTAssertEqual(declined.kicker, "Contoso · Declined")
+        XCTAssertNil(declined.overlap, "it goes the moment the user declines")
     }
 
     // MARK: Keyboard and VoiceOver
@@ -508,4 +544,9 @@ final class CalendarViewTests: XCTestCase {
                                 title: "")
         XCTAssertEqual(CalendarMarkPainter.toolTip(for: send, text: state.text), "Sends at 16:00 While Paper Is Open")
     }
+}
+
+/// A flipped plain view, as the timeline is: y grows downwards.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

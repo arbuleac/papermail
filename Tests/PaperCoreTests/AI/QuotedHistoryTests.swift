@@ -38,6 +38,34 @@ final class QuotedHistoryTests: XCTestCase {
         XCTAssertEqual(cut, String(repeating: "é", count: 5))
     }
 
+    // MARK: What a message quotes
+
+    func testTheQuotedPartIsWhatTheOwnWordsLeaveOut() {
+        XCTAssertEqual(QuotedHistory.quotedPart(of: "Sounds good.\n> Could we meet Friday?\n  > > Earlier\nSee you then."),
+                       "> Could we meet Friday?\n  > > Earlier")
+        let reply = "Thursday works.\n\nOn 17 Nov 2026, at 15:12, Priya Shah wrote:\nCould we move lunch?\n\nThanks"
+        XCTAssertEqual(QuotedHistory.quotedPart(of: reply), "On 17 Nov 2026, at 15:12, Priya Shah wrote:\nCould we move lunch?\n\nThanks")
+        XCTAssertEqual(QuotedHistory.quotedPart(of: "Yes.\nFrom: Priya Shah\nSent: Tuesday\nTo: Alex\n\nOld text"),
+                       "From: Priya Shah\nSent: Tuesday\nTo: Alex\n\nOld text")
+        XCTAssertEqual(QuotedHistory.quotedPart(of: "Yes.\n-----Original Message-----\nOld"), "-----Original Message-----\nOld")
+        XCTAssertEqual(QuotedHistory.quotedPart(of: "> Top quote\nYes.\n-----Original Message-----\n> Old"),
+                       "> Top quote\n-----Original Message-----\n> Old")
+    }
+
+    func testAMessageThatQuotesNothingHasNoQuotedPart() {
+        XCTAssertEqual(QuotedHistory.quotedPart(of: "Thanks!\n\nBest,\nBen"), "")
+        XCTAssertEqual(QuotedHistory.quotedPart(of: ""), "")
+        XCTAssertEqual(QuotedHistory.quotedPart(of: "From: the team, with thanks.\nBest"), "")
+    }
+
+    /// The card under a signature's “-- ” is the sender's own, not mail they quoted: it is in neither part.
+    func testASignaturesCardIsNotQuotedMail() {
+        XCTAssertEqual(QuotedHistory.quotedPart(of: "See you at 3.\n-- \nPriya Shah\nOffice hours 9-5"), "")
+        let forwarded = "FYI\n-- \nBen Carter\nHead of Events\n\nOn 1 Nov 2026, Priya wrote:\nNext week"
+        XCTAssertEqual(QuotedHistory.quotedPart(of: forwarded), "On 1 Nov 2026, Priya wrote:\nNext week")
+        XCTAssertEqual(own(forwarded), "FYI")
+    }
+
     func testTheTimeDetectorReadsTheSameWords() {
         let text = "Tomorrow at 10?\n> Old\nOn 1 Nov 2026, Priya wrote:\nNext week"
         XCTAssertEqual(MailTimeDetector.ownWords(of: text), QuotedHistory.ownWords(of: text, limit: MailTimeDetector.maximumScannedLength))

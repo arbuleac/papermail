@@ -50,6 +50,11 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     /// `CalendarEventTable`'s, shared with the SQLite store; dates are held to the millisecond.
     private var calendarRows: [String: CalendarEventTable.Stored] = [:]
     private var calendarObservers: [UUID: CalendarObserver] = [:]
+    /// `calendar_event_details`, by event id. They go with their event, as the cascade takes them in SQLite
+    /// (`notifyCalendar` drops the details of every event gone).
+    private var calendarDetails: [String: StoredEventDetails] = [:]
+    private var cardObservers: [UUID: CardObserver] = [:]
+    private var failedAnswerObservers: [UUID: FailedAnswerObserver] = [:]
     /// `mail_times`, by message, in the order saved. They go with their message (a delete, a wipe, the account's
     /// removal), never with its body.
     private var mailTimeRows: [MessageID: [MailTime]] = [:]
@@ -352,6 +357,32 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     public func body(for id: MessageID) throws -> StoredBody? {
         lock.lock(); defer { lock.unlock() }
         return evicted.contains(id) ? nil : bodies[id]
+    }
+
+    /// `MessageTable.invitationMessages`: the account's messages whose subject holds the title's first eight words
+    /// (case and diacritics aside), the same filters, the newest 40, at most 12 of their stored invitations read.
+    public func invitationMessages(for event: CalendarEvent) throws -> [RelatedInvitation] {
+        lock.lock(); defer { lock.unlock() }
+        guard let uid = event.invitationUID, !uid.isEmpty, MessageTable.relatedPhrase(event.title) != nil else { return [] }
+        let words = event.title.split(whereSeparator: \.isWhitespace).prefix(8).joined(separator: " ")
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        let candidates = messagesByID.values
+            .filter { message in
+                message.id.accountID == event.accountID && !message.roles.contains(.drafts) && !message.roles.contains(.spam)
+                    && message.subject.range(of: words, options: options) != nil
+            }
+            .sorted { $0.date > $1.date }
+            .prefix(MessageTable.relatedCandidates)
+        var found: [RelatedInvitation] = []
+        let carrying = candidates.compactMap { message -> (MessageMetadata, CalendarInvitation)? in
+            guard !evicted.contains(message.id), let invitation = bodies[message.id]?.invitation else { return nil }
+            return (message, invitation)
+        }
+        for (message, invitation) in carrying.prefix(MessageTable.relatedInvitationReads)
+        where InvitationUID.matches(invitation.uid, uid) {
+            found.append(RelatedInvitation(message: message, invitation: invitation))
+        }
+        return found
     }
 
     public func attachments(of id: MessageID) throws -> [AttachmentInfo]? {
@@ -985,6 +1016,14 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     }
 
     private func enqueueLocked(_ operation: Operation) {
+        var operation = operation
+        if case .answerInvitation(let answer) = operation.change, answer.calendar != nil,
+           let (filled, rows) = CalendarAnswers.enqueuing(answer, accountID: operation.accountID,
+                                                          rows: Array(calendarRows.values)) {
+            for row in rows { calendarRows[row.event.id] = row }
+            operation.change = .answerInvitation(filled)
+            notifyCalendar()
+        }
         noteQueuedLocked(operation)
         for target in operation.targets {
             if let current = messagesByID[target] {
@@ -1022,18 +1061,49 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         if !dropped.isEmpty {
             priors[operation.id] = priors[operation.id]?.filter { operation.targets.contains($0.key) }
         }
-        if operation.status == .failed, let previous, previous.isLive { giveBackLocked(operation) }
+        if operation.status == .failed, let previous, previous.isLive {
+            giveBackLocked(operation)
+            giveBackCalendarLocked(operation)
+        }
         operationWrittenLocked(operation, previousStatus: previous)
         if let previous, previous.isLive, !dropped.isEmpty { targetsTakenLocked(dropped, from: operation) }
+        if operation.status == .confirmed, previous != .confirmed {
+            applyFailedCalendarSettlementLocked(failedCalendarAnswersSettledLocked(by: operation))
+        }
         applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))
         notifyAll()
     }
 
     public func confirmOperation(id: String) throws {
         lock.lock(); defer { lock.unlock() }
-        guard let confirmed = removeOperationLocked(id: id) else { return }
+        guard let confirmed = operations[id] else { return }
+        // Before the removal: the failed answers it settles are those queued before it.
+        let settled = failedCalendarAnswersSettledLocked(by: confirmed)
+        _ = removeOperationLocked(id: id)
         settleLocked(confirmed, .confirmed)
+        applyFailedCalendarSettlementLocked(settled)
         notifyAll()
+    }
+
+    /// `OperationTable.settleFailedCalendarAnswers`: what a confirmed answer settles among the account's failed answers
+    /// queued before it (`CalendarAnswers.settling`).
+    private func failedCalendarAnswersSettledLocked(by confirmed: Operation)
+        -> (deleted: [String], rewritten: [(id: String, answer: InvitationAnswer)]) {
+        guard let answer = CalendarAnswers.answer(of: confirmed.change) else { return ([], []) }
+        let failed = operations.values
+            .filter { $0.accountID == confirmed.accountID && $0.status == .failed && isOlderLocked($0, than: confirmed) }
+            .sorted { isOlderLocked($0, than: $1) }
+            .compactMap { op -> (id: String, answer: InvitationAnswer)? in CalendarAnswers.answer(of: op.change).map { (op.id, $0) } }
+        guard !failed.isEmpty else { return ([], []) }
+        let recorded = Set(failed.flatMap { $0.answer.calendar?.previous.keys.map { $0 } ?? [] })
+        let rows = calendarRows.filter { recorded.contains($0.key) }.mapValues(\.event)
+        return CalendarAnswers.settling(answer, rows: rows, failed: failed)
+    }
+
+    private func applyFailedCalendarSettlementLocked(
+        _ settled: (deleted: [String], rewritten: [(id: String, answer: InvitationAnswer)])) {
+        for (id, answer) in settled.rewritten { operations[id]?.change = .answerInvitation(answer) }
+        for id in settled.deleted { deleteOperationLocked(id: id) }
     }
 
     public func deleteOperation(id: String) throws {
@@ -1111,6 +1181,33 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
             }
             messagesByID[target] = state
         }
+    }
+
+    /// `OperationTable.giveBackCalendar`: the rows the given-up answer recorded put back, unless a newer live answer
+    /// rules them or a read has rewritten them.
+    private func giveBackCalendarLocked(_ operation: Operation) {
+        guard case .answerInvitation(let answer) = operation.change, let copies = answer.calendar, !copies.previous.isEmpty
+        else { return }
+        let rows = calendarRows.filter { copies.previous[$0.key] != nil }
+        let newer = operations.values
+            .filter { $0.accountID == operation.accountID && $0.status.isLive && isOlderLocked(operation, than: $0) }
+            .sorted { isOlderLocked($0, than: $1) }
+            .compactMap { op -> (id: String, answer: InvitationAnswer)? in
+                CalendarAnswers.answer(of: op.change).map { (op.id, $0) }
+            }
+        let (putBack, rewritten) = CalendarAnswers.givingBack(answer, rows: rows, newer: newer)
+        for row in putBack { calendarRows[row.event.id] = row }
+        for (id, newerAnswer) in rewritten { operations[id]?.change = .answerInvitation(newerAnswer) }
+        notifyCalendar()
+    }
+
+    /// The account's answers with a calendar part, live first-to-last as the SQLite store orders them.
+    private func calendarAnswersLocked(accountID: AccountID, including statuses: (OperationStatus) -> Bool)
+        -> [(status: OperationStatus, answer: InvitationAnswer)] {
+        operations.values
+            .filter { $0.accountID == accountID && statuses($0.status) }
+            .sorted { isOlderLocked($0, than: $1) }
+            .compactMap { op in CalendarAnswers.answer(of: op.change).map { (op.status, $0) } }
     }
 
     /// The fields `applying(_:to:)` can change, as they were before an operation changed them.
@@ -1300,14 +1397,16 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         where row.event.accountID == accountID {
             if let key = row.event.clientKey, keyed[key] == nil { keyed[key] = row }
         }
+        let live = calendarAnswersLocked(accountID: accountID, including: \.isLive).map(\.answer)
         var listed: Set<String> = []
         for read in CalendarEventTable.claimingKeys(events) {
             let byKey = read.clientKey.flatMap { keyed[$0] }
             let id = byKey?.event.id ?? read.id
             listed.insert(id)
             let current = byKey ?? calendarRows[id]
-            guard let merged = CalendarEventTable.merged(read, accountID: accountID, keyed: byKey,
+            guard var merged = CalendarEventTable.merged(read, accountID: accountID, keyed: byKey,
                                                          sameID: byKey == nil ? current : nil) else { continue }
+            if !live.isEmpty { merged = CalendarAnswers.winning(merged, live: live) }
             calendarRows[id] = merged
         }
         let line = CalendarEventTable.pruneLine(window: window, now: Self.nowMS())
@@ -1371,16 +1470,130 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         return true
     }
 
-    public func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
-                                     near occurrence: Date?) throws {
+    public func calendarEvent(id: String) throws -> CalendarEvent? {
         lock.lock(); defer { lock.unlock() }
-        let rows = calendarRows.values
-            .filter { $0.event.accountID == accountID && $0.event.invitationUID != nil }
-            .sorted { $0.event.id < $1.event.id }
-        let answered = CalendarEventTable.answering(rows, uid: uid, near: occurrence, response: response)
-        guard !answered.isEmpty else { return }
-        for row in answered { calendarRows[row.event.id] = row }
+        return calendarRows[id]?.event
+    }
+
+    public func calendarEvents(seriesID: String, accountID: AccountID) throws -> [CalendarEvent] {
+        lock.lock(); defer { lock.unlock() }
+        return calendarRows.values.map(\.event)
+            .filter { $0.accountID == accountID && $0.seriesID == seriesID }
+            .sorted(by: CalendarEventTable.precedes)
+    }
+
+    public func calendarEventDetails(id: String) throws -> StoredEventDetails? {
+        lock.lock(); defer { lock.unlock() }
+        return calendarDetails[id]
+    }
+
+    @discardableResult
+    public func saveCalendarEventDetails(_ details: CalendarEventDetails, eventID: String, version: String?,
+                                         readAt: Date) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard calendarRows[eventID] != nil else { return false }
+        // Round-tripped through JSON as the SQLite store keeps them, so both read back the same value.
+        let stored = (try? MailStoreCodec.decode(CalendarEventDetails.self, from: MailStoreCodec.json(details))) ?? details
+        calendarDetails[eventID] = StoredEventDetails(details: stored, version: version, readAt: Self.storedDate(readAt))
         notifyCalendar()
+        return true
+    }
+
+    public func seriesRepeats(accountID: AccountID, seriesID: String, since: Date) throws -> String? {
+        lock.lock(); defer { lock.unlock() }
+        let cutoff = MailStoreCodec.milliseconds(since)
+        return calendarRows.values
+            .filter { $0.event.accountID == accountID && $0.event.seriesID == seriesID }
+            .compactMap { calendarDetails[$0.event.id] }
+            .filter { MailStoreCodec.milliseconds($0.readAt) >= cutoff }
+            .sorted { $0.readAt > $1.readAt }
+            .lazy.compactMap(\.details.repeats).first
+    }
+
+    public func eventsNeedingDetails(accountID: AccountID, in interval: DateInterval, limit: Int) throws -> [CalendarEvent] {
+        lock.lock(); defer { lock.unlock() }
+        let start = MailStoreCodec.milliseconds(interval.start), end = MailStoreCodec.milliseconds(interval.end)
+        return calendarRows.values.map(\.event)
+            .filter { event in
+                event.accountID == accountID && event.sync == .synced && event.providerID != nil && event.sourceMessage == nil
+                    && MailStoreCodec.milliseconds(event.start) < end && MailStoreCodec.milliseconds(event.end) > start
+                    && (calendarDetails[event.id].map { $0.version != event.version } ?? true)
+            }
+            .sorted(by: CalendarEventTable.precedes)
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private struct CardObserver {
+        var id: String
+        var last: EventCardState??
+        var callback: (EventCardState?) -> Void
+    }
+
+    private struct FailedAnswerObserver {
+        var last: Set<String>?
+        var callback: (Set<String>) -> Void
+    }
+
+    private func cardStateLocked(id: String) -> EventCardState? {
+        guard let row = calendarRows[id]?.event else { return nil }
+        let answers = calendarAnswersLocked(accountID: row.accountID) { $0.isLive || $0 == .failed }
+        return EventCardState(event: row, details: calendarDetails[id], answer: CalendarAnswers.cardAnswer(for: row, answers: answers))
+    }
+
+    private func failedCalendarAnswersLocked() -> Set<String> {
+        Set(operations.values.filter { op in
+            op.status == .failed && op.targets.isEmpty && CalendarAnswers.answer(of: op.change)?.calendar?.providerEventID != nil
+        }.map(\.id))
+    }
+
+    public func observeEventCard(id: String, onChange: @escaping @Sendable (EventCardState?) -> Void) -> StoreObservation {
+        lock.lock(); defer { lock.unlock() }
+        let token = UUID()
+        let current = cardStateLocked(id: id)
+        cardObservers[token] = CardObserver(id: id, last: .some(current), callback: onChange)
+        DispatchQueue.main.async { onChange(current) }
+        return StoreObservation { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.cardObservers[token] = nil
+        }
+    }
+
+    public func observeFailedCalendarAnswers(onChange: @escaping @Sendable (Set<String>) -> Void) -> StoreObservation {
+        lock.lock(); defer { lock.unlock() }
+        let token = UUID()
+        let current = failedCalendarAnswersLocked()
+        failedAnswerObservers[token] = FailedAnswerObserver(last: current, callback: onChange)
+        DispatchQueue.main.async { onChange(current) }
+        return StoreObservation { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.failedAnswerObservers[token] = nil
+        }
+    }
+
+    /// The card and failed-answer observers, after any write to the calendar or the outbox.
+    private func notifyCardsLocked() {
+        guard !cardObservers.isEmpty || !failedAnswerObservers.isEmpty else { return }
+        var snapshot: [() -> Void] = []
+        for (token, observer) in cardObservers {
+            let current = cardStateLocked(id: observer.id)
+            if case .some(let last) = observer.last, last == current { continue }
+            cardObservers[token]?.last = .some(current)
+            let callback = observer.callback
+            snapshot.append { callback(current) }
+        }
+        if !failedAnswerObservers.isEmpty {
+            let current = failedCalendarAnswersLocked()
+            for (token, observer) in failedAnswerObservers where observer.last != current {
+                failedAnswerObservers[token]?.last = current
+                let callback = observer.callback
+                snapshot.append { callback(current) }
+            }
+        }
+        guard !snapshot.isEmpty else { return }
+        deliver { for call in snapshot { call() } }
     }
 
     public func failCalendarEvent(id: String) throws {
@@ -1452,6 +1665,8 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     // MARK: Observation delivery
 
     private func notifyAll() {
+        // The outbox changed perhaps: an answer's card follows it.
+        notifyCardsLocked()
         let conversationSnapshot = conversationObservers.values.map { (query, callback) in
             (callback, conversationsLocked(query))
         }
@@ -1496,6 +1711,11 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
     /// Apart from `notifyAll`, as the SQLite store's calendar observation tracks `calendar_events` alone: mail wakes no
     /// calendar, and a calendar write wakes no list. Each observer gets only a changed list.
     private func notifyCalendar() {
+        // The cascade: an event gone takes its details.
+        if calendarDetails.contains(where: { calendarRows[$0.key] == nil }) {
+            calendarDetails = calendarDetails.filter { calendarRows[$0.key] != nil }
+        }
+        notifyCardsLocked()
         guard !calendarObservers.isEmpty else { return }
         var snapshot: [(([CalendarEvent]) -> Void, [CalendarEvent])] = []
         for (token, observer) in calendarObservers {

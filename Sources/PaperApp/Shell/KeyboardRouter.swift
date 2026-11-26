@@ -319,6 +319,11 @@ final class KeyboardRouter {
     /// Places where a key is text: any editable text view (which includes the field editor behind search,
     /// token and text fields) and editable text fields themselves.
     static func isTextInput(_ responder: NSResponder?) -> Bool {
+        // An event's details count as a field (§5.54): single keys rest while focus is anywhere in them, so J, E or #
+        // never act on the list behind the card.
+        if let view = responder as? NSView, view is EventDetailsCardView || view.isDescendant(ofCardOf: EventDetailsCardView.self) {
+            return true
+        }
         if let textView = responder as? NSTextView {
             return textView.isEditable || textView.isFieldEditor
         }
@@ -397,5 +402,17 @@ final class KeyboardRouter {
         }
         RunLoop.main.add(timer, forMode: .common)
         return timer
+    }
+}
+
+private extension NSView {
+    /// Whether an ancestor of this view is of `type`.
+    func isDescendant<T: NSView>(ofCardOf type: T.Type) -> Bool {
+        var ancestor = superview
+        while let view = ancestor {
+            if view is T { return true }
+            ancestor = view.superview
+        }
+        return false
     }
 }

@@ -262,6 +262,105 @@ final class GmailInvitationTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(Self.decodedPart("text/calendar", in: mime)).contains("RECURRENCE-ID:20261117T150000Z\r\n"))
     }
 
+    // MARK: Answering from the calendar, with no message
+
+    private func calendarAnswer(_ response: InvitationResponse = .accepted, event: String = "standup_20261119T080000Z") -> InvitationAnswer {
+        var answer = InvitationAnswer(response: response, previous: .needsAction, uid: "", title: "Standup",
+                                      start: ISO8601DateFormatter().date(from: "2026-11-19T08:00:00Z")!,
+                                      end: ISO8601DateFormatter().date(from: "2026-11-19T08:15:00Z")!,
+                                      organizer: EmailAddress(name: "Erin Park", address: ""),
+                                      attendee: EmailAddress(name: "Ada Lovelace", address: "ada@example.com"),
+                                      replyID: "7a1c2e3f-0b4d-4e5f-8a9b-0c1d2e3f4a5b")
+        answer.calendar = CalendarCopies(scope: .event(id: "acct|x"), providerEventID: event)
+        return answer
+    }
+
+    private func stubCalendarRoute(get: String, event: String = "standup_20261119T080000Z") {
+        server.on("GET", "/calendar/v3/calendars/primary/events/" + event, .json(get))
+        server.on("PATCH", "/calendar/v3/calendars/primary/events/" + event, .json(GoogleCalendarFixtures.patchReply))
+        server.on("GET", "/users/me/messages", .json(#"{"resultSizeEstimate": 0}"#))
+        server.on("POST", "/users/me/messages/send", .json(GmailFixtures.sendResponse))
+    }
+
+    /// The event is read by its id with only the user's own entry, the entry alone is patched, and the organizer gets the
+    /// iMIP reply built from what the event says: its UID, SEQUENCE, times and the instance's RECURRENCE-ID.
+    func testAnAnswerFromTheCalendarPatchesTheUsersEntryAloneThenMailsTheOrganizer() async throws {
+        stubCalendarRoute(get: GoogleCalendarFixtures.answerGetSelf)
+        try await provider().apply(.answerInvitation(calendarAnswer()), to: [])
+
+        let event = "/calendar/v3/calendars/primary/events/standup_20261119T080000Z"
+        XCTAssertEqual(server.requests.map { "\($0.method) \($0.path)" }, [
+            "GET \(event)", "PATCH \(event)", "GET /gmail/v1/users/me/messages", "POST /gmail/v1/users/me/messages/send",
+        ])
+        let get = try XCTUnwrap(server.requests.first)
+        XCTAssertEqual(get.query["maxAttendees"], ["1"], "an all-hands stays small: only the participant comes back")
+        XCTAssertEqual(get.query["prettyPrint"], ["false"])
+        XCTAssertEqual(get.query["fields"], [GmailProvider.answerFields])
+        let patch = try XCTUnwrap(server.requests.first { $0.method == "PATCH" })
+        XCTAssertEqual(patch.query["sendUpdates"], ["none"])
+        XCTAssertEqual(patch.bodyText, #"{"attendeesOmitted":true,"attendees":[{"email":"ada@example.com","responseStatus":"accepted"}]}"#,
+                       "only the user's entry: no other guest is touched")
+
+        let send = try XCTUnwrap(server.requests(to: "/users/me/messages/send").first)
+        let mime = String(decoding: try XCTUnwrap(Base64URL.decode(try XCTUnwrap(send.jsonBody["raw"] as? String))), as: UTF8.self)
+        XCTAssertTrue(mime.contains("To: Erin Park <erin@contoso.test>\r\n"), mime)
+        XCTAssertTrue(mime.contains("Message-ID: <invitation-reply-7a1c2e3f-0b4d-4e5f-8a9b-0c1d2e3f4a5b@example.com>\r\n"))
+        let calendar = try XCTUnwrap(Self.decodedPart("text/calendar", in: mime))
+        XCTAssertTrue(calendar.contains("UID:standup@contoso.test\r\n"), calendar)
+        XCTAssertTrue(calendar.contains("SEQUENCE:3\r\n"))
+        XCTAssertTrue(calendar.contains("RECURRENCE-ID:20261119T080000Z\r\n"), calendar)
+        XCTAssertTrue(calendar.contains("ATTENDEE;CN=Ada Lovelace;PARTSTAT=ACCEPTED:mailto:ada@example.com\r\n"), calendar)
+    }
+
+    func testAnAnswerToTheSeriesCarriesNoRecurrenceID() async throws {
+        stubCalendarRoute(get: GoogleCalendarFixtures.answerGetSeries, event: "standup")
+        try await provider().apply(.answerInvitation(calendarAnswer(.declined, event: "standup")), to: [])
+        let send = try XCTUnwrap(server.requests(to: "/users/me/messages/send").first)
+        let mime = String(decoding: try XCTUnwrap(Base64URL.decode(try XCTUnwrap(send.jsonBody["raw"] as? String))), as: UTF8.self)
+        let calendar = try XCTUnwrap(Self.decodedPart("text/calendar", in: mime))
+        XCTAssertFalse(calendar.contains("RECURRENCE-ID"), calendar)
+        XCTAssertTrue(calendar.contains("PARTSTAT=DECLINED"))
+    }
+
+    func testAnAnswerTheEventAlreadyStatesIsNotPatchedAndARetryMailsNothingTwice() async throws {
+        stubCalendarRoute(get: GoogleCalendarFixtures.answerGetSelfAnswered)
+        server.on("GET", "/users/me/messages", .json(#"{"messages": [{"id": "sent-1", "threadId": "t1"}], "resultSizeEstimate": 1}"#))
+        try await provider().apply(.answerInvitation(calendarAnswer()), to: [])
+        XCTAssertTrue(server.requests.allSatisfy { $0.method != "PATCH" }, "the event already says it")
+        XCTAssertTrue(server.requests(to: "/users/me/messages/send").isEmpty, "the mail is in the mailbox already")
+    }
+
+    func testAnEventGoneCancelledOrWithoutTheUserIsNotFound() async {
+        for reply in [StubResponse.json(#"{"error": {"code": 404, "message": "Not Found"}}"#, status: 404),
+                      .json(#"{"error": {"code": 410, "message": "Gone"}}"#, status: 410),
+                      .json(GoogleCalendarFixtures.answerGetCancelled), .json(GoogleCalendarFixtures.answerGetNoSelf)] {
+            server.reset()
+            server.on("GET", "/calendar/v3/calendars/primary/events/standup_20261119T080000Z", reply)
+            do {
+                try await provider().apply(.answerInvitation(calendarAnswer()), to: [])
+                XCTFail("expected not found")
+            } catch {
+                guard case .notFound? = error as? ProviderError else { return XCTFail("\(error)") }
+            }
+            XCTAssertTrue(server.requests(to: "/users/me/messages/send").isEmpty)
+        }
+    }
+
+    func testAGroupCalendarOrganizerIsNeverMailed() async throws {
+        stubCalendarRoute(get: GoogleCalendarFixtures.answerGetGroupOrganizer)
+        try await provider().apply(.answerInvitation(calendarAnswer()), to: [])
+        XCTAssertEqual(server.requests.filter { $0.method == "PATCH" }.count, 1, "the user's own calendar still takes it")
+        XCTAssertTrue(server.requests(to: "/users/me/messages/send").isEmpty)
+    }
+
+    func testARefusedPatchStillMailsTheOrganizer() async throws {
+        stubCalendarRoute(get: GoogleCalendarFixtures.answerGetSelf)
+        server.on("PATCH", "/calendar/v3/calendars/primary/events/standup_20261119T080000Z",
+                  .json(#"{"error": {"code": 403, "message": "Forbidden"}}"#, status: 403))
+        try await provider().apply(.answerInvitation(calendarAnswer()), to: [])
+        XCTAssertEqual(server.requests(to: "/users/me/messages/send").count, 1)
+    }
+
     /// The reply's Message-ID comes from the answer, so the outbox's retry of a send whose reply was lost (Gmail took
     /// it) finds that message in the mailbox and does not mail the organizer again.
     func testARetryAfterASendWhoseReplyWasLostDoesNotMailTheOrganizerAgain() async throws {

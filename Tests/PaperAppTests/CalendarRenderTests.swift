@@ -142,12 +142,78 @@ final class CalendarRenderTests: XCTestCase {
             let week = WeekView(state: state)
             let weekWindow = Support.host(week, size: NSSize(width: 1_064, height: 800), appearance: mode.appearance)
             defer { weekWindow.close(); state.span = .day }
-            let invitationCard = try XCTUnwrap(week.invitationCard)
+            let invitationCard = try XCTUnwrap(week.selectionDetails)
             XCTAssertGreaterThan(invitationCard.frame.height, 100)
             let weekBitmap = try XCTUnwrap(Support.render(week))
             assertDrawn(weekBitmap, "week card \(mode.name)")
             Support.writeIfAsked(weekBitmap, name: "calendar-week-card-\(mode.name).png")
         }
+    }
+
+    /// An event's details with every row (spec §20): the kicker, the title, when, elsewhere, how it repeats, the overlap,
+    /// Where, Call, Phone, Meeting ID, Passcode, Organizer, Guests, the Mail row, the notes, the answers, Join and Open in,
+    /// drawn in light, dark and both Increase Contrast modes; in IC the footer's hairline is `ruleStrong`.
+    func testTheDetailsCardWithEveryRowDrawsInEveryMode() throws {
+        var event = Support.event("crit", title: "Design critique", start: Support.at(19), end: Support.at(20), response: .needsAction,
+                                  joinURL: "https://teams.microsoft.com/l/x", location: "Bay 4", invitationUID: "uid-crit",
+                                  webURL: "https://outlook.office.test/item")
+        event.seriesID = "S"
+        event.timeZone = "America/Los_Angeles"
+        event.callService = .teams
+        event.organizer = "Rachel Kim"
+        let notes = "Weekly look at the reader and composer work. Bring one thing you would change: https://docs.example.test/crit"
+        let details = CalendarEventDetails(
+            organizer: EmailAddress(name: "Rachel Kim", address: "rachel@contoso.test"),
+            guests: [EventGuest(name: "Alex Morgan", address: Support.accountA.email, response: .needsAction, isSelf: true),
+                     EventGuest(name: "Marcus Bell", address: "marcus@contoso.test", response: .accepted),
+                     EventGuest(name: "Aisha Patel", address: "aisha@contoso.test", response: .declined)],
+            guestCount: 3, answersKnown: true,
+            notes: EventNotes(text: notes, links: [EventNotes.Link(location: 79, length: 30, url: "https://docs.example.test/crit")]),
+            call: EventCall(meetingID: "284 113 905 771", passcode: "Qx7bTe",
+                            phones: [EventPhone(number: "+1 555-0134", dial: "+15550134,,601225430#", region: "US", pin: "601225430")],
+                            pinLabel: .conferenceID, morePhonesURL: "https://dialin.example.test/more"),
+            repeats: "Every week on Thursday, 12 times")
+        let message = MessageMetadata(id: MessageID(accountID: Support.accountA.id, providerID: "m1"),
+                                      conversationID: ConversationID(accountID: Support.accountA.id, providerID: "c1"),
+                                      subject: "Design critique", snippet: "", from: EmailAddress(name: "Rachel Kim", address: "rachel@contoso.test"),
+                                      to: [], date: Support.at(9, on: Support.day(12)), roles: [.inbox], isRead: true, isStarred: false,
+                                      hasAttachments: false)
+        let invitation = CalendarInvitation(method: .request, uid: "uid-crit", title: "Design critique", start: Support.at(19), end: Support.at(20),
+                                            organizer: .init(name: "Rachel Kim", address: "rachel@contoso.test"))
+        let text = CalendarText(calendar: Support.calendar)
+        let model = EventDetailsModel(.init(
+            event: event, details: details, related: RelatedInvitation(message: message, invitation: invitation),
+            accountName: "Demo Outlook", dot: .qInk2, kind: .microsoft, overlap: "Overlaps Roadmap sync with Elena, 19:30 - 20:00",
+            text: text, now: Support.at(11, 40)))
+        XCTAssertEqual(model.rows.map(\.label), ["Where", "Call", "Phone", "Meeting ID", "Passcode", "Organizer", "Guests"])
+        XCTAssertNotNil(model.elsewhere)
+        XCTAssertNotNil(model.repeats)
+        XCTAssertNotNil(model.overlap)
+        XCTAssertNotNil(model.mail)
+        XCTAssertNotNil(model.notes)
+        XCTAssertNotNil(model.answers)
+
+        for mode in QuireMode.allCases {
+            var hairlines: [NSColor] = []
+            let bitmap = try XCTUnwrap(QuireOffscreenRenderer.render(mode: mode, scale: 2) {
+                let card = EventDetailsCardView()
+                card.maxHeight = 900
+                card.apply(model)
+                hairlines = self.descendants(of: card).compactMap { ($0 as? NSBox)?.fillColor }
+                let page = NSView(frame: NSRect(x: 0, y: 0, width: card.frame.width + 24, height: card.frame.height + 24))
+                card.setFrameOrigin(NSPoint(x: 12, y: 12))
+                page.addSubview(card)
+                return page
+            })
+            assertDrawn(bitmap, "details card \(mode.rawValue)")
+            Support.writeIfAsked(bitmap, name: "calendar-details-card-\(mode.rawValue).png")
+            let strong = mode == .lightHC || mode == .darkHC
+            XCTAssertEqual(hairlines.contains(.qRuleStrong), strong, "\(mode.rawValue): the footer's hairline is ruleStrong in IC alone")
+        }
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
     /// More than a blank surface: many colours across the render (inks, words, rules).

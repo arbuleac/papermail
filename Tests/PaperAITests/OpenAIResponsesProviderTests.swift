@@ -105,6 +105,22 @@ final class OpenAIResponsesProviderTests: HTTPProviderTestCase {
         XCTAssertFalse(text.contains("ignored-by-api-providers"))
     }
 
+    /// As for Anthropic: a new message's user turn is its task alone when nothing else is sent, and the request's own
+    /// facts (its kind, that a subject is wanted) stay on this Mac.
+    func testANewMessageSendsItsInstructionsAndItsTaskAndNothingAboutItself() async throws {
+        HTTPStubURLProtocol.serve([.sse(try fixture("openai/stream-text-synthetic.sse"))])
+        let request = AIWriteRequest(kind: .newMessage, instructions: Self.instructions, transcript: "", task: Self.task,
+                                     wantsSubject: true, fence: "0a1b2c3d")
+        _ = await write(request)
+        let sent = try XCTUnwrap(requests.first)
+        XCTAssertEqual(sent.json()["instructions"] as? String, Self.instructions)
+        let input = try XCTUnwrap(sent.json()["input"] as? [[String: Any]])
+        XCTAssertEqual(input.first?["content"] as? [[String: String]], [["type": "input_text", "text": Self.task]])
+        for local in [WritePrompt.newMessageVersion, "newMessage", "wantsSubject", "0a1b2c3d"] {
+            XCTAssertFalse(sent.bodyText.contains(local), local)
+        }
+    }
+
     // MARK: Reading the stream
 
     func testTextStreamsThenUsageThenDone() async throws {

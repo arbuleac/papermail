@@ -11,18 +11,19 @@ enum GoogleCalendarFixtures {
      "items": [
       {
        "id": "7k2m4n6p8r0t2v4x6z8b0d2f4h",
+       "etag": "\"3512345678901001\"",
        "status": "confirmed",
        "htmlLink": "https://www.google.com/calendar/event?eid=N2sybTRuNnA4cjB0MnY0eDZ6OGIwZDJmNGggYWRhQGV4YW1wbGUuY29t",
        "updated": "2026-11-18T09:12:44.123Z",
        "summary": "Design review",
        "location": "Room 4",
        "organizer": {"email": "ben@contoso.test", "displayName": "Ben Carter"},
-       "start": {"dateTime": "2026-11-19T15:00:00+02:00"},
-       "end": {"dateTime": "2026-11-19T16:00:00+02:00"},
+       "start": {"dateTime": "2026-11-19T15:00:00+02:00", "timeZone": "Europe/Athens"},
+       "end": {"dateTime": "2026-11-19T16:00:00+02:00", "timeZone": "Europe/Athens"},
        "iCalUID": "5h0v6l1b@google.com",
        "attendees": [{"responseStatus": "accepted"}, {"self": true, "responseStatus": "accepted"}],
        "hangoutLink": "https://meet.google.com/abc-defg-hij",
-       "conferenceData": {"entryPoints": [
+       "conferenceData": {"conferenceSolution": {"name": "Google Meet", "key": {"type": "hangoutsMeet"}}, "entryPoints": [
         {"entryPointType": "video", "uri": "https://meet.google.com/abc-defg-hij"},
         {"entryPointType": "phone", "uri": "tel:+1-555-0100"}
        ]},
@@ -35,11 +36,11 @@ enum GoogleCalendarFixtures {
        "updated": "2026-11-17T20:00:00.000Z",
        "summary": "Quarterly sync",
        "organizer": {"email": "carol@fabrikam.test"},
-       "start": {"dateTime": "2026-11-19T10:30:00-05:00"},
+       "start": {"dateTime": "2026-11-19T10:30:00-05:00", "timeZone": "Mars/Olympus_Mons"},
        "end": {"dateTime": "2026-11-19T11:15:00-05:00"},
        "iCalUID": "040000008200E00074C5B7101A82E008@fabrikam.test",
        "attendees": [{"self": true, "responseStatus": "tentative"}, {"responseStatus": "accepted"}],
-       "conferenceData": {"entryPoints": [
+       "conferenceData": {"conferenceSolution": {"name": "Zoom Meeting", "key": {"type": "addOn"}}, "entryPoints": [
         {"entryPointType": "more", "uri": "https://zoom.us/meeting/more"},
         {"entryPointType": "video", "uri": "https://us02web.zoom.us/j/81234567890"}
        ]},
@@ -87,10 +88,26 @@ enum GoogleCalendarFixtures {
        "updated": "2026-11-19T07:00:00Z",
        "summary": "Offsite planning",
        "organizer": {"email": "erin@contoso.test"},
-       "start": {"dateTime": "2026-11-20T09:00:00+01:00"},
-       "end": {"dateTime": "2026-11-20T10:00:00+01:00"},
+       "start": {"dateTime": "2026-11-20T09:00:00+01:00", "timeZone": "Europe/Paris"},
+       "end": {"dateTime": "2026-11-20T10:00:00+01:00", "timeZone": "Europe/Paris"},
        "iCalUID": "unanswered01@contoso.test",
        "attendees": [{"self": true, "responseStatus": "needsAction"}, {"responseStatus": "accepted"}],
+       "eventType": "default"
+      },
+      {
+       "id": "standup_20261119T080000Z",
+       "etag": "\"3512345678901002\"",
+       "status": "confirmed",
+       "updated": "2026-11-02T08:00:00Z",
+       "summary": "Standup",
+       "location": "https://acme.zoom.us/j/555",
+       "organizer": {"email": "erin@contoso.test", "displayName": "Erin"},
+       "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+       "end": {"dateTime": "2026-11-19T09:15:00+01:00", "timeZone": "Europe/Berlin"},
+       "iCalUID": "standup@contoso.test",
+       "recurringEventId": "standup",
+       "originalStartTime": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+       "attendees": [{"self": true, "responseStatus": "accepted"}],
        "eventType": "default"
       },
       {
@@ -272,5 +289,152 @@ enum GoogleCalendarFixtures {
 
     static let backendError = #"""
     {"error": {"code": 500, "message": "Backend Error", "errors": [{"domain": "global", "reason": "backendError", "message": "Backend Error"}]}}
+    """#
+
+    // MARK: An answer given from the calendar (`maxAttendees=1`: only the participant's own entry comes back)
+
+    /// An instance of a weekly series, the user not answered yet.
+    static let answerGetSelf = #"""
+    {
+     "id": "standup_20261119T080000Z",
+     "status": "confirmed",
+     "iCalUID": "standup@contoso.test",
+     "sequence": 3,
+     "summary": "Standup",
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+     "end": {"dateTime": "2026-11-19T09:15:00+01:00", "timeZone": "Europe/Berlin"},
+     "recurringEventId": "standup",
+     "originalStartTime": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [{"email": "ada@example.com", "displayName": "Ada L.", "self": true, "responseStatus": "needsAction"}],
+     "attendeesOmitted": true
+    }
+    """#
+
+    /// The series itself: no instance, so no RECURRENCE-ID.
+    static let answerGetSeries = #"""
+    {
+     "id": "standup",
+     "status": "confirmed",
+     "iCalUID": "standup@contoso.test",
+     "sequence": 3,
+     "summary": "Standup",
+     "start": {"dateTime": "2026-11-02T09:00:00+01:00", "timeZone": "Europe/Berlin"},
+     "end": {"dateTime": "2026-11-02T09:15:00+01:00", "timeZone": "Europe/Berlin"},
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [{"email": "ada@example.com", "self": true, "responseStatus": "needsAction"}],
+     "attendeesOmitted": true
+    }
+    """#
+
+    /// The same instance, already answered (a retry after a send whose reply was lost, or the phone).
+    static let answerGetSelfAnswered = answerGetSelf.replacingOccurrences(of: "\"needsAction\"", with: "\"accepted\"")
+
+    /// An event on the calendar that does not list the user.
+    static let answerGetNoSelf = #"""
+    {"id": "standup_20261119T080000Z", "status": "confirmed", "iCalUID": "standup@contoso.test", "summary": "Standup",
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00"}, "end": {"dateTime": "2026-11-19T09:15:00+01:00"},
+     "organizer": {"email": "erin@contoso.test"}, "attendeesOmitted": true}
+    """#
+
+    /// A cancelled instance.
+    static let answerGetCancelled = #"{"id": "standup_20261119T080000Z", "status": "cancelled"}"#
+
+    /// An event a group calendar organizes: nobody to mail.
+    static let answerGetGroupOrganizer = answerGetSelf.replacingOccurrences(
+        of: #""organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"}"#,
+        with: #""organizer": {"email": "c_1a2b3c@group.calendar.google.com", "displayName": "Team calendar"}"#)
+
+    /// What the patch answers under `fields=id`.
+    static let patchReply = #"{"id": "standup_20261119T080000Z"}"#
+
+    // MARK: Details (`events.get` with `GmailProvider.detailsFields`)
+
+    /// A Meet call with a dial-in, nine attendees (the user, the organizer, a room, an optional guest, every answer) and
+    /// an HTML description with formatting, an image, a link, a phone link and a script link.
+    static let eventDetailsMeet = #"""
+    {
+     "id": "standup_20261119T080000Z",
+     "etag": "\"3512345678901002\"",
+     "description": "<b>Agenda</b><br>Weekly status.<ul><li>Wins</li><li>Blockers</li></ul><img src=\"https://tracker.example.test/p.gif\"><a href=\"https://docs.example.test/notes\">Notes</a> <a href=\"tel:+15550100\">Call Erin</a> <a href=\"javascript:alert(1)\">Click</a>",
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [
+      {"email": "erin@contoso.test", "displayName": "Erin Park", "organizer": true, "responseStatus": "accepted"},
+      {"email": "ben@contoso.test", "displayName": "Ben Carter", "responseStatus": "accepted"},
+      {"email": "ada@example.com", "self": true, "responseStatus": "needsAction"},
+      {"email": "room4@resource.calendar.google.com", "displayName": "Room 4", "resource": true, "responseStatus": "accepted"},
+      {"email": "carol@fabrikam.test", "optional": true, "responseStatus": "tentative"},
+      {"email": "dan@northwind.test", "displayName": "Dan", "responseStatus": "declined"},
+      {"email": "fay@contoso.test", "responseStatus": "needsAction"},
+      {"email": "gus@contoso.test", "displayName": "Gus", "responseStatus": "accepted"},
+      {"email": "hal@contoso.test", "displayName": "Hal", "responseStatus": "accepted"}
+     ],
+     "guestsCanSeeOtherGuests": true,
+     "conferenceData": {
+      "conferenceSolution": {"name": "Google Meet", "key": {"type": "hangoutsMeet"}},
+      "entryPoints": [
+       {"entryPointType": "video", "uri": "https://meet.google.com/abc-defg-hij", "label": "meet.google.com/abc-defg-hij"},
+       {"entryPointType": "phone", "uri": "tel:+1-555-0188", "label": "+1 555-0188", "pin": "248913557", "regionCode": "US"},
+       {"entryPointType": "more", "uri": "https://tel.meet.example.test/abc-defg-hij?pin=248913557"}
+      ]
+     },
+     "recurringEventId": "standup",
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"}
+    }
+    """#
+
+    /// A Zoom add-on's conference: the meeting code and passcode on the video entry.
+    static let eventDetailsZoomAddOn = #"""
+    {
+     "id": "zoomcall0001",
+     "etag": "\"3512345678901003\"",
+     "organizer": {"email": "carol@fabrikam.test"},
+     "attendees": [{"email": "ada@example.com", "self": true, "responseStatus": "tentative"}],
+     "conferenceData": {
+      "conferenceSolution": {"name": "Zoom Meeting", "key": {"type": "addOn"}},
+      "entryPoints": [
+       {"entryPointType": "video", "uri": "https://us02web.zoom.us/j/81234567890", "meetingCode": "812 3456 7890", "passcode": "551902"}
+      ]
+     },
+     "start": {"dateTime": "2026-11-19T10:30:00-05:00"}
+    }
+    """#
+
+    /// The organizer hid the guest list.
+    static let eventDetailsHiddenGuests = #"""
+    {
+     "id": "hidden000001",
+     "etag": "\"3512345678901004\"",
+     "description": "Surprise party: Zoom at https://acme.zoom.us/j/999 and the gift list https://gifts.example.test/list",
+     "organizer": {"email": "erin@contoso.test", "displayName": "Erin Park"},
+     "attendees": [{"email": "ada@example.com", "self": true, "responseStatus": "needsAction"}],
+     "guestsCanSeeOtherGuests": false,
+     "start": {"dateTime": "2026-11-21T18:00:00Z"}
+    }
+    """#
+
+    /// A Teams meeting an Exchange organizer sent to a Google account: no conference, the location only the service's
+    /// name, and the invitation's DESCRIPTION kept as Exchange wrote it, plain text with its addresses in angle brackets.
+    static let eventDetailsExchangeTeams = #"""
+    {
+     "id": "exchteams0001",
+     "etag": "\"3512345678901005\"",
+     "description": "Weekly look at the numbers.\nContact: Jane Doe <jane@fabrikam.test>\n________________________________________________________________________________\nMicrosoft Teams meeting\nJoin on your computer, mobile app or room device\nClick here to join the meeting<https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0?context=%7b%7d>\nMeeting ID: 284 113 905 771\nPasscode: Qx7bTe\nDownload Teams<https://www.microsoft.com/microsoft-teams/download-app> | Join on the web<https://www.microsoft.com/microsoft-teams/join-a-meeting>\n________________________________________________________________________________",
+     "location": "Microsoft Teams Meeting",
+     "organizer": {"email": "jane@fabrikam.test", "displayName": "Jane Doe"},
+     "attendees": [
+      {"email": "jane@fabrikam.test", "displayName": "Jane Doe", "organizer": true, "responseStatus": "accepted"},
+      {"email": "ada@example.com", "self": true, "responseStatus": "needsAction"}
+     ],
+     "start": {"dateTime": "2026-11-20T15:00:00Z"}
+    }
+    """#
+
+    /// The series of the standup instances: weekly on Thursday, twelve times, one exception.
+    static let seriesParent = #"""
+    {
+     "recurrence": ["EXDATE;TZID=Europe/Berlin:20261126T090000", "RRULE:FREQ=WEEKLY;BYDAY=TH;COUNT=12"],
+     "start": {"dateTime": "2026-11-19T09:00:00+01:00", "timeZone": "Europe/Berlin"}
+    }
     """#
 }

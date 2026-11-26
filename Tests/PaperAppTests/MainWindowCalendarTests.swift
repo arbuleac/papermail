@@ -423,16 +423,16 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertTrue(controller.perform(.toggleWeek))
         selectAndWait(id, in: harness)
         let week = controller.desk.week
-        harness.spin { week.invitationCard != nil }
-        let card = try XCTUnwrap(week.invitationCard)
-        XCTAssertEqual(card.buttons.map(\.title), ["Accept", "Tentative", "Decline"])
+        harness.spin { week.selectionDetails != nil }
+        let card = try XCTUnwrap(week.selectionDetails)
+        XCTAssertEqual(Array(card.buttons.map(\.title).prefix(3)), ["Accept", "Tentative", "Decline"])
         card.buttons[0].performClick(nil)
         XCTAssertEqual(try harness.environment.store.message(message)?.invitationReply, .accepted, "stored as the reader's card stores it")
         XCTAssertNil(harness.toastMessage, "no toast, no undo (§5.14)")
 
-        harness.spin { week.invitationCard != nil }
+        harness.spin { week.selectionDetails != nil }
         XCTAssertTrue(controller.perform(.clearSearch), "Esc's row 12")
-        XCTAssertNil(week.invitationCard)
+        XCTAssertNil(week.selectionDetails)
         XCTAssertEqual(controller.desk.placement, .week, "the week stays")
     }
 
@@ -581,9 +581,11 @@ final class MainWindowCalendarTests: XCTestCase {
         XCTAssertTrue(controller.perform(.blockTime))
         let block = try XCTUnwrap(try events(harness).first)
         // Remove, from the block's details.
-        let model = controller.desk.column.details.model(for: block)
-        let remove = try XCTUnwrap(model.actions.first { $0.title == "Remove" })
-        remove.handler()
+        harness.spin { controller.desk.column.timeline.placed(withID: block.id) != nil }
+        controller.desk.column.timeline.activate(.event(block.id))
+        let card = try XCTUnwrap(controller.desk.column.details.card)
+        let remove = try XCTUnwrap(card.buttons.first { $0.title == "Remove" })
+        remove.performClick(nil)
         XCTAssertTrue(try events(harness).filter(\.isShown).isEmpty)
         XCTAssertEqual(harness.toastMessage, "Removed 11:45 - 12:15")
         XCTAssertTrue(controller.perform(.undo))

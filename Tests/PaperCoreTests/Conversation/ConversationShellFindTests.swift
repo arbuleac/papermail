@@ -418,7 +418,8 @@ final class ConversationShellFindTests: XCTestCase {
             }).join(',')
             """, in: webView) as? String
         XCTAssertEqual(policies, "true,true", "every frame, the one the find opened too, keeps the blocking policy")
-        let scripts = try await evaluate("document.querySelectorAll('.ss-card iframe[sandbox=\"allow-same-origin\"]').length", in: webView) as? Int
+        let scripts = try await evaluate("document.querySelectorAll('.ss-card iframe[sandbox=\"\(ConversationShellAssets.bodyFrameSandbox)\"]').length",
+                                         in: webView) as? Int
         XCTAssertEqual(scripts, 2, "the frames stay sandboxed with no scripts")
     }
 

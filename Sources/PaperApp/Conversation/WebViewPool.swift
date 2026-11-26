@@ -194,6 +194,12 @@ final class WebViewPool: NSObject, WKScriptMessageHandler {
         }
     }
 
+    /// Opens a link the reader's chrome offers (the invitation card's place or call) as a link in a message opens:
+    /// stripped of its tracking parameters while Block trackers is on, through the same opener.
+    func openLink(_ url: URL) {
+        navigation.openExternally(navigation.outgoing(url))
+    }
+
     /// Tells every ready shell the reader's preferences and keeps them for the shells that become ready later.
     /// `ran`, when given, runs once every ready shell has run them.
     func broadcastPreferences(_ script: String, ran: (() -> Void)? = nil) {

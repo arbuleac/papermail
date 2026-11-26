@@ -16,9 +16,10 @@ extension GmailProvider: CalendarProvider {
     /// The most `events.list` gives a page (its default is 250): a busy window is one request, not several in a row.
     static let calendarPageSize = 2500
     /// Only the fields `GoogleCalendarMapper` reads: a page of full events carries descriptions and every attendee.
-    static let calendarFields = "items(id,status,summary,location,start,end,transparency,attendees(self,responseStatus),"
-        + "organizer(self,displayName,email),hangoutLink,conferenceData(entryPoints(entryPointType,uri)),htmlLink,iCalUID,"
-        + "updated,eventType,extendedProperties/private),nextPageToken"
+    static let calendarFields = "items(id,etag,status,summary,location,start,end,transparency,attendees(self,responseStatus),"
+        + "organizer(self,displayName,email),hangoutLink,conferenceData(conferenceSolution(name,key/type),"
+        + "entryPoints(entryPointType,uri)),htmlLink,iCalUID,updated,eventType,extendedProperties/private,recurringEventId,"
+        + "originalStartTime),nextPageToken"
     /// The line a block's description starts with, before the subject.
     static let setAsideLead = "Set aside in Paper for: "
     /// Gmail's web app, where a conversation's link starts.
@@ -63,6 +64,51 @@ extension GmailProvider: CalendarProvider {
         }
         Self.calendarLog.debug("calendar read: \(events.count, privacy: .public) events in \(pages, privacy: .public) pages")
         return CalendarListing(events: events, requestCount: pages)
+    }
+
+    /// What an event's details read asks of it: no more than the card shows.
+    static let detailsFields = "id,etag,description,organizer(email,displayName,self),"
+        + "attendees(email,displayName,self,organizer,optional,resource,responseStatus),attendeesOmitted,guestsCanSeeOtherGuests,"
+        + "conferenceData(conferenceSolution(name,key/type),entryPoints(entryPointType,uri,label,pin,accessCode,meetingCode,"
+        + "passcode,password,regionCode)),recurringEventId,start"
+
+    /// One `events.get` of the event; with a series whose words are not known, one more of the series' `recurrence`.
+    /// Charged to nothing: the Calendar API's own quota.
+    public func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                                     account: CalendarAccountFacts) async throws -> CalendarDetailsRead? {
+        guard !providerID.isEmpty else { return nil }
+        let item: GoogleCalendarEvent
+        do {
+            let request = try GmailRequest.calendarEvents(Self.pathComponent(providerID), query: [
+                URLQueryItem(name: "prettyPrint", value: "false"),
+                URLQueryItem(name: "fields", value: Self.detailsFields),
+            ])
+            item = try GmailHTTPClient.decode(GoogleCalendarEvent.self, from: try await http.send(request, refusal: Self.calendarRefusal).data)
+        } catch ProviderError.notFound {
+            return nil
+        } catch ProviderError.server(410, _) {
+            return nil
+        }
+        var requests = 1
+        var repeats = knownRepeats
+        if repeats == nil, let series = item.recurringEventId ?? seriesID, !series.isEmpty {
+            requests += 1
+            do {
+                let request = try GmailRequest.calendarEvents(Self.pathComponent(series), query: [
+                    URLQueryItem(name: "prettyPrint", value: "false"),
+                    URLQueryItem(name: "fields", value: "recurrence,start"),
+                ])
+                let parent = try GmailHTTPClient.decode(GoogleCalendarSeries.self,
+                                                        from: try await http.send(request, refusal: Self.calendarRefusal).data)
+                repeats = GoogleCalendarDetailsMapper.repeats(from: parent, mapper: GoogleCalendarMapper(accountID: accountID),
+                                                              account: account)
+            } catch ProviderError.notFound {
+                repeats = "Repeats"
+            }
+        }
+        let details = GoogleCalendarDetailsMapper.details(from: item, repeats: repeats)
+        Self.calendarLog.debug("calendar details read in \(requests, privacy: .public) requests")
+        return CalendarDetailsRead(details: details, version: item.etag, requestCount: requests)
     }
 
     /// The block is created under its client key as its id, so a create replayed after a lost reply answers 409 and

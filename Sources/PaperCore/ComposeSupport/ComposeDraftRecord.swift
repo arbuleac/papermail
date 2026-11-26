@@ -86,6 +86,15 @@ public struct ComposeDraftRecord: Codable, Hashable, Sendable, Identifiable {
     public var continuesDraft: MessageID?
     /// The pictures in the body, in order. Nil in records written before pictures could be pasted, and when there are none.
     public var images: [Image]?
+    /// The body is the message's text as it would have been sent (a Send Later message whose kept draft was gone, rebuilt
+    /// from the outbox): the user's words, the quoted original and the signature are one unmarked text there, so nothing
+    /// can tell them apart. Nil in records written before it was kept, and for every draft written in a composer.
+    public var bodyIsAsSent: Bool?
+    /// The body was filled in by a mail link or a Service, which someone else may have written: the SHA-256, in hex, of
+    /// the text it filled in (the body's typed text, without the signature), so Help me write can tell whether the body
+    /// is still exactly that text and redact it as mail is. Only a digest, never a second copy of the body. Nil in
+    /// records written before it was kept, and for every body the user began themselves.
+    public var filledInBodyDigest: String?
 
     public static let bodyFile = "body.archive"
     public static let recordFile = "draft.json"
@@ -93,7 +102,8 @@ public struct ComposeDraftRecord: Codable, Hashable, Sendable, Identifiable {
     public init(id: UUID, kind: Kind, originalMessageID: MessageID?, accountID: AccountID, to: [EmailAddress],
                 cc: [EmailAddress], bcc: [EmailAddress], subject: String, attachments: [Attachment],
                 quoted: QuotedReply.Rendering?, threading: ReplyThreading?, editedAt: Date, sendFailure: String? = nil,
-                preview: String? = nil, continuesDraft: MessageID? = nil, images: [Image]? = nil) {
+                preview: String? = nil, continuesDraft: MessageID? = nil, images: [Image]? = nil, bodyIsAsSent: Bool? = nil,
+                filledInBodyDigest: String? = nil) {
         self.id = id
         self.kind = kind
         self.originalMessageID = originalMessageID
@@ -110,6 +120,8 @@ public struct ComposeDraftRecord: Codable, Hashable, Sendable, Identifiable {
         self.preview = preview
         self.continuesDraft = continuesDraft
         self.images = images
+        self.bodyIsAsSent = bodyIsAsSent
+        self.filledInBodyDigest = filledInBodyDigest
     }
 
     /// How long `preview` is kept: more than a list row's snippet line can show.

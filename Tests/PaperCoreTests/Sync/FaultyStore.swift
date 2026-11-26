@@ -124,6 +124,11 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         lock.withLock { bodyReadCount += 1 }
         return try base.body(for: id)
     }
+    /// The invitation alone, as the SQLite store reads it from its column, never counted as a body read.
+    func invitation(for id: MessageID) throws -> CalendarInvitation? {
+        lock.withLock { invitationReadCount += 1 }
+        return try base.body(for: id)?.invitation
+    }
     func attachments(of id: MessageID) throws -> [AttachmentInfo]? { try base.attachments(of: id) }
     func evictBodies(from start: Date?, limit: Int,
                      rules: () -> (cutoff: Date, excluding: Set<MessageID>)?) throws -> (evicted: Int, next: Date?) {
@@ -170,6 +175,11 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
     private var afterEvictionHook: (@Sendable (Int) -> Void)?
     private var evictingSaveHook: (@Sendable (Bool) -> Void)?
     private var bodyReadCount = 0
+    private var invitationReadCount = 0
+    /// How many times an invitation was read alone.
+    var invitationReads: Int {
+        lock.withLock { invitationReadCount }
+    }
 
     /// How many times the engine asked for an eviction batch.
     var evictionCalls: Int {
@@ -322,9 +332,25 @@ final class FaultyStore: MailStoring, @unchecked Sendable {
         return try base.settleCalendarEvent(id: id, created: created)
     }
     func failCalendarEvent(id: String) throws { try base.failCalendarEvent(id: id) }
-    func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
-                              near occurrence: Date?) throws {
-        try base.answerCalendarEvents(response, invitationUID: uid, accountID: accountID, near: occurrence)
+    func calendarEvent(id: String) throws -> CalendarEvent? { try base.calendarEvent(id: id) }
+    func calendarEvents(seriesID: String, accountID: AccountID) throws -> [CalendarEvent] {
+        try base.calendarEvents(seriesID: seriesID, accountID: accountID)
+    }
+    func calendarEventDetails(id: String) throws -> StoredEventDetails? { try base.calendarEventDetails(id: id) }
+    func saveCalendarEventDetails(_ details: CalendarEventDetails, eventID: String, version: String?, readAt: Date) throws -> Bool {
+        try base.saveCalendarEventDetails(details, eventID: eventID, version: version, readAt: readAt)
+    }
+    func seriesRepeats(accountID: AccountID, seriesID: String, since: Date) throws -> String? {
+        try base.seriesRepeats(accountID: accountID, seriesID: seriesID, since: since)
+    }
+    func eventsNeedingDetails(accountID: AccountID, in interval: DateInterval, limit: Int) throws -> [CalendarEvent] {
+        try base.eventsNeedingDetails(accountID: accountID, in: interval, limit: limit)
+    }
+    func observeEventCard(id: String, onChange: @escaping @Sendable (EventCardState?) -> Void) -> StoreObservation {
+        base.observeEventCard(id: id, onChange: onChange)
+    }
+    func observeFailedCalendarAnswers(onChange: @escaping @Sendable (Set<String>) -> Void) -> StoreObservation {
+        base.observeFailedCalendarAnswers(onChange: onChange)
     }
     func saveMailTimes(_ times: [MailTime], for message: MessageID) throws { try base.saveMailTimes(times, for: message) }
     func mailTimes(in conversation: ConversationID) throws -> [MailTime] { try base.mailTimes(in: conversation) }

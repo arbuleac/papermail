@@ -71,12 +71,37 @@ public protocol CalendarStoring: AnyObject, Sendable {
     /// Marks a `creating` event the provider refused (`failed`); the UI shows it with the failed mark.
     func failCalendarEvent(id: String) throws
 
-    /// Shows an answer the user gave on this Mac on the account's calendar at once, before the provider has it (store
-    /// first): each `synced` event of `accountID` with the invitation's UID (`InvitationUID.matches`) takes `response`,
-    /// or only the occurrence whose start is nearest `occurrence` when given (an answer to that occurrence alone). An
-    /// event the user organized is left alone. The calendar's next read writes what the provider says.
-    func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
-                              near occurrence: Date?) throws
+    // MARK: One event, and its details
+
+    /// The event with this local id, nil when there is none.
+    func calendarEvent(id: String) throws -> CalendarEvent?
+
+    /// The account's events of the series `seriesID` (an answer to All Events covers them), by start.
+    func calendarEvents(seriesID: String, accountID: AccountID) throws -> [CalendarEvent]
+
+    /// The event's stored details, nil when none were read (or the stored ones do not read).
+    func calendarEventDetails(id: String) throws -> StoredEventDetails?
+
+    /// Upserts the event's details, read at the event's `version`. Writes nothing and returns false when the event row
+    /// is gone (checked first): details live and die with their event.
+    @discardableResult
+    func saveCalendarEventDetails(_ details: CalendarEventDetails, eventID: String, version: String?, readAt: Date) throws -> Bool
+
+    /// The newest stored `repeats` of any event of the series read since `since`: a second occurrence skips the series'
+    /// request.
+    func seriesRepeats(accountID: AccountID, seriesID: String, since: Date) throws -> String?
+
+    /// The account's `synced` events with a provider id over `interval` whose details are missing or at another version,
+    /// by start, at most `limit`; time set aside left out. What the lane reads ahead.
+    func eventsNeedingDetails(accountID: AccountID, in interval: DateInterval, limit: Int) throws -> [CalendarEvent]
+
+    /// The event's card state, read again after any write to the events, their details or the outbox, delivered on the
+    /// main thread only when it changed. Nil once the row is gone.
+    func observeEventCard(id: String, onChange: @escaping @Sendable (EventCardState?) -> Void) -> StoreObservation
+
+    /// The ids of the answers given from the calendar (no message) that the outbox gave up, after every change to the
+    /// outbox, on the main thread.
+    func observeFailedCalendarAnswers(onChange: @escaping @Sendable (Set<String>) -> Void) -> StoreObservation
 
     // MARK: Mail times
 
@@ -106,8 +131,24 @@ extension CalendarStoring {
     @discardableResult
     public func settleCalendarEvent(id: String, created: CalendarEvent?) throws -> Bool { false }
     public func failCalendarEvent(id: String) throws {}
-    public func answerCalendarEvents(_ response: CalendarEvent.Response, invitationUID uid: String, accountID: AccountID,
-                                     near occurrence: Date?) throws {}
+    public func calendarEvent(id: String) throws -> CalendarEvent? { nil }
+    public func calendarEvents(seriesID: String, accountID: AccountID) throws -> [CalendarEvent] { [] }
+    public func calendarEventDetails(id: String) throws -> StoredEventDetails? { nil }
+    @discardableResult
+    public func saveCalendarEventDetails(_ details: CalendarEventDetails, eventID: String, version: String?,
+                                         readAt: Date) throws -> Bool { false }
+    public func seriesRepeats(accountID: AccountID, seriesID: String, since: Date) throws -> String? { nil }
+    public func eventsNeedingDetails(accountID: AccountID, in interval: DateInterval, limit: Int) throws -> [CalendarEvent] { [] }
+
+    public func observeEventCard(id: String, onChange: @escaping @Sendable (EventCardState?) -> Void) -> StoreObservation {
+        DispatchQueue.main.async { onChange(nil) }
+        return StoreObservation {}
+    }
+
+    public func observeFailedCalendarAnswers(onChange: @escaping @Sendable (Set<String>) -> Void) -> StoreObservation {
+        DispatchQueue.main.async { onChange([]) }
+        return StoreObservation {}
+    }
     public func saveMailTimes(_ times: [MailTime], for message: MessageID) throws {}
     public func mailTimes(in conversation: ConversationID) throws -> [MailTime] { [] }
 }

@@ -36,7 +36,8 @@ final class ConversationRowView: NSTableRowView {
         super.init(frame: frameRect)
         identifier = ConversationRowView.identifier
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // As the cell: the wash and the separator are redrawn at a new width, not scaled to it.
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     required init?(coder: NSCoder) {

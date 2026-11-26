@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import PaperCore
 
 /// Everything a composer window holds, captured so an undone send can reopen the exact same message, so
@@ -41,6 +42,20 @@ struct ComposeDraft {
     var sendFailure: String?
     /// The provider's draft this one continues (Continue Editing on a synced Drafts row): sending discards it.
     var continuesDraft: MessageID? = nil
+    /// The body is the message's text as it would have been sent (a Send Later message rebuilt from the outbox,
+    /// `SendLaterOutbox.draft(for:)`): what the user wrote, the quoted original and the signature are one unmarked text.
+    /// Help Me Write then rewrites a selection there and nothing else (§5.56), as in a provider's draft continued here.
+    var bodyIsAsSent = false
+    /// A mail link or a Service filled the body in (§5.20, §5.56): the digest of the text it filled in
+    /// (`typedTextDigest`), kept with the draft so a reopened window still knows the body may be someone else's words
+    /// while it is exactly that text. Nil for a body the user began.
+    var filledInDigest: String? = nil
+
+    /// The SHA-256, in hex, of a body's typed text (`ComposeSignature.typedText`): what is kept of a filled-in body, so
+    /// the draft never holds a second copy of it.
+    static func typedTextDigest(of body: NSAttributedString) -> String {
+        SHA256.hash(data: Data(ComposeSignature.typedText(of: body).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
 
     var fingerprint: Fingerprint {
         Fingerprint(

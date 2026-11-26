@@ -12,7 +12,7 @@ final class HTTPWriterIntegrationTests: HTTPProviderTestCase {
     @MainActor
     private func makeWriter() -> AIWriter {
         let factory = AIProviderFactory(keys: keys, session: session)
-        return AIWriter(resolve: { factory.provider(for: $0) }, hasConsent: { _ in true })
+        return AIWriter(resolve: { factory.provider(for: $0) }, hasConsent: { _, _ in true })
     }
 
     @MainActor

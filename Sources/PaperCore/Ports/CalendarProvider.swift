@@ -27,6 +27,18 @@ public protocol CalendarProvider: Sendable {
 
     /// Deletes the event. An event the provider no longer has counts as deleted (no throw).
     func deleteCalendarEvent(providerID: String) async throws
+    /// The event's details for its card: notes, guests, the call's numbers and codes, and the series' rule in words when
+    /// it repeats and `knownRepeats` is not given. One request; two for an occurrence whose series words are not known.
+    /// Nil when the provider no longer has the event. Throws as `calendarEvents(in:)` does.
+    func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                              account: CalendarAccountFacts) async throws -> CalendarDetailsRead?
+}
+
+extension CalendarProvider {
+    public func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                                     account: CalendarAccountFacts) async throws -> CalendarDetailsRead? {
+        nil
+    }
 }
 
 /// One read of a calendar window.

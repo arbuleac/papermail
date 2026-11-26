@@ -28,25 +28,61 @@ struct GraphCalendarMapper {
         }
         let isOrganizer = graph.isOrganizer ?? false
         let response = Self.response(graph.responseStatus?.response, isOrganizer: isOrganizer)
+        let location = Self.nonEmpty(graph.location?.displayName)
+        let joinURL = Self.joinURL(of: graph)
+        let type = graph.type?.lowercased()
+        let isOccurrence = type == "occurrence" || type == "exception"
         return CalendarEvent(
             id: CalendarEvent.localID(accountID: accountID, providerID: providerID),
             accountID: accountID,
             providerID: providerID,
             title: graph.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            location: Self.nonEmpty(graph.location?.displayName),
+            location: location,
             start: first,
             end: max(last, first),
             isAllDay: isAllDay,
             response: response,
             isFree: graph.showAs?.lowercased() == "free",
-            joinURL: Self.webAddress(graph.onlineMeeting?.joinUrl) ?? Self.webAddress(graph.onlineMeetingUrl),
+            joinURL: joinURL,
             webURL: Self.webAddress(graph.webLink),
             organizer: isOrganizer || response == .organizer ? nil : Self.organizer(graph.organizer?.emailAddress),
             invitationUID: Self.nonEmpty(graph.iCalUId),
             clientKey: Self.nonEmpty(graph.transactionId),
             sync: .synced,
-            updatedAt: graph.lastModifiedDateTime.flatMap(GraphDate.parse)
+            updatedAt: graph.lastModifiedDateTime.flatMap(GraphDate.parse),
+            seriesID: isOccurrence ? Self.nonEmpty(graph.seriesMasterId) : nil,
+            originalStart: isOccurrence ? graph.originalStart.flatMap(GraphDate.parse) : nil,
+            timeZone: isAllDay ? nil : graph.originalStartTimeZone.flatMap { CalendarTimeZones.timeZone(named: $0)?.identifier },
+            kind: Self.kind(graph.showAs),
+            callService: Self.callService(graph.onlineMeetingProvider, joinURL: joinURL),
+            version: Self.nonEmpty(graph.changeKey)
         )
+    }
+
+    /// The event's own call: Teams' join address, else the online meeting's address, else a call address the location
+    /// holds. What the row's Join opens, and what an event's details take as the call (`GraphCalendarDetailsMapper`).
+    static func joinURL(of graph: GraphEvent) -> String? {
+        webAddress(graph.onlineMeeting?.joinUrl) ?? webAddress(graph.onlineMeetingUrl)
+            ?? EventLinkPolicy.callAddress(inLocation: nonEmpty(graph.location?.displayName))
+    }
+
+    /// Out of office and working elsewhere; every other `showAs` is an ordinary event.
+    static func kind(_ showAs: String?) -> CalendarEvent.Kind? {
+        switch showAs?.lowercased() {
+        case "oof": return .outOfOffice
+        case "workingelsewhere": return .workingElsewhere
+        default: return nil
+        }
+    }
+
+    /// The call's service: Graph's own word for Teams and Skype, else the join address's host; nil without a call.
+    static func callService(_ provider: String?, joinURL: String?) -> CallService? {
+        guard let joinURL else { return nil }
+        switch provider?.lowercased() {
+        case "teamsforbusiness": return .teams
+        case "skypeforbusiness", "skypeforconsumer": return .skype
+        default: return CallService(joinURL: joinURL) ?? .other
+        }
     }
 
     /// Graph's answer words. `none` and `notResponded` are an invitation not answered yet, except on an event the user

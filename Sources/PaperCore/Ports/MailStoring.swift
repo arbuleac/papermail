@@ -87,6 +87,11 @@ public protocol MailStoring: CalendarStoring, AnyObject, Sendable {
     /// The invitation the stored body carries (`StoredBody.invitation`), nil without one or when the body was evicted:
     /// what the calendar looks for on every selection, read without decompressing the body (the default reads it whole).
     func invitation(for id: MessageID) throws -> CalendarInvitation?
+    /// The messages of the event's account carrying an invitation to it, newest first: found by the event's title in
+    /// their subjects (the full-text index), then kept only when their stored invitation's UID is the event's
+    /// (`InvitationUID.matches`). Drafts and spam left out, the Trash kept (Outlook moves an answered request there). Empty
+    /// for an event without a UID or a title with no word the index keeps. At most 12 invitations are read.
+    func invitationMessages(for event: CalendarEvent) throws -> [RelatedInvitation]
     /// The attachment list of the stored body, evicted or not (an eviction keeps it); nil when there is no body. What
     /// the reader's chips, Quick Look and scheme handlers read: a page renders from the body it read, so a body evicted
     /// in the instant it went on screen must still answer them.
@@ -342,6 +347,8 @@ extension MailStoring {
         for id in ids { if let body = try keptBody(for: id) { kept[id] = body } }
         return kept
     }
+
+    public func invitationMessages(for event: CalendarEvent) throws -> [RelatedInvitation] { [] }
 
     /// The whole body's invitation, for a store that cannot read it alone (the test doubles that wrap a real store);
     /// `SQLiteMailStore` overrides it with one column.

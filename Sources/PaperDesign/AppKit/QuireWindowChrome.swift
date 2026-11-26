@@ -6,9 +6,10 @@ import AppKit
 /// The empty unified toolbar is there only for its geometry: without a toolbar AppKit lays out the plain title
 /// bar (lights near x 7–9, centre y 14–16) and every Quire metric above the horizon would be wrong. The lights
 /// are never moved by hand; the rail width and the minimal-mode masthead are read from them instead, because
-/// their horizontal extent differs between macOS releases (the zoom light ends at 72 pt on macOS 15 and in the
-/// compatibility appearance AppKit gives an app linked against that SDK, whose button frame ends at 73; 79 pt on
-/// 26 and later). `WindowChromeTests` builds a
+/// their horizontal extent differs between macOS releases (the lights run from 20 to 72 pt on macOS 15 and in the
+/// compatibility appearance AppKit gives an app linked against that SDK, whose button frames reach 19 and 73; from
+/// 19 to 79 pt on 26 and later). The rail is as wide as the lights' leading inset mirrored past their end, so its
+/// tiles sit under the lights' centre. `WindowChromeTests` builds a
 /// window with exactly this configuration, so a release that moves the lights fails a test rather than drifting
 /// by eye.
 @MainActor
@@ -23,8 +24,9 @@ public enum QuireWindowChrome {
     public nonisolated static let minimumSize = NSSize(width: Quire.Layout.Window.minWidth, height: Quire.Layout.Window.minHeight)
 
     /// The macOS 15 metrics, used before a window exists to measure (a first layout pass, tests of the maths).
-    public nonisolated static let fallbackMetrics = Metrics(lightsEnd: Quire.Layout.TrafficLights.endX,
-                                                lightsCenterY: Quire.Layout.TrafficLights.centerY)
+    public nonisolated static let fallbackMetrics = Metrics(lightsStart: Quire.Layout.TrafficLights.originX,
+                                                            lightsEnd: Quire.Layout.TrafficLights.endX,
+                                                            lightsCenterY: Quire.Layout.TrafficLights.centerY)
 
     // MARK: Configuring
 
@@ -89,26 +91,39 @@ public enum QuireWindowChrome {
               let zoom = window.standardWindowButton(.zoomButton) else { return fallbackMetrics }
         let zoomRect = topLeading(zoom.convert(zoom.bounds, to: content), in: content)
         let closeRect = topLeading(close.convert(close.bounds, to: content), in: content)
-        guard zoomRect.width > 0, closeRect.height > 0 else { return fallbackMetrics }
-        // The light, not its button: in the compatibility appearance (an app linked against the macOS 15 SDK,
-        // as SwiftPM builds are) the 12 pt light sits in a 14 pt frame, and the frame's end would widen the rail
-        // to 78 for a light that ends at 72.
+        guard zoomRect.width > 0, closeRect.width > 0, closeRect.height > 0 else { return fallbackMetrics }
+        // The lights, not their buttons: in the compatibility appearance (an app linked against the macOS 15 SDK)
+        // each 12 pt light sits in a 14 pt frame, and the frames' ends would widen the rail for lights that run
+        // from 20 to 72.
+        let drawnStart = drawnLeadingEdge(of: close).map { closeRect.minX + $0 } ?? closeRect.minX
         let drawnEnd = drawnTrailingEdge(of: zoom).map { zoomRect.minX + $0 } ?? zoomRect.maxX
-        return Metrics(lightsEnd: min(zoomRect.maxX, drawnEnd), lightsCenterY: closeRect.midY)
+        return Metrics(lightsStart: max(closeRect.minX, drawnStart), lightsEnd: min(zoomRect.maxX, drawnEnd),
+                       lightsCenterY: closeRect.midY)
     }
 
     /// How far from its leading edge `view` paints, in points: the trailing edge of its last column with any
     /// real coverage. Nil when nothing is painted (a window not drawn yet), so the caller keeps the frame.
     public static func drawnTrailingEdge(of view: NSView) -> CGFloat? {
+        drawnColumns(of: view)?.upperBound
+    }
+
+    /// Where `view` starts to paint, in points from its leading edge: the leading edge of its first column with
+    /// any real coverage. Nil when nothing is painted, as for `drawnTrailingEdge(of:)`.
+    public static func drawnLeadingEdge(of view: NSView) -> CGFloat? {
+        drawnColumns(of: view)?.lowerBound
+    }
+
+    /// The columns `view` paints, in points from its leading edge.
+    private static func drawnColumns(of view: NSView) -> ClosedRange<CGFloat>? {
         guard view.bounds.width > 0, view.bounds.height > 0, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: rep)
         let scale = CGFloat(rep.pixelsWide) / view.bounds.width
-        for x in stride(from: rep.pixelsWide - 1, through: 0, by: -1) {
-            for y in 0..<rep.pixelsHigh where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 {
-                return CGFloat(x + 1) / scale
-            }
+        func paints(_ x: Int) -> Bool {
+            (0..<rep.pixelsHigh).contains { (rep.colorAt(x: x, y: $0)?.alphaComponent ?? 0) > 0.1 }
         }
-        return nil
+        guard let last = stride(from: rep.pixelsWide - 1, through: 0, by: -1).first(where: paints),
+              let first = (0...last).first(where: paints) else { return nil }
+        return (CGFloat(first) / scale)...(CGFloat(last + 1) / scale)
     }
 
     /// `rect` in `view`'s coordinates, re-expressed with y measured down from the top.
@@ -117,12 +132,22 @@ public enum QuireWindowChrome {
         return NSRect(x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
     }
 
-    /// The rail width for lights ending at `lightsEnd`: the larger of 76 and the smallest even number at least
-    /// `lightsEnd` + 4, so the lights always sit on the rail with 4 pt before its trailing hairline.
-    public nonisolated static func railWidth(lightsEnd: CGFloat) -> CGFloat {
+    /// The rail's width for lights drawn from `lightsStart` to `lightsEnd` (§3.2): the lights' leading inset mirrored
+    /// past their end, so the rail's centre is the lights' centre and the tiles, centred on the rail, sit under
+    /// them. Rounded up to an even number, so the tiles centre on whole points, and never under 76.
+    public nonisolated static func railWidth(lightsStart: CGFloat, lightsEnd: CGFloat) -> CGFloat {
+        let even = ((lightsStart + lightsEnd) / 2).rounded(.up) * 2
+        return max(Quire.Layout.Rail.minWidth, even)
+    }
+
+    /// The first x that is clear of lights ending at `lightsEnd`: the larger of 76 and the smallest even number at
+    /// least `lightsEnd` + 4. What stands in the title-bar zone beside the lights counts from it (the masthead of a
+    /// window without its rail, a reader window's kicker). It was the rail's width until the rail took the lights'
+    /// centre (Quire 1.20), and did not move then.
+    public nonisolated static func lightsClearX(lightsEnd: CGFloat) -> CGFloat {
         let needed = lightsEnd + Quire.Layout.Rail.lightsClearance
         let even = (needed / 2).rounded(.up) * 2
-        return max(Quire.Layout.Rail.width, even)
+        return max(Quire.Layout.TrafficLights.clearX, even)
     }
 
     /// The height of a window's title-bar band as AppKit laid it out: the content view's height above

@@ -373,7 +373,12 @@ final class ListHeaderLayoutTests: XCTestCase {
         controller.toggleAccountStrip(nil)
         let header = header(harness)
         XCTAssertTrue(header.masthead.isMenu)
-        XCTAssertEqual(header.mastheadX, controller.strip.railWidth + h.mastheadMinimalGap, "past the would-be rail")
+        // Past the lights, where it stood while the rail was only as wide as they needed: the rail's width, wider since
+        // its tiles took the lights' centre, does not move it.
+        let chrome = QuireWindowChrome.metrics(of: try XCTUnwrap(controller.window))
+        XCTAssertEqual(header.mastheadX, chrome.mastheadMinimalX)
+        XCTAssertEqual(header.mastheadX, chrome.lightsClearX + h.mastheadMinimalGap)
+        XCTAssertLessThan(header.mastheadX, controller.strip.railWidth, "not the rail's width")
         XCTAssertTrue(controller.listPane.keyViews.first === header.masthead, "the title menu is a Tab stop again")
         XCTAssertEqual(header.masthead.accessibilityRole(), .menuButton)
         // Search and compose keep the line.

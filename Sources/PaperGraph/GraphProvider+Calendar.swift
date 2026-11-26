@@ -7,7 +7,7 @@ import PaperCore
 extension GraphProvider: CalendarProvider {
     /// `onlineMeeting` whole: `$select` takes top-level properties only. `transactionId` reports a block's client key;
     /// the original zones place an all-day event's dates (`GraphEventTime.allDay`).
-    static let calendarSelect = "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId"
+    static let calendarSelect = "id,subject,start,end,isAllDay,originalStartTimeZone,originalEndTimeZone,location,showAs,responseStatus,isCancelled,isOrganizer,onlineMeeting,onlineMeetingUrl,webLink,organizer,iCalUId,lastModifiedDateTime,type,transactionId,seriesMasterId,originalStart,changeKey,onlineMeetingProvider"
     /// Graph pages a `calendarView` ten events at a time unless asked. On Outlook's resources `$top` sets the page size,
     /// up to Exchange's cap of a thousand (asking for more is a 400): 999, as message lists ask (`maxListPageSize`), so
     /// a busy window is one request, and the nextLink still carries anything past it.
@@ -32,6 +32,49 @@ extension GraphProvider: CalendarProvider {
         } catch {
             throw await calendarError(error)
         }
+    }
+
+    /// What an event's details read selects: the body as Graph gives it (HTML), the people, the call (with what the row's
+    /// join address is read from: the online meeting's address and the location).
+    static let detailsSelect = "body,organizer,attendees,isOrganizer,hideAttendees,onlineMeeting,onlineMeetingUrl,location,changeKey,seriesMasterId,type"
+
+    /// One GET of the event; with a series whose words are not known, one more of the series master's recurrence. Each is
+    /// live spend on the mailbox's quota, counted by the tally as a window read is.
+    public func calendarEventDetails(providerID: String, seriesID: String?, knownRepeats: String?,
+                                     account: CalendarAccountFacts) async throws -> CalendarDetailsRead? {
+        guard !providerID.isEmpty else { return nil }
+        do {
+            let (read, sent) = try await GraphRequestTally.counting { () -> (GraphEvent, String?)? in
+                let url = try GraphURL.make("/me/events/\(providerID)", query: [("$select", Self.detailsSelect)])
+                let event: GraphEvent
+                do {
+                    event = try await client.json(GraphEvent.self, for: GraphRequest(method: .get, url: url, prefer: [Self.utcEventTimes]))
+                } catch ProviderError.notFound {
+                    return nil
+                }
+                var repeats = knownRepeats
+                if repeats == nil, let master = event.seriesMasterId ?? seriesID, !master.isEmpty {
+                    let seriesURL = try GraphURL.make("/me/events/\(master)", query: [("$select", "recurrence,originalStartTimeZone,start")])
+                    let series = try? await client.json(GraphEvent.self, for: GraphRequest(method: .get, url: seriesURL,
+                                                                                           prefer: [Self.utcEventTimes]))
+                    repeats = series.map { Self.repeats(of: $0, account: account) } ?? "Repeats"
+                }
+                return (event, repeats)
+            }
+            guard let (event, repeats) = read else { return nil }
+            let details = GraphCalendarDetailsMapper.details(from: event, accountEmail: account.email, repeats: repeats)
+            return CalendarDetailsRead(details: details, version: event.changeKey, requestCount: sent)
+        } catch {
+            throw await calendarError(error)
+        }
+    }
+
+    /// The series' rule in words, said in the zone it was made in (Graph states a repeat's days in that zone).
+    static func repeats(of series: GraphEvent, account: CalendarAccountFacts) -> String {
+        guard let recurrence = series.recurrence, let rule = GraphInvitationMapper.recurrenceRule(from: recurrence),
+              let startValue = series.start, let start = GraphEventTime.read(startValue)?.date else { return "Repeats" }
+        let zone = series.originalStartTimeZone.flatMap(CalendarTimeZones.timeZone(named:)) ?? account.timeZone
+        return rule.words(start: start, timeZone: zone, locale: account.locale)
     }
 
     /// Creates the block with its client key as `transactionId`, so a create sent again after a lost reply finds the

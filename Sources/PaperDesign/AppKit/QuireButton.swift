@@ -32,6 +32,27 @@ public final class QuireButton: QuireControl {
         didSet { if oldValue != symbolName { contentDidChange() } }
     }
 
+    /// A `choice` button's state: chosen (§5.24 Choice). Ignored by the other variants.
+    public var isOn = false {
+        didSet { if oldValue != isOn { contentDidChange() } }
+    }
+
+    /// The glyph a chosen `choice` button leads with in place of the check: the queued glyph while the answer waits.
+    public var onSymbol: String? {
+        didSet { if oldValue != onSymbol { contentDidChange() } }
+    }
+
+    /// The leading glyph drawn now: a chosen choice's check (or `onSymbol`), else `symbolName`.
+    private var shownSymbol: String? {
+        guard variant == .choice else { return symbolName }
+        return isOn ? (onSymbol ?? Quire.Icon.answered) : nil
+    }
+
+    /// The glyph a choice keeps room for whether chosen or not, so choosing one never moves its neighbours.
+    private var reservedSymbol: String? {
+        variant == .choice ? (onSymbol ?? Quire.Icon.answered) : symbolName
+    }
+
     /// A keycap legend drawn beside the face (“R”, “⌘Z”). nil draws none.
     public var keycap: String? {
         didSet { if oldValue != keycap { contentDidChange() } }
@@ -126,9 +147,9 @@ public final class QuireButton: QuireControl {
 
     /// The face's own width for its content: padding, the glyph or spinner slot, the label.
     private var faceWidth: CGFloat {
-        let normal = contentWidth(title: title, role: widestRole, lead: symbolName.map { glyphWidth($0) }) + noteWidth
+        let normal = contentWidth(title: title, role: widestRole, lead: reservedSymbol.map { glyphWidth($0) }) + noteWidth
         guard let loadingTitle, reservesLoadingWidth || isLoading else { return 2 * padX + normal }
-        let loadingLead = max(symbolName.map { glyphWidth($0) } ?? 0, loadingSpinnerSize.diameter)
+        let loadingLead = max(reservedSymbol.map { glyphWidth($0) } ?? 0, loadingSpinnerSize.diameter)
         let loading = contentWidth(title: loadingTitle, role: widestRole, lead: loadingLead)
         return 2 * padX + (reservesLoadingWidth ? max(normal, loading) : loading)
     }
@@ -152,7 +173,8 @@ public final class QuireButton: QuireControl {
     /// The strong role for primary and destructive (wider than the Medium a non-key primary uses), so the
     /// width never changes with key state.
     private var widestRole: QuireFont.Role {
-        variant == .primary || variant == .destructive ? size.strongRole : size.role
+        // A choice keeps the strong role's width whether chosen or not, so choosing it never moves its neighbours.
+        variant == .primary || variant == .destructive || variant == .choice ? size.strongRole : size.role
     }
 
     public override var intrinsicContentSize: NSSize {
@@ -186,7 +208,7 @@ public final class QuireButton: QuireControl {
 
     private var drawnRole: QuireFont.Role {
         let v = drawnVariant
-        return v == .primary || v == .destructive ? size.strongRole : size.role
+        return v == .primary || v == .destructive || (v == .choice && isOn) ? size.strongRole : size.role
     }
 
     private struct Look {
@@ -201,10 +223,16 @@ public final class QuireButton: QuireControl {
         guard isEnabled else {
             switch drawnVariant {
             case .ghost, .link: return Look(label: .qInkDisabled)
-            case .primary, .secondary, .destructive: return Look(fill: [.qFill], label: .qInkDisabled)
+            case .primary, .secondary, .destructive, .choice: return Look(fill: [.qFill], label: .qInkDisabled)
             }
         }
         switch drawnVariant {
+        case .choice where isOn:
+            let fill: NSColor = state == .pressed ? .qAccentWashPressed : state == .hover ? .qAccentWashHover : .qAccentWash
+            return Look(fill: [fill], label: .qAccent)
+        case .choice:
+            let wash: [NSColor] = state == .pressed ? [.qPressed] : state == .hover ? [.qHover] : []
+            return Look(fill: [.qRaised] + wash, edge: .qRuleStrong, label: .qInk)
         case .primary:
             let fill: NSColor = state == .pressed ? .qAccentFillPressed : state == .hover ? .qAccentFillHover : .qAccentFill
             return Look(fill: [fill], label: .qOnAccent)
@@ -235,7 +263,7 @@ public final class QuireButton: QuireControl {
         switch drawnVariant {
         case .primary: return .qOnAccent
         case .destructive: return .qOnDanger
-        case .secondary, .ghost, .link: return .qInk3
+        case .secondary, .ghost, .link, .choice: return .qInk3
         }
     }
 
@@ -249,7 +277,7 @@ public final class QuireButton: QuireControl {
         if let edge = look.edge, isEnabled { QuireDraw.strokeInside(face, radius: radius, width: Quire.Border.Strong.width, edge) }
 
         let content = contentLayout(in: face)
-        if let lead = content.lead, !isLoading, let symbolName {
+        if let lead = content.lead, !isLoading, let symbolName = shownSymbol {
             QuireDraw.symbol(symbolName, size: .custom(size.glyph), color: look.label, centredIn: lead)
         }
         if let label = content.label {
@@ -288,7 +316,7 @@ public final class QuireButton: QuireControl {
         let role = drawnRole
         let text = isLoading ? (loadingTitle ?? title) : title
         var leadWidth: CGFloat?
-        if let symbolName { leadWidth = glyphWidth(symbolName) }
+        if let symbolName = shownSymbol { leadWidth = glyphWidth(symbolName) }
         if isLoading { leadWidth = max(leadWidth ?? 0, loadingSpinnerSize.diameter) }
         let labelWidth = text.isEmpty ? 0 : QuireDraw.width(QuireDraw.line(text, role, .black))
         let gap = leadWidth != nil && labelWidth > 0 ? Quire.Layout.Button.glyphGap : 0
@@ -358,7 +386,15 @@ public final class QuireButton: QuireControl {
 
     /// The arrow while loading: the work a click started is running, and a second click starts nothing (§4.17).
     public override var pointerCursor: NSCursor? {
-        isLoading ? .arrow : super.pointerCursor
+        isLoading || isChosen ? .arrow : super.pointerCursor
+    }
+
+    /// A chosen choice: a click on it does nothing.
+    private var isChosen: Bool { variant == .choice && isOn }
+
+    public override func activate() {
+        guard !isChosen else { return }
+        super.activate()
     }
 
     // MARK: Keyboard
@@ -385,6 +421,14 @@ public final class QuireButton: QuireControl {
     // MARK: Accessibility
 
     public override func accessibilityRole() -> NSAccessibility.Role? { .button }
+
+    public override func accessibilitySubrole() -> NSAccessibility.Subrole? {
+        variant == .choice ? .toggle : super.accessibilitySubrole()
+    }
+
+    public override func accessibilityValue() -> Any? {
+        variant == .choice ? NSNumber(value: isOn ? 1 : 0) : super.accessibilityValue()
+    }
 
     public override func accessibilityLabel() -> String? {
         super.accessibilityLabel() ?? (isLoading ? (loadingTitle ?? title) : title)

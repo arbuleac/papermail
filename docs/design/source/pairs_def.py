@@ -117,6 +117,15 @@ PAIRS = [
  ("Rail attention badge fill vs rail", "dangerFill", ["spine"], U),
  ("Rail attention badge glyph", "onDanger", ["dangerFill"], T),
  ("Rail focus ring", "focus", ["spine"], U),
+ # the rail with its names (§5.2): a name takes its glyph's ink, held as text. A count keeps its `spine` cut-out ring on a
+ # row too, so on a selected row's `raised` ground its fill is still seen against `spine`, the pair above (against
+ # `raised` it would fall under 3:1 in Dark)
+ ("Rail names, rest (folders, All Inboxes, accounts, Add, Settings)", "ink2", ["spine"], T),
+ ("Rail names, hover (an account's row keeps the hover wash under a press)", "ink", ["spine", "hover"], T),
+ ("Rail names, pressed and drop target", "ink", ["spine", "pressed"], T),
+ ("Rail names, selected row (a folder or All Inboxes)", "ink", ["raised"], T),
+ ("Rail names, selected account", "ink", ["spine"], T),
+ ("Rail pending account's name", "ink3", ["spine"], T),
  ("Minimal-mode new-mail dot", "accent", ["paper"], U),
  # ---- reader
  ("Reader kicker", "ink3", ["paper"], T),

@@ -131,6 +131,7 @@ final class AnalyticsTests: XCTestCase {
             + SendAction.allCases.map(S.SettingChange.sendAction)
             + (S.Writer.allCases.map(Optional.some) + [nil]).map(S.SettingChange.aiProvider)
             + [AccountFace.automatic, .monogram, .paper("fox")].map(S.SettingChange.accountFace)
+            + S.Trigger.allCases.flatMap { [S.SettingChange.railNames(true, $0), .railNames(false, $0)] }
         signals += changes.map(S.settingChanged)
         for action in S.MailAction.allCases {
             for trigger in S.Trigger.allCases {
@@ -164,19 +165,55 @@ final class AnalyticsTests: XCTestCase {
                         .weekOpened(trigger), .timeBlocked(trigger), .undo(trigger)]
             for view in MailboxView.allCases { signals += [.viewOpened(view, unified: true, trigger), .viewOpened(view, unified: false, trigger)] }
         }
-        signals += S.InvitationAnswer.allCases.map(S.invitationAnswered)
+        for answer in S.InvitationAnswer.allCases {
+            for surface in S.Surface.allCases {
+                for span in S.AnswerSpan.allCases {
+                    for route in S.AnswerRoute.allCases { signals.append(.invitationAnswered(answer, surface, span, route)) }
+                }
+            }
+        }
+        for kind in S.EventKind.allCases {
+            for trigger in S.Trigger.allCases { signals.append(.detailsOpened(kind, trigger)) }
+        }
+        for action in S.EventAction.allCases {
+            for surface in S.Surface.allCases {
+                for trigger in [S.Trigger.toolbar, .key] { signals.append(.eventAction(action, surface, trigger)) }
+            }
+        }
         for provider in S.Provider.allCases { signals += [.accountAdded(provider), .accountRemoved(provider)] }
         for writer in S.Writer.allCases {
             for ending in S.WriteEnding.allCases {
                 signals.append(.helpMeWriteUsed(writer, ending, nil))
                 for draft in S.WriteDraft.allCases {
                     for source in S.SendSource.allCases {
-                        for flags in [(false, false), (true, false), (false, true), (true, true)] {
-                            signals.append(.helpMeWriteUsed(writer, ending, .init(draft: draft, instruction: flags.0, retry: flags.1,
-                                                                                  source: source)))
+                        // What was being written is one of the composers' kinds, never a kept draft's `draft`.
+                        for kind in S.ComposeKind.allCases where kind != .draft {
+                            for flags in [(false, false), (true, false), (false, true), (true, true)] {
+                                for subject in [false, true] {
+                                    signals.append(.helpMeWriteUsed(writer, ending, .init(draft: draft, instruction: flags.0,
+                                                                                          retry: flags.1, source: source, kind: kind,
+                                                                                          subject: subject)))
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+        // A selection's rewrite: whether the draft around it went, and how the words beside it came out (only with the
+        // draft, on a finished write). Apart from the loop above, which it would multiply.
+        for writer in S.Writer.allCases {
+            for ending in S.WriteEnding.allCases {
+                for around in S.WriteAround.allCases {
+                    signals.append(.helpMeWriteUsed(writer, ending, .init(draft: .selection, instruction: false, retry: false,
+                                                                          source: .quickReply, kind: .reply, subject: false,
+                                                                          around: around)))
+                }
+            }
+            for join in S.WriteJoinResult.allCases {
+                signals.append(.helpMeWriteUsed(writer, .finished, .init(draft: .selection, instruction: true, retry: false,
+                                                                         source: .composer, kind: .new, subject: false,
+                                                                         around: .draft, join: join)))
             }
         }
         for trigger in S.Trigger.allCases {
@@ -198,7 +235,7 @@ final class AnalyticsTests: XCTestCase {
 
     func testTheSamplesCoverEveryNameInTheCatalog() {
         XCTAssertEqual(Set(Self.everySignal.map(\.name)), Set(AnalyticsSignal.Name.allCases))
-        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 32, "the catalog the doc lists")
+        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 34, "the catalog the doc lists")
     }
 
     /// (a) Every parameter of every signal, `mode` included, is a key of the vocabulary and takes one of its values.
@@ -261,7 +298,8 @@ final class AnalyticsTests: XCTestCase {
     /// Starts a write with `configuration` through `center`'s writer, counted in `writesEnded` once its stream is over, a
     /// failure included (the test reads that from the signal instead).
     private func write(_ center: HelpMeWrite, _ configuration: AIProviderConfiguration) {
-        let request = AIWriteRequest(instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?", task: "Say yes")
+        let request = AIWriteRequest(kind: .reply, instructions: "Write the reply.", transcript: "Lunch in Lisbon on Thursday?",
+                                     task: "Say yes")
         let stream = center.writer.write(request, using: configuration, in: AIFieldID(name: "analytics"),
                                          action: AIUserAction(userPressed: .write))
         Task { @MainActor [weak self] in
@@ -293,8 +331,8 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(script.requests.count, 2, "both writes reached the writer")
     }
 
-    /// A write's signal says what it worked from and where, as `WriteSession` set it when it started, by kind only, and the
-    /// field forgets it once the write is over.
+    /// A write's signal says what was being written, what it worked from and where, as `WriteSession` set it when it
+    /// started, by kind only, and the field forgets it once the write is over.
     func testAHelpMeWriteSaysWhatItWorkedFromAndWhere() throws {
         try startAnalytics()
         let script = DemoAIScript()
@@ -303,7 +341,8 @@ final class AnalyticsTests: XCTestCase {
         let center = HelpMeWrite(keys: InMemoryAIKeyStore(), isDemo: false, demoScript: script) { _ in DemoAIProvider(script: script) }
         center.consentOverride = [.claudeAPI]
         let field = AIFieldID(name: "analytics")
-        center.writeDetails[field] = .init(WriteAsk(instruction: "warmer", draft: .notes("yes thursday")), retry: true, source: .quickReply)
+        center.writeDetails[field] = .init(WriteAsk(instruction: "warmer", draft: .notes("yes thursday")), retry: true, source: .quickReply,
+                                           kind: .new, subject: true)
         writesEnded = 0
         write(center, AIProviderConfiguration(kind: .claudeAPI))
         XCTAssertTrue(ListTestSupport.spin(until: { self.writesEnded == 1 && self.recorder.sent.count == 1 }, timeout: 5))
@@ -312,8 +351,149 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(sent.parameters["instruction"], "on")
         XCTAssertEqual(sent.parameters["retry"], "on")
         XCTAssertEqual(sent.parameters["source"], "quickReply")
+        XCTAssertEqual(sent.parameters["kind"], "new", "the composers' own word for a new message")
+        XCTAssertEqual(sent.parameters["subject"], "on", "a subject was asked for: on or off, never the subject")
+        XCTAssertEqual(Set(sent.parameters.keys), ["aiProvider", "ending", "draft", "instruction", "retry", "source", "kind", "subject", "mode"])
         XCTAssertFalse(sent.parameters.values.contains { $0.contains("warmer") || $0.contains("thursday") }, "never the words")
         XCTAssertNil(center.writeDetails[field], "forgotten once the write is over")
+    }
+
+    /// What was being written is said in the composers' kinds, so a write lines up with `Compose.started` and
+    /// `Compose.sent`: every kind a composer opens as, and never `draft`, which a write's field cannot say.
+    func testAHelpMeWritesKindIsOneAComposerOpensAs() throws {
+        let id = MessageID(accountID: AccountID("a"), providerID: "m")
+        let opened = [ComposeMode.new, .reply(id, all: false), .reply(id, all: true), .forward(id)].map { AnalyticsSignal.ComposeKind($0) }
+        XCTAssertEqual(opened.map(\.rawValue), ["new", "reply", "replyAll", "forward"])
+        XCTAssertFalse(opened.contains(.draft))
+        for kind in opened {
+            let details = AnalyticsSignal.WriteDetails(draft: .empty, instruction: false, retry: false, source: .composer, kind: kind,
+                                                       subject: false)
+            let parameters = AnalyticsSignal.helpMeWriteUsed(.claudeAPI, .finished, details).parameters
+            XCTAssertEqual(parameters["kind"], kind.rawValue)
+            XCTAssertEqual(parameters["subject"], "off")
+        }
+    }
+
+    /// The quick reply's and a reply composer's writes say what they are as they end: a reply, where it ran, and that no
+    /// subject was asked for. Through the window's own session, to the scripted writer.
+    func testAWriteInTheWindowSaysItIsAReply() throws {
+        try startAnalytics()
+        try useThrowawayDrafts()
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let script = try XCTUnwrap(harness.environment.helpMeWrite.demoScript)
+        script.delay = .zero
+        script.reply = "Tuesday at ten works."
+        let id = try XCTUnwrap(harness.list.conversations.first { $0.id.providerID == "thread-2" }?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { harness.reader.currentMessages.count == 3 }
+        func used() -> [RecordingAnalyticsTransport.Sent] { recorder.sent.filter { $0.name == "HelpMeWrite.used" } }
+
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let field = harness.reader.quickReplyBar.writingTextView
+        field.insertText("tue 10 ok", replacementRange: NSRange(location: 0, length: 0))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 1 }, timeout: 5), "the quick reply's write ends")
+        XCTAssertEqual(used().last?.parameters["kind"], "reply")
+        XCTAssertEqual(used().last?.parameters["subject"], "off")
+        XCTAssertEqual(used().last?.parameters["source"], "quickReply")
+        XCTAssertEqual(used().last?.parameters["draft"], "notes")
+
+        let accounts = harness.controller.accounts
+        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       mode: .reply(original, all: true))
+        defer { composer.closeWithoutSaving() }
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        composer.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 2 }, timeout: 5), "the composer's write ends")
+        XCTAssertEqual(used().last?.parameters["kind"], "replyAll", "a reply to all, as `Compose.sent` says it")
+        XCTAssertEqual(used().last?.parameters["subject"], "off")
+        XCTAssertEqual(used().last?.parameters["source"], "composer")
+        XCTAssertEqual(used().last?.parameters["draft"], "empty")
+        XCTAssertFalse(used().flatMap(\.parameters.values).contains { $0.contains("tue") || $0.contains("Tuesday") }, "never the words")
+        XCTAssertFalse(used().contains { $0.parameters["around"] != nil || $0.parameters["join"] != nil },
+                       "whole writes carry neither of a rewrite's parameters")
+    }
+
+    /// A selection's rewrite says whether the user's draft around it went with it and, when it did and the write
+    /// finished, how the words beside it came out (§5.56): from the writer's milestone, as the write ends. Never a word.
+    func testARewriteSaysWhetherItsDraftWentAndHowItJoined() throws {
+        try startAnalytics()
+        try useThrowawayDrafts()
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let script = try XCTUnwrap(harness.environment.helpMeWrite.demoScript)
+        script.delay = .zero
+        script.reply = "Priya and Ben\n<<<AFTER {fence}>>>are coming tomorrow<<<END AFTER {fence}>>>"
+        let id = try XCTUnwrap(harness.list.conversations.first { $0.id.providerID == "thread-2" }?.id)
+        harness.list.selectedConversationID = id
+        harness.list.onSelectionChange?(id)
+        harness.spin { harness.reader.currentMessages.count == 3 }
+        func used() -> [RecordingAnalyticsTransport.Sent] { recorder.sent.filter { $0.name == "HelpMeWrite.used" } }
+
+        XCTAssertTrue(harness.reader.focusQuickReply(all: false))
+        let field = harness.reader.quickReplyBar.writingTextView
+        field.insertText("John is coming tomorrow.", replacementRange: NSRange(location: 0, length: 0))
+        field.setSelectedRange(NSRange(location: 0, length: 4))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 1 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["draft"], "selection")
+        XCTAssertEqual(used().last?.parameters["around"], "draft")
+        XCTAssertEqual(used().last?.parameters["join"], "after")
+        XCTAssertEqual(field.string, "Priya and Ben are coming tomorrow.")
+
+        script.reply = "Priya and Ben"
+        field.undoManager?.undo()
+        field.setSelectedRange(NSRange(location: 0, length: 4))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 2 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["join"], "none", "no seam line came")
+
+        script.failure = .offline
+        field.undoManager?.undo()
+        field.setSelectedRange(NSRange(location: 0, length: 4))
+        harness.reader.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 3 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["ending"], "failed")
+        XCTAssertEqual(used().last?.parameters["around"], "draft")
+        XCTAssertNil(used().last?.parameters["join"], "said only of a finished write")
+        XCTAssertFalse(used().flatMap(\.parameters.values).contains { $0.contains("John") || $0.contains("Priya") }, "never the words")
+
+        // The selection alone: `alone`, and no join, as the writer reads nothing beside it.
+        let center = harness.environment.helpMeWrite
+        script.failure = nil
+        let alone = AIFieldID(name: "alone")
+        center.writeDetails[alone] = .init(WriteAsk(draft: .selection("see u thurs")), retry: false, source: .composer, kind: .reply,
+                                           subject: false)
+        let request = AIWriteRequest(kind: .reply, instructions: "", transcript: "", task: "part", isRewrite: true, fence: "1a2b3c4d")
+        let stream = center.writer.write(request, using: AIProviderConfiguration(kind: .claudeAPI), in: alone,
+                                         action: AIUserAction(userPressed: .write))
+        Task { do { for try await _ in stream {} } catch {} }
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 4 }, timeout: 5))
+        XCTAssertEqual(used().last?.parameters["around"], "alone")
+        XCTAssertNil(used().last?.parameters["join"])
+
+        // A body a mail link filled in, whose pieces would part a code from its label: the request goes in the ALONE
+        // form, and the signal says what went.
+        let accounts = harness.controller.accounts
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       link: MailtoLink(body: "Your verification code is 481516. Please enter it."))
+        defer { composer.closeWithoutSaving() }
+        composer.window?.makeFirstResponder(composer.bodyEditor)
+        composer.bodyWriteSession?.assumesKeyWindow = true
+        script.reply = "Here is your code"
+        composer.bodyEditor.setSelectedRange((composer.bodyText as NSString).range(of: "Your verification code is"))
+        composer.helpMeWrite(nil)
+        XCTAssertTrue(ListTestSupport.spin(until: { used().count == 5 }, timeout: 5))
+        XCTAssertNil(script.requests.last?.rewrite)
+        XCTAssertEqual(used().last?.parameters["around"], "alone", "the selection went alone, though the body is the user's to read")
+        XCTAssertNil(used().last?.parameters["join"])
     }
 
     /// Block trackers' link cleaning (§5.60) counts a link only when it lost something, and only while the setting is on.
@@ -684,6 +864,43 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(recorder.sent.count, 5, "a snapshot's held values are never sent")
     }
 
+    /// The rail's names (§5.2) are the one setting changed outside Settings in two ways, View › Show Names in Rail and a
+    /// drag of the rail's edge, so its change says which. A drag counts once, as it ends, and only if it left the rail
+    /// another way than it found it; no other setting carries a trigger.
+    func testTheRailsNamesAreSentWithTheWayTheyWereAsked() throws {
+        try startAnalytics()
+        let harness = try MainWindowHarness()
+        defer {
+            harness.close()
+            // The rail changed width: the split's autosave is the test process's own, and forgotten.
+            UserDefaults.standard.removeObject(forKey: "NSSplitView Subview Frames MainSplit")
+        }
+        let controller = harness.controller
+        let split = try XCTUnwrap(controller.splitView as? HairlineSplitView)
+        controller.toggleRailNames(nil)
+        XCTAssertTrue(controller.showsRailNames)
+        // The edge dragged past halfway, back, and let go where it began: the rail followed, and nothing changed.
+        split.onRailEdgeDrag?(false)
+        XCTAssertFalse(controller.showsRailNames)
+        split.onRailEdgeDrag?(true)
+        split.onRailEdgeDragEnd?()
+        XCTAssertEqual(recorder.sent.count, 1, "a drag that ends where it began is no change")
+        split.onRailEdgeDrag?(false)
+        XCTAssertEqual(recorder.sent.count, 1, "a drag still held is not a choice yet")
+        split.onRailEdgeDragEnd?()
+        Analytics.keyIsBeingHandled = { true }
+        controller.toggleRailNames(nil)
+        Analytics.keyIsBeingHandled = { false }
+        XCTAssertEqual(recorder.sent.map(\.name), ["Settings.changed", "Settings.changed", "Settings.changed"])
+        XCTAssertEqual(recorder.sent.map(\.parameters).map { [$0["setting"], $0["value"], $0["trigger"]] },
+                       [["railNames", "on", "menu"], ["railNames", "off", "drag"], ["railNames", "on", "key"]])
+        XCTAssertEqual(recorder.sent.last?.parameters.keys.sorted(), ["mode", "setting", "trigger", "value"])
+        harness.settings.listDensity = .compact
+        XCTAssertNil(recorder.sent.last?.parameters["trigger"], "the other settings say only their new value")
+        XCTAssertEqual(AnalyticsSignal.SettingChange.values(of: .railNames), ["on", "off"])
+        assertNothingOfTheMail(in: harness)
+    }
+
     func testTheLaunchSaysHowTheAppLooksAndHowManyAccountsOfEachKind() throws {
         try startAnalytics()
         Analytics.setMode(demo: true)
@@ -903,6 +1120,17 @@ final class AnalyticsTests: XCTestCase {
         }
         for row in harness.list.conversations {
             words.insert(row.subject.lowercased())
+        }
+        // An event's words: titles, places, organizers, meeting IDs and passcodes the demo and the tests write.
+        let wide = DateInterval(start: Date().addingTimeInterval(-90 * 86_400), duration: 200 * 86_400)
+        for event in (try? store.calendarEvents(in: wide, accountIDs: nil)) ?? [] {
+            words.insert(event.title.lowercased())
+            if let location = event.location { words.insert(location.lowercased()) }
+            if let organizer = event.organizer { words.insert(organizer.lowercased()) }
+            if let call = (try? store.calendarEventDetails(id: event.id))??.details.call {
+                if let id = call.meetingID { words.insert(id.lowercased()) }
+                if let passcode = call.passcode { words.insert(passcode.lowercased()) }
+            }
         }
         words = words.filter { $0.count >= 3 }
         for sent in recorder.sent {

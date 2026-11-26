@@ -37,6 +37,22 @@ assert _ts['rowCompactHeights'] == [T.LAYOUT['rowCompact']['height'] + 4 * d for
 # the day column, so a new window's reader keeps its keycaps beside the column
 assert T.LAYOUT['window']['defaultWidth'] == (T.LAYOUT['rail']['width26'] + T.LAYOUT['list']['defaultWidth'] +
                                               T.LAYOUT['window']['readerKeycapsMin'] + T.LAYOUT['calendarPane']['columnWidth']), 'window.defaultWidth'
+# the rail and the lights (§3.2): the rail is the lights' leading inset mirrored past their end, rounded up to an even
+# number and never under rail.minWidth, so its centre is the lights' centre; the lights' clear line, which the minimal
+# masthead counts from, is the larger of 76 and the smallest even number at least their end + rail.lightsClearance
+def _even_up(v): return int(-(-v // 2) * 2)
+_tl, _rail = T.LAYOUT['trafficLights'], T.LAYOUT['rail']
+for _sfx in ('', '26'):
+    assert _tl['endX' + _sfx] == _tl['originX' + _sfx] + 3 * _tl['size' + _sfx] + 2 * _tl['gap' + _sfx], 'trafficLights.endX' + _sfx
+    assert _rail['width' + _sfx] == max(_rail['minWidth'], _even_up(_tl['originX' + _sfx] + _tl['endX' + _sfx])), 'rail.width' + _sfx
+    assert _tl['clearX' + _sfx] == max(_tl['clearX'], _even_up(_tl['endX' + _sfx] + _rail['lightsClearance'])), 'trafficLights.clearX' + _sfx
+    assert T.LAYOUT['listHeader']['mastheadMinimalX' + _sfx] == _tl['clearX' + _sfx] + T.LAYOUT['listHeader']['mastheadMinimalGap'], 'mastheadMinimalX' + _sfx
+assert _rail['tileCenterX'] * 2 == _rail['width'], 'rail.tileCenterX'
+# the rail with its names (§5.2): wider than the tiles alone on every release, and the narrowest window still holds it
+# beside the narrowest list and the narrowest reader with the day column's strip
+assert _rail['namesWidth'] > max(_rail['width'], _rail['width26']) and _rail['namesWidth'] % 2 == 0, 'rail.namesWidth'
+assert T.LAYOUT['window']['minWidth'] >= (_rail['namesWidth'] + T.LAYOUT['list']['minWidth'] + T.LAYOUT['window']['readerMinWidth'] +
+                                          T.LAYOUT['calendarPane']['stripWidth']), 'window.minWidth holds the rail with its names'
 assert T.LAYOUT['calendarPane']['readerMinWithColumn'] == T.LAYOUT['window']['readerMinWidth'], 'calendarPane.readerMinWithColumn'
 # the swipe's Archive is accentFill by another name (§5.7): only its Graphite value sets it apart
 assert all(color['swipeArchive'][m] == color['accentFill'][m] for m in MODES), 'swipeArchive is accentFill by another name'

@@ -1,13 +1,21 @@
 import AppKit
 import PaperCore
 
-/// A text view Help Me Write writes into (spec §5.56): the quick reply's field or a reply composer's body. The two
-/// owners answer what differs between them (whose text is the user's, the host's height, what the reply answers);
-/// `WriteSession` and its marks in the text (`WriteInlineLayer`) do the rest the same way for both.
+/// A text view Help Me Write writes into (spec §5.56): the quick reply's field or a composer's body. The owners answer
+/// what differs between them (whose text is the user's, the host's height, what is written there and from what);
+/// `WriteSession` and its marks in the text (`WriteInlineLayer`) do the rest the same way for all.
 @MainActor
 protocol WriteField: AnyObject {
     /// The text view the reply goes into. Its identity is the writer's field (`AIFieldID`).
     var writeTextView: NSTextView { get }
+    /// What a write here writes now: a reply, a new message, or the message above a forwarded one. The words, the
+    /// chips and what ⌘J does on an empty field follow it, and so does the permission it needs
+    /// (`HelpMeWrite.availability(for:)`): a Turn On given for replies makes no other field ready. A forward whose
+    /// forwarded message is not there to read is written as a new message is, so it answers `.newMessage`.
+    var writeKind: WriteKind { get }
+    /// The field as Analytics names what is composed in it (`kind`): `reply` or `replyAll`, `new`, `forward`. Never
+    /// `draft`: a kept draft opened again is written in as what it is.
+    var analyticsKind: AnalyticsSignal.ComposeKind { get }
     /// The user's own text: the quick reply's whole text; a composer's body above its signature (the quoted original is
     /// never in the text). Sent as their notes and replaced by the reply.
     var ownTextRange: NSRange { get }
@@ -17,9 +25,17 @@ protocol WriteField: AnyObject {
     var refusesEdits: Bool { get set }
     /// The stream changed the text without an edit being reported: the field takes its new height.
     func streamDidUpdate()
-    /// What the write needs from the conversation, read now on the main thread (its bodies are read off it, after
-    /// `keepBodies`); nil when the field answers nothing any more.
+    /// Why only a selection can be rewritten here now, in the words ⌘J shows under the caret's line; nil where a whole
+    /// draft can be written. A forward whose forwarded message is still loading, and a body the composer cannot tell
+    /// the user's words from quoted mail in: there is no ghost there, and ⌘J without a selection sends nothing.
+    var selectionOnlyReason: String? { get }
+    /// What the write is made from, read now on the main thread, as the user asks and never before (the request is
+    /// built from it off the main thread); nil when the field can be written in no more (a send has taken it).
     func writeContext() -> WriteContextInputs?
+    /// A draft landed with a subject for its message: the owner sets it, if it still takes one, as part of the draft's
+    /// one undo step. Called inside that step's open group on `undo`, where the owner registers the inverse. False when
+    /// nothing was set (the field has no Subject, or the user has typed one since).
+    func commitSubject(_ subject: String, undo: UndoManager?) -> Bool
     /// Help me write's marks in the text, made by the field's owner with its text view.
     var writeLayer: WriteInlineLayer { get }
     /// The quick reply's placeholder (“Reply to Sam…”) shows on its empty text: the ghost follows its words, this far
@@ -33,11 +49,76 @@ protocol WriteField: AnyObject {
     func setHeldOpen(_ held: Bool)
     /// Puts the keyboard in the text.
     func focusText()
+    /// Whether the text around a selection inside `ownTextRange` is the user's own, so a rewrite may read it (spec
+    /// §5.56): false in a body the composer did not write, where it may be quoted mail. Read only as the user asks for a
+    /// rewrite.
+    var textAroundSelectionIsOwn: Bool { get }
+    /// Whether a window of words a rewrite may change must not hold `index`: a link or a picture, which a rewrite never
+    /// touches.
+    func blocksSeam(at index: Int) -> Bool
+    /// The attributes new words take in place of the window at `range`: the window's own style, when every character
+    /// of it has that style; nil when they differ (one word in italics), since new words take one style and would lose
+    /// the word's own. Such a window is not offered, and never changes.
+    func seamAttributes(in range: NSRange) -> [NSAttributedString.Key: Any]?
 }
 
-/// The conversation a write answers, as the field's owner knows it: everything `ReplyContextBuilder` reads, so the
+extension WriteField {
+    /// A field whose whole text is the user's own and always there to write from.
+    var selectionOnlyReason: String? { nil }
+
+    /// A field whose own text is all the user's (the quick reply).
+    var textAroundSelectionIsOwn: Bool { true }
+
+    /// Plain text has no links or pictures.
+    func blocksSeam(at index: Int) -> Bool { false }
+
+    /// Plain text is in one style: typing's.
+    func seamAttributes(in range: NSRange) -> [NSAttributedString.Key: Any]? { writeTextView.typingAttributes }
+
+    /// A field with no Subject of its own takes none.
+    func commitSubject(_ subject: String, undo: UndoManager?) -> Bool { false }
+}
+
+/// What a write is made from, as the field's owner holds it when the user asks. Read on the main thread at that moment;
+/// `request(for:configuration:)` turns it into the finished request off it, so the session starts every kind of write
+/// the same way, from one place.
+enum WriteContextInputs: Sendable {
+    /// A reply: the conversation it answers, whose bodies are read from the store.
+    case reply(ReplyWriteInputs)
+    /// A new message or a forward: plain values the composer window itself holds, and nothing read from anywhere else.
+    case composed(ComposeWriteInputs)
+
+    /// What the request will write. A forward whose forwarded message is not in hand is a new message here.
+    var kind: WriteKind {
+        switch self {
+        case .reply: return .reply
+        case .composed(let inputs): return inputs.kind
+        }
+    }
+
+    /// Whether a write of `ask` asks for a subject with its draft: a new message the composer would take one for, its
+    /// Subject empty by Send's own test, and never a selection's rewrite. Known as the write starts, so Analytics can
+    /// say one was asked for; `AIWriteRequest.wantsSubject`, built later from the same values, says the same.
+    func wantsSubject(for ask: WriteAsk) -> Bool {
+        guard case .composed(let inputs) = self, inputs.kind == .newMessage, inputs.wantsSubject, !ask.isRewrite else { return false }
+        return inputs.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The whole request for `ask`; nil when nothing may be sent (a new message with nothing to write from, a part of
+    /// the ask too long to send). Reads stored bodies and redacts: off the main thread.
+    func request(for ask: WriteAsk, configuration: AIProviderConfiguration) -> AIWriteRequest? {
+        switch self {
+        case .reply(let inputs):
+            return WritePrompt.request(for: inputs.build(ask: ask), appendsSignature: inputs.appendsSignature, configuration: configuration)
+        case .composed(let inputs):
+            return inputs.request(for: ask, configuration: configuration)
+        }
+    }
+}
+
+/// The conversation a reply answers, as the field's owner knows it: everything `ReplyContextBuilder` reads, so the
 /// bodies can be read and redacted off the main thread.
-struct WriteContextInputs: Sendable {
+struct ReplyWriteInputs: Sendable {
     var store: any MailStoring
     /// The conversation's visible messages (drafts are dropped by the builder).
     var messages: [MessageMetadata]

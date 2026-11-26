@@ -69,6 +69,19 @@
       <div><span class="rt2 hov">{{PY: s('plus', 15)}}</span><b>Add, hover</b></div>
       <div><span class="rt2">{{PY: s('gearshape', 15)}}</span><b>Settings</b></div>
     </div>
+    <p class="cap" style="margin-top:14px">With names (§5.2, View › Show Names in Rail or the rail's edge dragged): {{layout.rail.namesWidth}} pt, each tile a row in its place. The glyph or face keeps the tile's box at the leading end, the name follows in <code>body</code> (<code>bodyMedium</code> when selected), the count sits at the trailing end with its cut-out ring. A selected folder's ground is the raised tile stretched to the row; an account's selection stays the margin rule.</p>
+    <div class="railnames">
+      <div class="rr sel" title="Inbox  G I"><span class="rb">{{PY: s('tray', 16)}}</span><span class="rn">Inbox</span><span class="badge">21</span></div>
+      <div class="rr hov nc" title="Starred  G S"><span class="rb">{{PY: s('star', 16)}}</span><span class="rn">Starred</span></div>
+      <div class="rr nc" title="All Mail  G A"><span class="rb">{{PY: s(T.ICON['viewAllMail'], 16)}}</span><span class="rn">All Mail</span></div>
+      <i class="rrdiv"></i>
+      <div class="rr nc" title="All Inboxes  ⌘0"><span class="rb">{{PY: g('paper.quire', 18)}}</span><span class="rn">All Inboxes</span></div>
+      <div class="rr on" title="Contoso · alex@contoso.test  ⌘1"><i class="mr3"></i><span class="rb">{{PY: face(1)}}</span><span class="rn">Contoso · alex@contoso.test</span><span class="badge">14</span></div>
+      <div class="rr" title="Sign in required"><span class="rb">{{PY: face(3)}}</span><span class="rn">Fabrikam · alex@fabrikam.test</span><span class="badge attn">{{PY: s('exclamationmark', 9)}}</span></div>
+      <div class="rr nc" title="Finish signing in in your browser…"><span class="rb"><span class="pface"><span class="spin" style="--sz:{{layout.rail.pendingSpinner}}px;color:var(--q-ink3)"></span></span></span><span class="rn pend">Signing in…</span></div>
+      <div class="rr util nc"><span class="rb">{{PY: s('plus', 15)}}</span><span class="rn">Add Account</span></div>
+      <div class="rr util nc" title="Settings  ⌘,"><span class="rb">{{PY: s('gearshape', 15)}}</span><span class="rn">Settings</span></div>
+    </div>
   </div>
 
   <div class="c4 card">
@@ -98,7 +111,7 @@
       <div class="mi"><span class="ck"></span>{{PY: s('doc', 14)}}Drafts<span class="kc">G D</span></div>
       <div class="mi"><span class="ck"></span>{{PY: s('trash', 14)}}Trash<span class="kc">G #</span></div>
       <div class="msep"></div>
-      <div class="mi"><span class="ck"></span>{{PY: s('archivebox', 14)}}All Mail<span class="kc">G A</span></div>
+      <div class="mi"><span class="ck"></span>{{PY: s(T.ICON['viewAllMail'], 14)}}All Mail<span class="kc">G A</span></div>
     </div>
   </div>
 

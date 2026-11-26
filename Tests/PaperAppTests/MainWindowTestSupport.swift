@@ -20,6 +20,7 @@ final class MainWindowHarness {
     init(threads: Int = 8, spacing: TimeInterval = 600, accounts: Bool = true, settings: AppSettings? = nil, demo: Bool = false,
          remembersScope: Bool = true, calendar: Calendar? = nil, now: (() -> Date)? = nil, perfMailbox: Bool = false,
          helpMeWrite: HelpMeWrite? = nil) throws {
+        Self.discardPendingEvents()
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaperAppTests-\(UUID().uuidString)")
         if perfMailbox {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -73,6 +74,15 @@ final class MainWindowHarness {
         }
         ListTestSupport.spin(until: { finished }, timeout: 5)
         try? FileManager.default.removeItem(at: directory)
+        Self.discardPendingEvents()
+    }
+
+    /// Takes every event off the application's queue. Tests spin the run loop, which never takes an event: the window
+    /// server's (a window ordered in or out, moved, the app's activation) pile up over the suite, hundreds by its end, and
+    /// a tracking loop that a test drives with events it posts reads them first (a drag posted behind that backlog was
+    /// dropped while its release arrived). So each harness starts, and leaves, with an empty queue.
+    static func discardPendingEvents() {
+        while NSApplication.shared.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
     }
 }
 

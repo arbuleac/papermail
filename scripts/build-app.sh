@@ -7,6 +7,21 @@ cd "$ROOT"
 
 swift build -c "$CONFIG" --product Paper
 BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+
+# The executable says which SDK generation it is built for (Package.swift, `sdkStamp`), which is what macOS goes by
+# when it chooses AppKit's behaviour and the window chrome. Without the stamp SwiftPM writes the deployment target
+# there, and the app would run as one built for macOS 15 while its tests run the current AppKit
+# (docs/ARCHITECTURE.md, "Testing").
+STAMP="$(xcrun vtool -show-build "$BIN_DIR/Paper" | awk '$1 == "sdk" { print $2; exit }')"
+MINOS="$(xcrun vtool -show-build "$BIN_DIR/Paper" | awk '$1 == "minos" { print $2; exit }')"
+SDK="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+if [ -z "$STAMP" ] || [ "$STAMP" = "$MINOS" ]; then
+  echo "error: Paper is stamped for SDK '${STAMP:-none}', its deployment target; Package.swift's sdkStamp did not reach the linker" >&2
+  exit 1
+fi
+if [ -n "$SDK" ] && [ "${SDK%%.*}" != "${STAMP%%.*}" ]; then
+  echo "warning: Paper is stamped for the macOS ${STAMP%%.*} SDK and the installed SDK is $SDK: the tests run AppKit as built for ${SDK%%.*}, the app as built for ${STAMP%%.*}. Look at the app with sdkStamp raised, then raise it in Package.swift" >&2
+fi
 APP="$ROOT/dist/Paper.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

@@ -6,5 +6,7 @@ extension QuireIconButton {
         /// A quiet toggle: the symbol in `accent` on `accentWash` (hover `accentWashHover`, pressed
         /// `accentWashPressed`): Format, the format toggles, Original colors (§5.14, §5.20).
         case quiet
+        /// The on symbol in `accent`, no fill: a copy button's Copied mark (§5.54).
+        case accent
     }
 }

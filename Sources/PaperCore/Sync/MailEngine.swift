@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The `MailClient` the app talks to: one `AccountSyncer` (a live lane and a backfill lane, and a calendar lane for a
 /// provider with a calendar) and one `QuotaBudget` per account, a shared `SendRunner` and `SnoozeRunner`, the attachment
@@ -28,6 +29,8 @@ public final class MailEngine: MailClient, @unchecked Sendable {
     /// The Keep mail window and the bodies kept whole for this run, read by the sweeper and the hydrators.
     private let keepMail = KeepMailState()
     private let stateLock = NSLock()
+    /// When each event's details were last asked for, so a card opened again and again asks once a minute at most.
+    private let detailsAsks = OSAllocatedUnfairLock<[String: Date]>(initialState: [:])
     private var running = false
     private var appActive = true
 
@@ -532,8 +535,10 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         if !operations.isEmpty { registry.context(for: accountID)?.syncer.wake(.operations) }
     }
 
-    public func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws {
-        guard let metadata = try store.message(message), let invitation = try store.body(for: message)?.invitation else {
+    @discardableResult
+    public func answerInvitation(_ response: InvitationResponse, to message: MessageID) throws -> Bool {
+        // The invitations alone, from their column: never a whole body decompressed on the main thread.
+        guard let metadata = try store.message(message), let invitation = try store.invitation(for: message) else {
             throw StoreError.notFound
         }
         let account = try store.accounts().first { $0.id == message.accountID }
@@ -542,38 +547,129 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         // and times the organizer replaced. The messages the reader shows, so the card never offers what this refuses.
         let shown = RenderPayloadBuilder.visibleMessages(try store.messages(in: metadata.conversationID))
         for other in shown where other.id != message {
-            if let later = try store.body(for: other.id)?.invitation, later.supersedes(invitation) {
+            if let later = try store.invitation(for: other.id), later.supersedes(invitation) {
                 throw StoreError.conflict("A later invitation replaces this one")
             }
         }
-        guard let answer = InvitationAnswer(response, to: invitation, accountEmail: account.email,
+        guard var answer = InvitationAnswer(response, to: invitation, accountEmail: account.email,
                                             accountName: account.displayName.isEmpty ? nil : account.displayName,
                                             previous: metadata.invitationReply) else {
             throw StoreError.conflict("This invitation can't be answered")
         }
-        // The same answer again changes nothing and sends nothing.
-        guard metadata.invitationReply != response else { return }
+        // A floating time is read on the Mac's clock, as the calendar and the reader's card draw it.
+        let pencil = CalendarFit.pencil(for: invitation, message: message, timeZone: .current)
+        // The same answer again changes nothing and sends nothing: the answer the card shows, which is the calendar
+        // copy's when the account's calendar holds one (`InvitationCalendarAnswer`), else the message's own. The
+        // message's reply alone may be older than the copy (changed on the phone since), and would refuse the answer
+        // that puts the organizer right.
+        var chosen = metadata.invitationReply
+        if let pencil {
+            let over = DateInterval(start: pencil.start, end: max(pencil.end, pencil.start.addingTimeInterval(60)))
+            let copies = try store.calendarEvents(in: over, accountIDs: [message.accountID])
+            chosen = InvitationCalendarAnswer.response(uid: invitation.uid, near: pencil.start, accountID: message.accountID,
+                                                       in: copies) ?? chosen
+        }
+        guard chosen != response else { return false }
+        // The calendar's copy of the invitation (Google and Exchange put invitations on the calendar themselves) takes the
+        // answer in the enqueue's transaction, so a decline leaves the day column and an accept is drawn solid at once;
+        // the account's calendar lane reads the provider's own word once the outbox has sent the answer. An answer to one
+        // occurrence is that occurrence's alone.
+        let occurrence = invitation.recurrenceID == nil ? nil : pencil?.start
+        answer.calendar = CalendarCopies(scope: .invitation(uid: invitation.uid, near: occurrence))
         try perform(.answerInvitation(answer), on: [message])
-        answerOnCalendar(response, to: invitation, message: message)
+        return true
     }
 
-    /// The calendar's copy of the invitation (Google and Exchange put invitations on the calendar themselves) shows the
-    /// answer at once rather than at the calendar's next read: a decline leaves the day column, an accept is drawn
-    /// solid. The account's calendar lane reads the provider's own word once the outbox has sent the answer
-    /// (`LiveLane`'s `invitationAnswered`), not before, when it would still say the old one. The answer is queued
-    /// whatever this meets: the calendar catches up at that read.
-    private func answerOnCalendar(_ response: InvitationResponse, to invitation: CalendarInvitation, message: MessageID) {
-        guard let answer = CalendarEvent.Response(rawValue: response.rawValue) else { return }
-        // An answer to one occurrence is that occurrence's alone; a floating time is read on the Mac's clock, as the
-        // calendar draws it.
-        let occurrence = invitation.recurrenceID == nil
-            ? nil
-            : CalendarFit.pencil(for: invitation, message: message, timeZone: .current)?.start
-        do {
-            try store.answerCalendarEvents(answer, invitationUID: invitation.uid, accountID: message.accountID, near: occurrence)
-        } catch {
-            SyncLog.logger.error("calendar: could not show an answer for \(message.accountID.rawValue, privacy: .public): \(SyncErrorDescription.describe(error), privacy: .private)")
+    @discardableResult
+    public func answerCalendarEvent(_ response: InvitationResponse, eventID: String, span asked: AnswerSpan,
+                                    invitationMessage: MessageID?) throws -> AnswerRoute? {
+        guard response.isAnswer else { throw StoreError.conflict("Not an answer") }
+        guard let event = try store.calendarEvent(id: eventID) else { throw StoreError.notFound }
+        guard event.sync == .synced, let providerID = event.providerID, event.response != .organizer, !event.isSetAside,
+              event.kind == nil else {
+            throw StoreError.conflict("This event can't be answered")
         }
+        var span = asked
+        if event.seriesID == nil { span = .single } else if span == .single { span = .occurrence }
+
+        if let message = invitationMessage {
+            switch try answerThroughMail(response, event: event, span: span, message: message) {
+            case .queued: return .mail
+            case .alreadySaid: return nil
+            case .notThisRoute: break
+            }
+        }
+
+        let rows = span == .series
+            ? try store.calendarEvents(seriesID: event.seriesID ?? "", accountID: event.accountID)
+            : [event]
+        let answerable = rows.filter { $0.sync == .synced && $0.response != .organizer }
+        guard let wanted = CalendarEvent.Response(rawValue: response.rawValue),
+              !answerable.allSatisfy({ $0.response == wanted }) else { return nil }
+        guard let account = try store.accounts().first(where: { $0.id == event.accountID }) else { throw StoreError.notFound }
+        let target = span == .series ? (event.seriesID ?? providerID) : providerID
+        let organizerAddress = try store.calendarEventDetails(id: event.id)?.details.organizer?.address ?? ""
+        var answer = InvitationAnswer(
+            response: response, previous: InvitationResponse(rawValue: event.response.rawValue),
+            uid: event.invitationUID ?? "", sequence: 0, recurrenceID: nil,
+            title: event.title, start: event.start, end: event.end, isAllDay: event.isAllDay, isFloating: event.isAllDay,
+            organizer: EmailAddress(name: event.organizer, address: organizerAddress),
+            attendee: EmailAddress(name: account.displayName.isEmpty ? nil : account.displayName, address: account.email),
+            graphEventID: account.kind == .microsoft ? target : nil,
+            replyID: UUID().uuidString.lowercased())
+        answer.calendar = CalendarCopies(scope: span == .series ? .series(id: event.seriesID ?? "") : .event(id: event.id),
+                                         providerEventID: target)
+        try store.enqueue([Operation(accountID: event.accountID, change: .answerInvitation(answer), targets: [])])
+        registry.context(for: event.accountID)?.syncer.wake(.operations)
+        return .calendar
+    }
+
+    private enum MailRouteOutcome {
+        case queued
+        /// The message already carries this answer: nothing to queue.
+        case alreadySaid
+        /// The message cannot carry this answer; the calendar route takes it.
+        case notThisRoute
+    }
+
+    /// The mail route of `answerCalendarEvent`: not taken when the message's invitation does not name exactly this span
+    /// of the event or no longer describes it (an update whose mail is not here moved it, and an iMIP reply with the old
+    /// SEQUENCE may be ignored), or a later revision in its conversation replaces it.
+    private func answerThroughMail(_ response: InvitationResponse, event: CalendarEvent, span: AnswerSpan,
+                                   message: MessageID) throws -> MailRouteOutcome {
+        guard message.accountID == event.accountID, let invitation = try store.invitation(for: message),
+              invitation.method == .request, invitation.isAnswerable,
+              InvitationUID.matches(invitation.uid, event.invitationUID) else { return .notThisRoute }
+        let length = event.end.timeIntervalSince(event.start)
+        let sameLength = abs(invitation.end.timeIntervalSince(invitation.start) - length) <= 60
+        switch span {
+        case .single:
+            guard invitation.recurrenceID == nil, invitation.repeats == nil, sameLength,
+                  abs(invitation.start.timeIntervalSince(event.start)) <= 60 else { return .notThisRoute }
+        case .series:
+            guard invitation.repeats != nil, invitation.recurrenceID == nil, sameLength else { return .notThisRoute }
+        case .occurrence:
+            guard let recurrence = invitation.recurrenceID,
+                  abs(recurrence.timeIntervalSince(event.originalStart ?? event.start)) <= 1, sameLength else {
+                return .notThisRoute
+            }
+        }
+        // The event's row is what the details show chosen: the same answer again to it sends nothing. The message's own
+        // reply never decides this alone, since the row may say something newer (an answer changed on the phone). All
+        // Events covers more rows than the one clicked: the invitation's own copy decides it, and the calendar route
+        // the rest.
+        if span != .series, let wanted = CalendarEvent.Response(rawValue: response.rawValue), event.response == wanted {
+            return .alreadySaid
+        }
+        do {
+            // Nothing queued: the invitation's calendar copy (for a series, the occurrence nearest its start) already
+            // says it, so this row is answered on the calendar.
+            guard try answerInvitation(response, to: message) else { return .notThisRoute }
+        } catch let error as StoreError {
+            guard case .conflict = error else { throw error }
+            return .notThisRoute
+        }
+        return .queued
     }
 
     public func send(_ message: OutgoingMessage, undoWindow: TimeInterval) throws -> String {
@@ -713,6 +809,23 @@ public final class MailEngine: MailClient, @unchecked Sendable {
         for context in targets {
             context.syncer.refreshCalendar(covering: interval)
         }
+    }
+
+    public func readCalendarEventDetails(eventID: String) {
+        guard let event = try? store.calendarEvent(id: eventID), event.sync == .synced, event.providerID != nil,
+              !event.isSetAside else { return }
+        // On the calendar lane's clock, which dates what it reads.
+        let now = tuning.calendarClock.now()
+        if let stored = try? store.calendarEventDetails(id: eventID), stored.version == event.version,
+           now.timeIntervalSince(stored.readAt) < tuning.calendarDetailsFresh { return }
+        let interval = tuning.calendarDetailsAskInterval
+        let asked = detailsAsks.withLock { asks -> Bool in
+            if let last = asks[eventID], now.timeIntervalSince(last) < interval { return false }
+            asks[eventID] = now
+            return true
+        }
+        guard asked else { return }
+        registry.context(for: event.accountID)?.syncer.readCalendarDetails(eventID)
     }
 
     /// The reconnect asks for the calendar scope on top of what the account holds, and the calendar is read once the

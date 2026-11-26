@@ -38,7 +38,7 @@ actor CalendarLane {
 
     /// What a failure held back.
     private enum Part {
-        case writes, window, covering
+        case writes, window, covering, details
     }
 
     /// A write that failed for a reason of its own (a reply that did not read, a 5xx for that one event, the store
@@ -73,6 +73,8 @@ actor CalendarLane {
     /// Days outside the window the app turned to (`MailClient.refreshCalendars(accountID:covering:)`), each read once at
     /// the next turn.
     private var coveringAsked: [DateInterval] = []
+    /// Events whose details a card asked for (`MailClient.readCalendarEventDetails`), oldest first, each read once.
+    private var detailsAsked: [String] = []
     /// Writes that failed for a reason of their own, by row id, with their tries: one that fails
     /// `SyncTuning.failingPageTries` times is given up as the provider refusing it.
     private var rowFailures: [String: RowFailure] = [:]
@@ -116,6 +118,21 @@ actor CalendarLane {
         Task { await self.ask(covering: interval) }
     }
 
+    /// Has the next turn read the event's details, after the writes and before the window (a card is open on it).
+    nonisolated func readDetails(_ eventID: String) {
+        Task { await self.ask(details: eventID) }
+    }
+
+    /// Whether a card's ask waits to be read (for tests).
+    var hasDetailsAsked: Bool { !detailsAsked.isEmpty }
+
+    /// Internal so a test can ask without the hop through a task.
+    func ask(details eventID: String) {
+        guard !detailsAsked.contains(eventID) else { return }
+        detailsAsked.append(eventID)
+        waker.signal(.check)
+    }
+
     private func ask(covering interval: DateInterval) {
         guard interval.duration > 0, !coveringAsked.contains(where: { Self.interval($0, holds: interval) }) else { return }
         coveringAsked.append(interval)
@@ -144,7 +161,7 @@ actor CalendarLane {
     private var isDue: Bool {
         let now = clock.uptime()
         if let heldUntil, now < heldUntil { return false }
-        if readAsked || writesQueued || readFailed || !coveringAsked.isEmpty { return true }
+        if readAsked || writesQueued || readFailed || !coveringAsked.isEmpty || !detailsAsked.isEmpty { return true }
         return rowRetryIsDue(now) || windowIsStale(now)
     }
 
@@ -162,8 +179,9 @@ actor CalendarLane {
     func turn() async {
         let now = clock.uptime()
         // The window is read at every turn but one woken only for days outside it while its last read is fresh.
+        // A turn woken only for an event's details while the window is fresh reads only those.
         let readsWindow = readAsked || writesQueued || readFailed || windowIsStale(now) || rowRetryIsDue(now)
-            || coveringAsked.isEmpty
+            || (coveringAsked.isEmpty && detailsAsked.isEmpty)
         if readsWindow { lastTurn = now }
         readAsked = false
         writesQueued = false
@@ -173,6 +191,7 @@ actor CalendarLane {
             // afresh (a write held for its own backoff would otherwise have a turn taken for it on every live cycle).
             // Days asked for are asked again when they are shown again.
             coveringAsked = []
+            detailsAsked = []
             rowFailures = [:]
             publish(.notConnected)
             return
@@ -182,6 +201,11 @@ actor CalendarLane {
         var sent: Set<String> = []
         if let (failure, error) = await sendWrites(once: &sent) {
             await record(failure, holding: .writes, error: error)
+            return
+        }
+        // A card is open on these: they go before the window's read, which may take a while.
+        if let (failure, error) = await readAskedDetails() {
+            await record(failure, holding: .details, error: error)
             return
         }
         let window = CalendarWindow.around(clock.now())
@@ -199,8 +223,76 @@ actor CalendarLane {
                 await record(failure, holding: .writes, error: error)
                 return
             }
+            if isAppActive(), let (failure, error) = await prefetchDetails() {
+                await record(failure, holding: .details, error: error)
+                return
+            }
         }
         await readCovering(besides: window)
+    }
+
+    // MARK: Details
+
+    /// Reads the details asked for, oldest first. Details are extras, so failures are quiet: one every request would
+    /// meet stops the turn with the asks kept; any other drops that one ask. An event the provider no longer has writes
+    /// nothing (the next read sweeps its row and its details).
+    private func readAskedDetails() async -> (Failure, Error)? {
+        while let id = detailsAsked.first {
+            if Task.isCancelled { return (.cancelled, CancellationError()) }
+            guard let event = try? store.calendarEvent(id: id), event.accountID == accountID, event.sync == .synced,
+                  let providerID = event.providerID, !event.isSetAside else {
+                detailsAsked.removeFirst()
+                continue
+            }
+            do {
+                try await readDetails(of: event, providerID: providerID)
+                detailsAsked.removeFirst()
+            } catch {
+                if Self.failsEveryRequest(error) { return (Self.failure(of: error), error) }
+                detailsAsked.removeFirst()
+                SyncLog.logger.notice("calendar: details not read for \(self.accountID.rawValue, privacy: .public): \(SyncErrorDescription.describe(error), privacy: .private)")
+            }
+        }
+        return nil
+    }
+
+    /// Reads ahead the details of the next day's events that changed since theirs were read, at most
+    /// `calendarDetailsPrefetch`, so a card opened on one shows everything at once.
+    private func prefetchDetails() async -> (Failure, Error)? {
+        let now = clock.now()
+        let events: [CalendarEvent]
+        do {
+            events = try store.eventsNeedingDetails(accountID: accountID, in: DateInterval(start: now, duration: 86_400),
+                                                    limit: tuning.calendarDetailsPrefetch)
+        } catch {
+            return nil
+        }
+        var read = 0
+        for event in events {
+            if Task.isCancelled { return (.cancelled, CancellationError()) }
+            guard let providerID = event.providerID else { continue }
+            do {
+                try await readDetails(of: event, providerID: providerID)
+                read += 1
+            } catch {
+                if Self.failsEveryRequest(error) { return (Self.failure(of: error), error) }
+            }
+        }
+        if read > 0 { SyncLog.logger.debug("calendar: read ahead the details of \(read, privacy: .public) events for \(self.accountID.rawValue, privacy: .public)") }
+        return nil
+    }
+
+    private func readDetails(of event: CalendarEvent, providerID: String) async throws {
+        let now = clock.now()
+        let known = try event.seriesID.flatMap { series in
+            try store.seriesRepeats(accountID: accountID, seriesID: series, since: now.addingTimeInterval(-86_400))
+        }
+        let email = (try? store.accounts().first { $0.id == accountID })??.email ?? ""
+        let read = try await provider.calendarEventDetails(providerID: providerID, seriesID: event.seriesID, knownRepeats: known,
+                                                           account: CalendarAccountFacts(email: email))
+        guard let read else { return }
+        await charge(requests: read.requestCount)
+        try store.saveCalendarEventDetails(read.details, eventID: event.id, version: read.version ?? event.version, readAt: now)
     }
 
     // MARK: Writes
@@ -444,7 +536,7 @@ actor CalendarLane {
         case .apiDisabled:
             coveringAsked = []
             publish(.apiDisabled)
-        case .refused where part == .covering:
+        case .refused where part == .covering || part == .details:
             // That interval is dropped; nothing else waits on it.
             return
         case .refused, .transient:
@@ -464,10 +556,11 @@ actor CalendarLane {
             switch part {
             case .writes: writesQueued = true
             case .window: readFailed = true
-            case .covering: break
+            case .covering, .details: break
             }
-            // The days outside the window are the app's extra: their read failing says nothing of the calendar's state.
-            if part != .covering { publish(.failing(lastRead: lastRead)) }
+            // The days outside the window and the details are the app's extras: their read failing says nothing of the
+            // calendar's state.
+            if part != .covering, part != .details { publish(.failing(lastRead: lastRead)) }
             let description = SyncErrorDescription.describe(error)
             SyncLog.logger.notice("calendar \(Self.name(of: part), privacy: .public) failed for \(id, privacy: .public), retrying in \(delay, privacy: .public) s: \(description, privacy: .private)")
         }
@@ -478,6 +571,7 @@ actor CalendarLane {
         case .writes: return "write"
         case .window: return "read"
         case .covering: return "read outside the window"
+        case .details: return "read of details"
         }
     }
 

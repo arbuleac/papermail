@@ -6,9 +6,10 @@ import XCTest
 @testable import PaperApp
 
 /// Settings › AI (spec §5.40, §5.56): the fifth tab, its rows per provider within its height cap, the privacy sheet as a
-/// provider is chosen (Turn On keeps it, Cancel puts the popup back, Off withdraws), a provider never turned on, the key
-/// saved to and removed from the key store (an in-memory one: never the Keychain), the model and the CLI chosen, and the
-/// choices kept in AppSettings. The demo writer answers every health check.
+/// provider is chosen (Turn On keeps it, Cancel puts the popup back, Off withdraws), a provider never turned on, one
+/// turned on before the sheet named new messages and forwards (on for replies only until its Turn On…), the key saved to
+/// and removed from the key store (an in-memory one: never the Keychain), the model and the CLI chosen, and the choices
+/// kept in AppSettings. The demo writer answers every health check.
 @MainActor
 final class AISettingsTests: XCTestCase {
     /// The tab's height cap: well under Accounts' 760 pt, so it never scrolls whatever the provider shows.
@@ -50,6 +51,47 @@ final class AISettingsTests: XCTestCase {
 
     private var sheets: [AppAlert] = []
     private var answer = 1
+
+    /// The privacy sheet's body before a CLI's own sentence, word for word (§5.33).
+    private static func sheetBody(company: String) -> String {
+        "When you press Write, what the draft is written from goes to \(company): for a reply, the conversation you\u{2019}re "
+            + "replying to (newest messages first, older ones shortened); for a new message, its subject and the first names of "
+            + "the people in To; for a forward, the same and the message you\u{2019}re forwarding. Your notes go with each, and "
+            + "your first name when Paper knows it. Email addresses from your mail, your recipients\u{2019} addresses, "
+            + "attachments and any other mail are never sent. Nothing is sent until you press Write."
+    }
+
+    /// Defaults as a version before 1.21 left them: `kind` chosen and turned on past the sheet that asked about replies,
+    /// which wrote `aiConsent` and nothing else. No code writes that key alone any more, so it is put there by hand.
+    private func defaultsTurnedOnForRepliesOnly(_ kind: AIProviderKind = .claudeAPI) throws -> UserDefaults {
+        let defaults = try throwawayDefaults()
+        defaults.set(kind.rawValue, forKey: "aiProvider")
+        defaults.set([kind.rawValue], forKey: "aiConsent")
+        return defaults
+    }
+
+    /// Runs a write of `writing` through `center`'s writer to its end: how it stopped, or the error it ended with.
+    private func ending(of writing: WriteKind, _ center: HelpMeWrite, _ configuration: AIProviderConfiguration) -> Result<AIStop, AIError>? {
+        let request = AIWriteRequest(kind: writing, instructions: "Write it.", transcript: "", task: "Say yes")
+        let field = AIFieldID(name: "settings")
+        let stream = center.writer.write(request, using: configuration, in: field, action: AIUserAction(userPressed: .write))
+        var ending: Result<AIStop, AIError>?
+        var isOver = false
+        Task { @MainActor in
+            do {
+                for try await event in stream {
+                    if case .finished(let stop) = event { ending = .success(stop) }
+                }
+            } catch {
+                ending = .failure(AIError.from(error))
+            }
+            isOver = true
+        }
+        // The stream ends a turn before the writer lets go of the field: the next write here waits for both.
+        XCTAssertTrue(ListTestSupport.spin(until: { isOver && !center.writer.isWriting(in: field) }, timeout: 5),
+                      "\(writing): the write ends")
+        return ending
+    }
 
     // MARK: The tab
 
@@ -199,22 +241,25 @@ final class AISettingsTests: XCTestCase {
         XCTAssertNil(model.caption)
         model.setProvider(.claudeAPI)
         let sheet = try XCTUnwrap(sheets.last, "the notice shows as the provider is chosen")
-        XCTAssertEqual(sheet.title, "Use Claude to help write replies?")
+        XCTAssertEqual(sheet.title, "Use Claude to help you write?")
         XCTAssertEqual(sheet.buttons.map(\.title), ["Cancel", "Turn On"], "Cancel is the default: ↩ turns nothing on")
         XCTAssertEqual(sheet.escapeIndex, 0)
-        XCTAssertTrue(sheet.body.hasPrefix("When you press Write, the conversation you\u{2019}re replying to (newest messages first, older ones shortened)"))
-        XCTAssertTrue(sheet.body.contains("Nothing is sent until you press Write."))
-        XCTAssertTrue(sheet.body.contains("Anthropic"))
+        XCTAssertEqual(sheet.body, Self.sheetBody(company: "Anthropic"), "what goes for each kind of write, what never does, and when")
         XCTAssertEqual(settings.aiProvider, .claudeAPI)
         XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, demo: false), "Turn On gives the permission")
+        for writing in WriteKind.allCases {
+            XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, writing: writing, demo: false), "for everything the sheet names: \(writing)")
+        }
         XCTAssertTrue(model.hasConsent)
         XCTAssertFalse(model.needsTurnOn)
-        XCTAssertEqual(model.caption, "Only when you press Write, the conversation you\u{2019}re replying to and your notes go to "
-            + "Anthropic. Choose Off to stop.")
+        XCTAssertFalse(model.offersTurnOn, "nothing is left to ask")
+        XCTAssertEqual(model.caption, "Only when you press Write, the message you\u{2019}re writing and the mail it answers or forwards "
+            + "go to Anthropic. Choose Off to stop.")
 
         // Another provider: its own sheet; Turn On moves the permission to it.
         model.setProvider(.codex)
-        XCTAssertEqual(sheets.last?.title, "Use Codex to help write replies?")
+        XCTAssertEqual(sheets.last?.title, "Use Codex to help you write?")
+        XCTAssertTrue(sheets.last?.body.hasPrefix("When you press Write, what the draft is written from goes to OpenAI: ") ?? false)
         XCTAssertTrue(sheets.last?.body.hasSuffix("Through Codex, under your OpenAI account\u{2019}s privacy settings.") ?? false)
         XCTAssertEqual(settings.aiProvider, .codex)
         XCTAssertTrue(settings.hasAIConsent(for: .codex, demo: false))
@@ -235,7 +280,7 @@ final class AISettingsTests: XCTestCase {
         model.setProvider(.claudeCode)
         answer = 0
         model.setProvider(.openAIAPI)
-        XCTAssertEqual(sheets.last?.title, "Use OpenAI to help write replies?")
+        XCTAssertEqual(sheets.last?.title, "Use OpenAI to help you write?")
         XCTAssertEqual(model.provider, .claudeCode, "Cancel puts the popup back to what it was")
         XCTAssertEqual(settings.aiProvider, .claudeCode)
         XCTAssertTrue(settings.hasAIConsent(for: .claudeCode, demo: false), "and leaves its permission")
@@ -264,12 +309,291 @@ final class AISettingsTests: XCTestCase {
         XCTAssertNotEqual(model.status, .needsSetup(AISettingsModel.notTurnedOnWords))
     }
 
+    // MARK: Turned on before the sheet named new messages and forwards
+
+    /// Permission is by what is written (§5.56). A Turn On from before the sheet named new messages and forwards keeps
+    /// replies ready and makes nothing else ready; nothing is carried over to the new key. Settings › AI says “On for
+    /// replies only” with Turn On…, which shows the sheet as it reads now: Cancel leaves replies on, Turn On gives the rest.
+    func testAnEarlierTurnOnStandsForRepliesOnlyUntilTheNewSheetsTurnOn() throws {
+        let defaults = try defaultsTurnedOnForRepliesOnly()
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, demo: false))
+        XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, writing: .reply, demo: false), "a reply needs what it always did")
+        XCTAssertFalse(settings.hasAIConsent(for: .claudeAPI, writing: .newMessage, demo: false))
+        XCTAssertFalse(settings.hasAIConsent(for: .claudeAPI, writing: .forward, demo: false))
+        XCTAssertNil(defaults.object(forKey: "aiConsent.2"), "nothing is carried over: absence means not given")
+
+        let environment = try environment()
+        let center = environment.helpMeWrite
+        let model = model(settings, environment, choice: 0)
+        model.refresh()
+        XCTAssertEqual(model.status, .needsSetup("On for replies only"))
+        XCTAssertTrue(model.isOnForRepliesOnly)
+        XCTAssertTrue(model.offersTurnOn, "Turn On… beside the words, as beside “Not turned on yet”")
+        XCTAssertFalse(model.needsTurnOn, "it was turned on")
+        XCTAssertTrue(model.hasConsent)
+        XCTAssertTrue(sheets.isEmpty, "opening the tab shows no sheet")
+        XCTAssertTrue(center.availability(for: .reply).isReady, "replies are written as they were")
+        for writing in [WriteKind.newMessage, .forward] {
+            XCTAssertEqual(center.availability(for: writing), .unavailable(reason: "Help Me Write is on for replies only"), "\(writing)")
+        }
+
+        // Cancel leaves replies on, and the rest as it was.
+        model.turnOnChosenProvider()
+        XCTAssertEqual(sheets.count, 1)
+        XCTAssertEqual(sheets.last?.title, "Use Claude to help you write?")
+        XCTAssertEqual(sheets.last?.body, Self.sheetBody(company: "Anthropic"), "the sheet as it reads now")
+        XCTAssertEqual(model.status, .needsSetup("On for replies only"))
+        XCTAssertEqual(model.provider, .claudeAPI)
+        XCTAssertEqual(settings.aiProvider, .claudeAPI)
+        XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, writing: .reply, demo: false), "Cancel leaves replies on")
+        XCTAssertFalse(settings.hasAIConsent(for: .claudeAPI, writing: .newMessage, demo: false))
+        XCTAssertNil(defaults.object(forKey: "aiConsent.2"))
+        XCTAssertTrue(center.availability(for: .reply).isReady)
+
+        // Turn On: everything the sheet names, kept under both keys.
+        answer = 1
+        model.turnOnChosenProvider()
+        XCTAssertEqual(sheets.count, 2)
+        XCTAssertFalse(model.isOnForRepliesOnly)
+        XCTAssertFalse(model.offersTurnOn)
+        XCTAssertTrue(model.status.isReady, "“Ready · …”, as before")
+        for writing in WriteKind.allCases {
+            XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, writing: writing, demo: false), "\(writing)")
+            XCTAssertTrue(center.availability(for: writing).isReady, "\(writing)")
+        }
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent"), ["claudeAPI"])
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.2"), ["claudeAPI"])
+        model.turnOnChosenProvider()
+        XCTAssertEqual(sheets.count, 2, "there is nothing left to ask")
+        let relaunched = AppSettings(defaults: defaults)
+        XCTAssertTrue(relaunched.hasAIConsent(for: .claudeAPI, writing: .forward, demo: false), "kept across launches")
+    }
+
+    /// “On for replies only” stands where “Ready · …” would, a Check's good answer included. A provider that cannot write
+    /// says why first, as it always did (replies wait on that too), and Turn On… waits until it can.
+    func testOnForRepliesOnlyStandsWhereReadyWouldAndNeverHidesWhatKeepsRepliesFromBeingWritten() throws {
+        let settings = AppSettings(defaults: try defaultsTurnedOnForRepliesOnly())
+        let environment = try environment()
+        let script = try XCTUnwrap(environment.helpMeWrite.demoScript)
+        let model = model(settings, environment)
+        model.refresh()
+        XCTAssertEqual(model.status, .needsSetup("On for replies only"))
+        model.check()
+        XCTAssertEqual(model.status, .checking)
+        XCTAssertTrue(model.offersTurnOn, "Turn On… stays beside a check")
+        XCTAssertTrue(ListTestSupport.spin(until: { model.status != .checking }, timeout: 3))
+        XCTAssertEqual(model.status, .needsSetup("On for replies only"), "a check that finds it ready changes nothing")
+
+        script.health = .needsSetup(reason: "Add your API key")
+        model.check()
+        XCTAssertTrue(ListTestSupport.spin(until: { model.status != .checking }, timeout: 3))
+        XCTAssertEqual(model.status, .needsSetup("Add your API key"), "what keeps replies from being written is said first")
+        XCTAssertTrue(model.isOnForRepliesOnly)
+        XCTAssertFalse(model.offersTurnOn, "and Turn On… waits for it")
+        model.turnOnChosenProvider()
+        XCTAssertTrue(sheets.isEmpty)
+        model.refresh()
+        XCTAssertEqual(model.status, .needsSetup("Add your API key"), "as the tab opens again too")
+
+        script.health = .ready(detail: "Ready \u{00b7} Claude Opus 5.5")
+        model.check()
+        XCTAssertTrue(ListTestSupport.spin(until: { model.status != .checking }, timeout: 3))
+        XCTAssertEqual(model.status, .needsSetup("On for replies only"))
+        XCTAssertTrue(model.offersTurnOn)
+        model.turnOnChosenProvider()
+        XCTAssertEqual(sheets.count, 1)
+        XCTAssertEqual(model.status, .ready("Ready \u{00b7} Claude Opus 5.5"), "after Turn On, “Ready · …” as before")
+
+        // A provider never turned on says only that, whatever its state: nothing can be written.
+        let never = AppSettings(defaults: try throwawayDefaults())
+        never.aiProvider = .openAIAPI
+        script.health = .needsSetup(reason: "Add your API key")
+        let neverModel = self.model(never, environment, choice: 0)
+        neverModel.refresh()
+        XCTAssertEqual(neverModel.status, .needsSetup("Not turned on yet"))
+        XCTAssertTrue(neverModel.offersTurnOn)
+    }
+
+    /// Off, or another provider turned on in its place, takes back everything a Turn On gave: both keys, so nothing of a
+    /// withdrawn provider is left standing for a new message or a forward.
+    func testOffAndAReplacementWithdrawBothKeys() throws {
+        let defaults = try throwawayDefaults()
+        let settings = AppSettings(defaults: defaults)
+        let environment = try environment()
+        let model = model(settings, environment)
+        model.setProvider(.claudeAPI)
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent"), ["claudeAPI"])
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.2"), ["claudeAPI"], "Turn On writes both")
+
+        model.setProvider(.openAIAPI)
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent"), ["openAIAPI"])
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.2"), ["openAIAPI"], "the one it replaced leaves both")
+        for writing in WriteKind.allCases {
+            XCTAssertFalse(settings.hasAIConsent(for: .claudeAPI, writing: writing, demo: false), "\(writing)")
+            XCTAssertTrue(settings.hasAIConsent(for: .openAIAPI, writing: writing, demo: false), "\(writing)")
+        }
+
+        model.setProvider(nil)
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent"), [])
+        XCTAssertEqual(defaults.stringArray(forKey: "aiConsent.2"), [], "Off clears both")
+        for writing in WriteKind.allCases {
+            XCTAssertFalse(settings.hasAIConsent(for: .openAIAPI, writing: writing, demo: false), "\(writing)")
+            XCTAssertEqual(environment.helpMeWrite.availability(for: writing), .off, "\(writing)")
+        }
+        XCTAssertFalse(AppSettings(defaults: defaults).hasAIConsent(for: .openAIAPI, writing: .reply, demo: false), "and stays off")
+
+        // One on for replies only: Off takes that too, and another provider chosen in its place is asked for everything.
+        let earlier = try defaultsTurnedOnForRepliesOnly()
+        let earlierSettings = AppSettings(defaults: earlier)
+        let earlierModel = self.model(earlierSettings, try self.environment())
+        earlierModel.refresh()
+        earlierModel.setProvider(.claudeCode)
+        XCTAssertEqual(earlier.stringArray(forKey: "aiConsent"), ["claudeCode"], "the earlier Turn On goes with its provider")
+        XCTAssertEqual(earlier.stringArray(forKey: "aiConsent.2"), ["claudeCode"])
+        XCTAssertFalse(earlierModel.offersTurnOn)
+        earlierModel.setProvider(nil)
+        XCTAssertFalse(earlierSettings.hasAIConsent(for: .claudeCode, demo: false))
+
+        // The second key alone gives nothing: a new message or a forward needs both.
+        let odd = try throwawayDefaults()
+        odd.set(["codex"], forKey: "aiConsent.2")
+        for writing in WriteKind.allCases {
+            XCTAssertFalse(AppSettings(defaults: odd).hasAIConsent(for: .codex, writing: writing, demo: false), "\(writing)")
+        }
+    }
+
+    /// The writer checks again, with the request's own kind: no path sends a new message or a forward on a Turn On
+    /// given for replies, whatever asked for it. A reply goes as it always did.
+    func testTheWriterRefusesMoreThanARepliesTurnOnAllows() throws {
+        let settings = AppSettings(defaults: try defaultsTurnedOnForRepliesOnly())
+        let environment = try environment()
+        let center = environment.helpMeWrite
+        center.settings = settings
+        let script = try XCTUnwrap(center.demoScript)
+        script.delay = .zero
+        let configuration = try XCTUnwrap(center.configuration)
+        XCTAssertEqual(configuration.kind, .claudeAPI)
+        for writing in [WriteKind.newMessage, .forward] {
+            XCTAssertEqual(ending(of: writing, center, configuration), .failure(.consentRequired), "\(writing)")
+            XCTAssertEqual(center.consentReason(for: .claudeAPI, writing: writing), "Help Me Write is on for replies only")
+            XCTAssertEqual(center.consentReason(for: .codex, writing: writing), "Turn it on in Settings \u{203a} AI",
+                           "one never turned on says that instead")
+        }
+        XCTAssertTrue(script.requests.isEmpty, "nothing reached the provider")
+        XCTAssertEqual(ending(of: .reply, center, configuration), .success(.done))
+        XCTAssertEqual(script.requests.map(\.kind), [.reply])
+
+        settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        XCTAssertEqual(ending(of: .newMessage, center, configuration), .success(.done), "after the new sheet's Turn On")
+        XCTAssertEqual(ending(of: .forward, center, configuration), .success(.done))
+        XCTAssertEqual(script.requests.map(\.kind), [.reply, .newMessage, .forward])
+    }
+
+    /// The demo sends nothing whatever it writes, so a Turn On given there before stands for all of it: it is not asked
+    /// again, and it never stands for the user's real mail.
+    func testTheDemoIsNotAskedAgain() throws {
+        let defaults = try throwawayDefaults()
+        defaults.set("claudeAPI", forKey: "aiProvider.demo")
+        defaults.set(["claudeAPI"], forKey: "aiConsent.demo")
+        let settings = AppSettings(defaults: defaults)
+        let demo = HelpMeWrite.demo(isDemo: true)
+        demo.settings = settings
+        demo.presentAlert = { [weak self] alert, _, done in
+            self?.sheets.append(alert)
+            done(1)
+        }
+        let model = AISettingsModel(settings: settings, center: demo)
+        model.locateExecutable = { _, _ in nil }
+        model.refresh()
+        XCTAssertEqual(model.provider, .claudeAPI)
+        XCTAssertFalse(model.isOnForRepliesOnly)
+        XCTAssertFalse(model.offersTurnOn)
+        XCTAssertTrue(model.status.isReady)
+        for writing in WriteKind.allCases {
+            XCTAssertTrue(demo.availability(for: writing).isReady, "\(writing)")
+            XCTAssertTrue(settings.hasAIConsent(for: .claudeAPI, writing: writing, demo: true), "\(writing)")
+            XCTAssertFalse(settings.hasAIConsent(for: .claudeAPI, writing: writing, demo: false), "never for real mail: \(writing)")
+        }
+        model.turnOnChosenProvider()
+        XCTAssertTrue(sheets.isEmpty, "no sheet, at the tab's opening or after")
+    }
+
+    /// A render of “On for replies only” runs in the demo, which never has that state: its caption reads as the app's
+    /// does for a provider that sends. Every other state the demo is shown in keeps the demo's caption.
+    func testARenderOfOnForRepliesOnlySaysWhatIsSent() throws {
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        let demo = HelpMeWrite.demo(isDemo: true)
+        demo.settings = settings
+        let model = AISettingsModel(settings: settings, center: demo)
+        model.showForSnapshot(provider: .claudeAPI, status: .ready("Ready \u{00b7} Claude Opus 5.5"), hasKey: true)
+        XCTAssertEqual(model.caption, AISettingsModel.demoCaption)
+        model.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.repliesOnlyWords), hasKey: true, repliesOnly: true)
+        XCTAssertEqual(model.caption, "Only when you press Write, the message you\u{2019}re writing and the mail it answers or forwards "
+            + "go to Anthropic. Choose Off to stop.")
+        model.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.notTurnedOnWords), hasKey: true, hasConsent: false)
+        XCTAssertEqual(model.caption, AISettingsModel.demoCaption, "the next state is the demo's again")
+    }
+
+    /// “On for replies only” has the shape “Not turned on yet” has: its words with Turn On… beside them on one row, so the
+    /// tab is laid out exactly as it is for a provider never turned on, within its cap and its width.
+    func testOnForRepliesOnlyHasTheShapeOfNotTurnedOnYet() throws {
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        let environment = try environment()
+        let model = model(settings, environment)
+        let view = NSHostingView(rootView: QuireThemeRoot(AISettingsView(model: model)))
+        let window = host(view)
+        defer { close(window) }
+        model.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.notTurnedOnWords), hasKey: true, hasConsent: false)
+        fit(view)
+        XCTAssertTrue(model.needsTurnOn)
+        XCTAssertTrue(model.offersTurnOn)
+        let neverTurnedOn = view.fittingSize
+
+        model.showForSnapshot(provider: .claudeAPI, status: .needsSetup(AISettingsModel.repliesOnlyWords), hasKey: true, repliesOnly: true)
+        fit(view)
+        XCTAssertTrue(model.isOnForRepliesOnly)
+        XCTAssertFalse(model.needsTurnOn, "it was turned on, for replies")
+        XCTAssertTrue(model.offersTurnOn, "Turn On… shows beside the words")
+        XCTAssertEqual(model.status.words, "On for replies only")
+        XCTAssertEqual(view.fittingSize.height, neverTurnedOn.height, accuracy: 0.5, "the same rows")
+        XCTAssertLessThanOrEqual(view.fittingSize.height, Self.heightCap)
+        XCTAssertEqual(view.fittingSize.width, Quire.Layout.Settings.width, accuracy: 0.5, "the words and the button fit the column")
+
+        model.showForSnapshot(provider: .claudeAPI, status: .ready("Ready \u{00b7} Claude Opus 5.5"), hasKey: true)
+        XCTAssertFalse(model.offersTurnOn, "turned on for everything: nothing to ask")
+        XCTAssertFalse(model.isOnForRepliesOnly)
+    }
+
+    /// The words Settings › AI says of what is sent, word for word (§5.40), none of them about replies alone.
+    func testTheCaptionsSayWhatIsSentForEveryKindOfWrite() throws {
+        XCTAssertEqual(AISettingsView.offCaption, "Off: Help Me Write sends nothing anywhere. Choose a provider to draft messages with \u{2318}J.")
+        XCTAssertEqual(AISettingsModel.demoCaption, "In the demo, Help Me Write makes drafts up on this Mac. Nothing is sent.")
+        XCTAssertEqual(AISettingsModel.repliesOnlyWords, "On for replies only")
+        let settings = AppSettings(defaults: try throwawayDefaults())
+        let model = model(settings, try environment())
+        model.setProvider(.openAIAPI)
+        XCTAssertEqual(model.caption, "Only when you press Write, the message you\u{2019}re writing and the mail it answers or forwards "
+            + "go to OpenAI. Choose Off to stop.")
+        for kind in AIProviderKind.selectable {
+            let sheet = AppAlert.helpMeWriteTurnOn(kind)
+            XCTAssertEqual(sheet.title, "Use \(kind.displayName) to help you write?")
+            XCTAssertTrue(sheet.body.hasPrefix(Self.sheetBody(company: kind.destination.displayName)), "\(kind)")
+            XCTAssertFalse(sheet.body.contains("to draft a reply"), "the sheet no longer asks about replies alone")
+        }
+        XCTAssertEqual(AppAlert.helpMeWriteTurnOn(.claudeAPI).body, Self.sheetBody(company: "Anthropic"))
+        XCTAssertEqual(AppAlert.helpMeWriteTurnOn(.claudeCode).body,
+                       Self.sheetBody(company: "Anthropic") + " Through Claude Code, under your Claude plan\u{2019}s privacy settings.")
+        XCTAssertEqual(AppAlert.helpMeWriteTurnOn(.codex).body,
+                       Self.sheetBody(company: "OpenAI") + " Through Codex, under your OpenAI account\u{2019}s privacy settings.")
+    }
+
     func testTheDemosSheetSaysNothingIsSent() throws {
         let demo = AppAlert.helpMeWriteTurnOn(.claudeAPI, demo: true)
         XCTAssertEqual(demo.title, "Try Help Me Write?")
-        XCTAssertEqual(demo.body, "In the demo, replies are made up on this Mac. Nothing is sent.")
+        XCTAssertEqual(demo.body, "In the demo, drafts are made up on this Mac. Nothing is sent.")
         XCTAssertEqual(demo.buttons.map(\.title), ["Cancel", "Turn On"])
-        XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Use Claude to help write replies?" })
+        XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Use Claude to help you write?" })
         XCTAssertTrue(AppAlert.specimens.contains { $0.title == "Try Help Me Write?" })
     }
 

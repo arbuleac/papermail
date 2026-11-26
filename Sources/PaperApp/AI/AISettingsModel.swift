@@ -6,7 +6,8 @@ import PaperCore
 /// Settings › AI (spec §5.40, §5.56): which provider Help Me Write uses, whether it can write now, its API key or CLI,
 /// and its model. Choosing a provider shows its privacy sheet at that moment: Turn On keeps the choice and gives it
 /// permission, Cancel puts the popup back, Off withdraws it. A provider chosen before 1.12 and never turned on says so,
-/// with Turn On….
+/// with Turn On…; so does one turned on before the sheet named new messages and forwards (1.21), which is on for replies
+/// only until that sheet's Turn On.
 ///
 /// Nothing here reaches a provider unless the user presses Check or Return on a typed key (spec §3b): the status as the tab opens
 /// or the provider changes comes from this Mac (a key's presence by its attributes alone, the CLI's file and the version
@@ -47,6 +48,9 @@ final class AISettingsModel: ObservableObject {
     static let keySavedPrompt = "Saved in your Keychain"
     /// The status line of a provider chosen but never turned on (one chosen before 1.12).
     static let notTurnedOnWords = "Not turned on yet"
+    /// The status line of a provider turned on before its sheet named new messages and forwards (before 1.21): it
+    /// writes replies as it did, and nothing else until it is turned on past the sheet as it reads now.
+    static let repliesOnlyWords = "On for replies only"
 
     @Published private(set) var provider: AIProviderKind?
     @Published private(set) var status: Status = .none
@@ -55,8 +59,11 @@ final class AISettingsModel: ObservableObject {
     /// What is typed in the key field: never the stored key, which is not read back into Settings.
     @Published var keyText = ""
     @Published private(set) var keyFailure: String?
-    /// The chosen provider has its permission (its privacy sheet's Turn On).
+    /// The chosen provider has its permission (its privacy sheet's Turn On), for replies at least.
     @Published private(set) var hasConsent = false
+    /// That permission covers everything Help Me Write writes: it was given past the sheet that names new messages and
+    /// forwards. False with `hasConsent` true is a Turn On from before that sheet.
+    @Published private(set) var hasConsentForEveryKind = false
     /// The CLI shown in the CLI row: the one chosen with Choose… while it is there, else the one found in the standard
     /// folders; nil when there is none.
     @Published private(set) var cliPath: String?
@@ -67,6 +74,9 @@ final class AISettingsModel: ObservableObject {
     /// Bumped by every check, so a slow answer for an earlier provider is dropped.
     private var generation = 0
     private var isSnapshot = false
+    /// A snapshot shows a state the demo never has (on for replies only: the demo is never asked again), so its
+    /// caption reads as the app's does for a provider that sends, though the render runs in the demo.
+    private var snapshotShowsWhatIsSent = false
 
     /// The window the privacy sheet goes on: Settings'. The Settings window sets it.
     var window: () -> NSWindow? = { nil }
@@ -101,18 +111,39 @@ final class AISettingsModel: ObservableObject {
     }
 
     /// The caption under the rows: what is sent, when, and how to stop it. Nil while Help Me Write is off. In the demo,
-    /// whose writer makes replies up on the Mac, it says nothing goes anywhere.
+    /// whose writer makes drafts up on the Mac, it says nothing goes anywhere.
     var caption: String? {
         guard let provider else { return nil }
-        if center.makesUpReplies(for: provider) { return Self.demoCaption }
-        return "Only when you press Write, the conversation you\u{2019}re replying to and your notes go to "
+        if center.makesUpReplies(for: provider), !snapshotShowsWhatIsSent { return Self.demoCaption }
+        return "Only when you press Write, the message you\u{2019}re writing and the mail it answers or forwards go to "
             + "\(provider.destination.displayName). Choose Off to stop."
     }
 
     /// The chosen provider was never turned on (chosen before 1.12): it writes nothing until its sheet's Turn On.
     var needsTurnOn: Bool { provider != nil && !hasConsent }
 
-    static let demoCaption = "In the demo, Help Me Write makes replies up on this Mac. Nothing is sent."
+    /// The chosen provider was turned on before its sheet named new messages and forwards: replies are written as they
+    /// were, the rest waits for Turn On….
+    var isOnForRepliesOnly: Bool { provider != nil && hasConsent && !hasConsentForEveryKind }
+
+    /// Turn On… shows beside the status: there is a permission the sheet has yet to be asked for, and the status line
+    /// says so (or is being checked). One on for replies only whose provider cannot write says that reason instead,
+    /// and Turn On… waits for it.
+    var offersTurnOn: Bool {
+        if needsTurnOn { return true }
+        return isOnForRepliesOnly && (status == .needsSetup(Self.repliesOnlyWords) || status == .checking)
+    }
+
+    /// What the status line says of the provider's `health`. A provider never turned on says only that: nothing can be
+    /// written, whatever its state. One on for replies only says so where “Ready · …” would stand; while it cannot
+    /// write it says why, as it always did, since replies wait on that too.
+    private func statusLine(for health: AIHealth) -> Status {
+        if needsTurnOn { return .needsSetup(Self.notTurnedOnWords) }
+        let own = Status(health)
+        return isOnForRepliesOnly && own.isReady ? .needsSetup(Self.repliesOnlyWords) : own
+    }
+
+    static let demoCaption = "In the demo, Help Me Write makes drafts up on this Mac. Nothing is sent."
 
     /// The key field's placeholder: where a stored key is, without reading it.
     var keyPrompt: String { hasKey ? Self.keySavedPrompt : Self.keyPrompt }
@@ -132,7 +163,10 @@ final class AISettingsModel: ObservableObject {
         } else {
             hasKey = false
         }
-        hasConsent = provider.map { center.hasConsent(for: $0) && $0 != .demo } ?? false
+        hasConsent = provider.map { center.hasConsent(for: $0, writing: .reply) && $0 != .demo } ?? false
+        hasConsentForEveryKind = provider.map { kind in
+            kind != .demo && WriteKind.allCases.allSatisfy { center.hasConsent(for: kind, writing: $0) }
+        } ?? false
         if let provider, provider.executableName != nil {
             cliPath = locateExecutable(provider, settings.aiCLIPath(for: provider, demo: center.isDemo))
         } else {
@@ -148,11 +182,7 @@ final class AISettingsModel: ObservableObject {
             status = .none
             return
         }
-        if needsTurnOn {
-            status = .needsSetup(Self.notTurnedOnWords)
-            return
-        }
-        status = Status(center.checkedHealth[configuration] ?? center.writer.localHealth(of: configuration))
+        status = statusLine(for: center.checkedHealth[configuration] ?? center.writer.localHealth(of: configuration))
     }
 
     /// Check, or Return on a typed key: the provider's own check (the models list, which sends the key and nothing else; the
@@ -171,7 +201,7 @@ final class AISettingsModel: ObservableObject {
             let health = await center.writer.check(configuration, action: action)
             guard let self, self.generation == mine, !Task.isCancelled else { return }
             center.rememberCheck(health, for: configuration)
-            self.status = self.needsTurnOn ? .needsSetup(Self.notTurnedOnWords) : Status(health)
+            self.status = self.statusLine(for: health)
         }
     }
 
@@ -202,9 +232,10 @@ final class AISettingsModel: ObservableObject {
         }
     }
 
-    /// Turn On… beside a provider chosen but never turned on: its sheet, as if it were chosen now.
+    /// Turn On… beside a provider chosen but never turned on, or on for replies only: its sheet, as if it were chosen
+    /// now. Cancel leaves what it had: nothing for the first, replies for the second.
     func turnOnChosenProvider() {
-        guard let provider, needsTurnOn, !isSnapshot else { return }
+        guard let provider, offersTurnOn, !isSnapshot else { return }
         askToTurnOn(provider) { [weak self] _ in
             self?.readState()
             self?.showLocalHealth()
@@ -306,14 +337,18 @@ final class AISettingsModel: ObservableObject {
 
     // MARK: Snapshots
 
-    /// Shows a state for a snapshot, writing nothing: the provider, its status line, a stored key and the permission.
-    func showForSnapshot(provider: AIProviderKind?, status: Status, hasKey: Bool = false, hasConsent: Bool = true, cliPath: String? = nil) {
+    /// Shows a state for a snapshot, writing nothing: the provider, its status line, a stored key and the permission
+    /// (`repliesOnly`: one given before the sheet named new messages and forwards).
+    func showForSnapshot(provider: AIProviderKind?, status: Status, hasKey: Bool = false, hasConsent: Bool = true,
+                         repliesOnly: Bool = false, cliPath: String? = nil) {
         isSnapshot = true
         healthTask?.cancel()
         self.provider = provider
         self.status = provider == nil ? .none : status
         self.hasKey = hasKey
         self.hasConsent = hasConsent
+        hasConsentForEveryKind = hasConsent && !repliesOnly
+        snapshotShowsWhatIsSent = repliesOnly
         self.cliPath = cliPath
         keyText = ""
         keyFailure = nil

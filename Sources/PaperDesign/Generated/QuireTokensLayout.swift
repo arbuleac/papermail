@@ -9,7 +9,7 @@ extension Quire {
     public enum Layout {
         public enum Window {
             public static let dividerHit: CGFloat = 6
-            public static let defaultWidth: CGFloat = 1304
+            public static let defaultWidth: CGFloat = 1318
             public static let defaultHeight: CGFloat = 800
             public static let minWidth: CGFloat = 960
             public static let minHeight: CGFloat = 600
@@ -33,21 +33,29 @@ extension Quire {
             public static let size: CGFloat = 12
             public static let gap: CGFloat = 8
             public static let endX: CGFloat = 72
+            public static let clearX: CGFloat = 76
             public static let originX26: CGFloat = 19
             public static let size26: CGFloat = 14
             public static let gap26: CGFloat = 9
             public static let endX26: CGFloat = 79
+            public static let clearX26: CGFloat = 84
             public static let toolbarContainer26: CGFloat = 66
             public static let tolerance: CGFloat = 0.5
         }
         public enum Rail {
-            public static let width: CGFloat = 76
+            public static let width: CGFloat = 92
+            public static let minWidth: CGFloat = 76
             public static let lightsClearance: CGFloat = 4
-            public static let width26: CGFloat = 84
+            public static let width26: CGFloat = 98
+            public static let namesWidth: CGFloat = 220
+            public static let rowInset: CGFloat = 12
+            public static let nameGap: CGFloat = 6
+            public static let rowTrailing: CGFloat = 11
+            public static let nameCountGap: CGFloat = 8
             public static let tile: CGFloat = 38
             public static let tileHit: CGFloat = 44
             public static let tileRadius: CGFloat = 11
-            public static let tileCenterX: CGFloat = 38
+            public static let tileCenterX: CGFloat = 46
             public static let folderTop: CGFloat = 62
             public static let folderPitch: CGFloat = 44
             public static let folderGlyph: CGFloat = 16
@@ -419,7 +427,7 @@ extension Quire {
             public static let joinMinWidth: CGFloat = 120
             public static let joinMinHeight: CGFloat = 22
             public static let joinLabelMinWidth: CGFloat = 150
-            public static let detailsWidth: CGFloat = 240
+            public static let detailsWidth: CGFloat = 300
             public static let detailsGap: CGFloat = 8
             public static let detailsRadius: CGFloat = 8
             public static let detailsPadTop: CGFloat = 12
@@ -430,6 +438,18 @@ extension Quire {
             public static let detailsPlaceTop: CGFloat = 4
             public static let detailsActionsTop: CGFloat = 12
             public static let detailsActionGap: CGFloat = 4
+            public static let detailsMaxHeight: CGFloat = 560
+            public static let detailsMiddleMinHeight: CGFloat = 80
+            public static let detailsSectionTop: CGFloat = 10
+            public static let detailsRowGap: CGFloat = 4
+            public static let detailsLineTop: CGFloat = 2
+            public static let detailsStatusTop: CGFloat = 6
+            public static let detailsCopyButton: CGFloat = 22
+            public static let detailsCopyGap: CGFloat = 4
+            public static let detailsMailPadX: CGFloat = 6
+            public static let detailsFooterGap: CGFloat = 8
+            public static let detailsNotesLines: CGFloat = 6
+            public static let detailsGuestsKept: CGFloat = 100
             public static let ghostEdge: CGFloat = 2
             public static let dropDash: [CGFloat] = [4, 3]
             public static let dropRing: CGFloat = 2

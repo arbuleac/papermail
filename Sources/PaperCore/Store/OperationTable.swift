@@ -106,10 +106,49 @@ enum OperationTable {
         }
     }
 
+    /// Puts back the answer each calendar row had before a given-up answer, unless a newer live answer rules the row
+    /// (whose `previous` then names what the given-up one replaced) or a read has since written the provider's word.
+    private static func giveBackCalendar(_ operation: Operation, in db: Database) throws {
+        guard case .answerInvitation(let answer) = operation.change, let copies = answer.calendar, !copies.previous.isEmpty
+        else { return }
+        var rows: [String: CalendarEventTable.Stored] = [:]
+        for id in copies.previous.keys {
+            if let row = try CalendarEventTable.stored(id: id, in: db) { rows[id] = row }
+        }
+        let createdAt = MailStoreCodec.milliseconds(operation.createdAt)
+        let newer = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT id, change_json FROM operations
+            WHERE account_id = ? AND status IN \(liveStatusList) AND substr(change_json, 1, 20) = '{"answerInvitation":'
+              AND (created_at > ? OR (created_at = ? AND rowid > (SELECT rowid FROM operations WHERE id = ?)))
+            ORDER BY created_at, rowid
+            """), arguments: [operation.accountID.rawValue, createdAt, createdAt, operation.id])
+            .compactMap { row -> (id: String, answer: InvitationAnswer)? in
+                guard let change = try? MailStoreCodec.decode(MetadataChange.self, from: row[1] as String),
+                      let answer = CalendarAnswers.answer(of: change) else { return nil }
+                return (row[0], answer)
+            }
+        let (putBack, rewritten) = CalendarAnswers.givingBack(answer, rows: rows, newer: newer)
+        for row in putBack { try CalendarEventTable.save(row, in: db) }
+        for (id, newerAnswer) in rewritten {
+            try db.cachedStatement(sql: "UPDATE operations SET change_json = ? WHERE id = ?")
+                .execute(arguments: [try MailStoreCodec.json(MetadataChange.answerInvitation(newerAnswer)), id])
+        }
+    }
+
     // MARK: Writes
 
     static func enqueue(_ operation: Operation, in db: Database) throws {
         try MailSchema.ensureTouchedTable(db)
+        // An answer shows on the calendar in its own transaction: the rows it covers take it, and what each said goes
+        // into the answer itself, which a give-up puts back.
+        var operation = operation
+        if case .answerInvitation(let answer) = operation.change, let scope = answer.calendar?.scope,
+           let (filled, rows) = CalendarAnswers.enqueuing(
+            answer, accountID: operation.accountID,
+            rows: try CalendarEventTable.candidates(for: scope, accountID: operation.accountID, in: db)) {
+            for row in rows { try CalendarEventTable.save(row, in: db) }
+            operation.change = .answerInvitation(filled)
+        }
         var replaced: [MessageMetadata] = []
         for target in operation.targets {
             guard let current = try MessageTable.fetch(target, in: db) else { continue }
@@ -143,12 +182,16 @@ enum OperationTable {
         // in the transaction that marks the conversation, rather than waiting for a poll that will not come.
         if operation.status == .failed, let previous, previous.isLive {
             try giveBack(operation, in: db)
+            try giveBackCalendar(operation, in: db)
         }
         try touchTargets(of: operation.id, in: db)
         try ConversationTable.refreshTouched(db)
         // After the refresh, so the summary rows the mark lands on exist and are current.
         try FailedOperationMarks.operationWritten(operation, previousStatus: previous, in: db)
         try FailedOperationMarks.targetsTaken(from: operation, in: taken, db: db)
+        if operation.status == .confirmed, previous != .confirmed, let answer = try queuedAnswer(id: operation.id, in: db) {
+            try settleFailedCalendarAnswers(by: answer, in: db)
+        }
     }
 
     /// An operation that stays live (the outbox's write-ahead before each attempt, a retry's backoff, a throttle, a
@@ -206,10 +249,58 @@ enum OperationTable {
 
     /// Removes an operation the provider applied, which settles failures created before it.
     static func confirm(id: String, in db: Database) throws {
+        // Read before the delete: the failed answers it settles are those queued before it.
+        let answer = try queuedAnswer(id: id, in: db)
         guard let removed = try remove(id: id, in: db) else { return }
         try FailedOperationMarks.settle(
             .confirmed(createdAt: removed.createdAt), operationID: id, conversations: removed.conversations, in: db
         )
+        if let answer { try settleFailedCalendarAnswers(by: answer, in: db) }
+    }
+
+    /// An answer with a calendar part, with where it stands in the queue.
+    private struct QueuedAnswer {
+        var answer: InvitationAnswer
+        var accountID: String
+        var createdAt: Int64
+        var rowid: Int64
+    }
+
+    private static func queuedAnswer(id: String, in db: Database) throws -> QueuedAnswer? {
+        guard let row = try Row.fetchOne(db.cachedStatement(sql: """
+            SELECT change_json, account_id, created_at, rowid FROM operations
+            WHERE id = ? AND substr(change_json, 1, 20) = '{"answerInvitation":'
+            """), arguments: [id]),
+            let change = try? MailStoreCodec.decode(MetadataChange.self, from: row[0] as String),
+            let answer = CalendarAnswers.answer(of: change) else { return nil }
+        return QueuedAnswer(answer: answer, accountID: row[1], createdAt: row[2], rowid: row[3])
+    }
+
+    /// `CalendarAnswers.settling`: the account's failed answers queued before a confirmed one lose the rows it covers, and
+    /// one left with none goes (through `delete`, so the conversations it marked settle as a pruned failure's do).
+    private static func settleFailedCalendarAnswers(by confirmed: QueuedAnswer, in db: Database) throws {
+        let failed = try Row.fetchAll(db.cachedStatement(sql: """
+            SELECT id, change_json FROM operations
+            WHERE account_id = ? AND status = 'failed' AND substr(change_json, 1, 20) = '{"answerInvitation":'
+              AND (created_at < ? OR (created_at = ? AND rowid < ?))
+            ORDER BY created_at, rowid
+            """), arguments: [confirmed.accountID, confirmed.createdAt, confirmed.createdAt, confirmed.rowid])
+            .compactMap { row -> (id: String, answer: InvitationAnswer)? in
+                guard let change = try? MailStoreCodec.decode(MetadataChange.self, from: row[1] as String),
+                      let answer = CalendarAnswers.answer(of: change) else { return nil }
+                return (row[0], answer)
+            }
+        guard !failed.isEmpty else { return }
+        var rows: [String: CalendarEvent] = [:]
+        for id in Set(failed.flatMap { $0.answer.calendar?.previous.keys.map { $0 } ?? [] }) {
+            if let row = try CalendarEventTable.stored(id: id, in: db)?.event { rows[id] = row }
+        }
+        let (deleted, rewritten) = CalendarAnswers.settling(confirmed.answer, rows: rows, failed: failed)
+        for (id, answer) in rewritten {
+            try db.cachedStatement(sql: "UPDATE operations SET change_json = ? WHERE id = ?")
+                .execute(arguments: [try MailStoreCodec.json(MetadataChange.answerInvitation(answer)), id])
+        }
+        for id in deleted { try delete(id: id, in: db) }
     }
 
     /// What the mark rules need from a deleted row, read before the delete because the targets cascade with it.

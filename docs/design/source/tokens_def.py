@@ -2,7 +2,7 @@
 and the rendered DESIGN-LANGUAGE.md. Colour order: light, dark, lightHC, darkHC."""
 
 NAME = "Quire"
-VERSION = "1.19.1"
+VERSION = "1.22.0"
 
 # The brand palette (docs/brand, spec §5.42), written once: `layout.brand` and the app icon's colours (`layout.appIcon`)
 # read it from here. The mark is black and white only: `paper` is the plane on the icon's tile and the one-colour mark on
@@ -250,13 +250,20 @@ MOTION = {
 }
 LAYOUT = {
  # defaultWidth = rail.width26 + list.defaultWidth + window.readerKeycapsMin + calendarPane.columnWidth (build.py checks it):
- # a new window's reader keeps its keycaps beside the day column (spec §3.2, §5.1, §5.54).
- "window": {"dividerHit": 6, "defaultWidth": 1304, "defaultHeight": 800, "minWidth": 960, "minHeight": 600, "titlebarZone": 52, "composerTitlebar": 28, "composerTitlebar26": 32,
+ # a new window's reader keeps its keycaps beside the day column (spec §3.2, §5.1, §5.54). minWidth holds the rail with
+ # its names, the narrowest list and the narrowest reader beside the day column's strip (build.py checks that too).
+ "window": {"dividerHit": 6, "defaultWidth": 1318, "defaultHeight": 800, "minWidth": 960, "minHeight": 600, "titlebarZone": 52, "composerTitlebar": 28, "composerTitlebar26": 32,
             "readerMinWidth": 400, "readerNarrow": 560, "readerKeycapsMin": 616},
  "readerWindow": {"defaultWidth": 840, "defaultHeight": 800, "minWidth": 520, "minHeight": 420},
- "trafficLights": {"mechanism": "emptyUnifiedToolbar", "centerY": 26, "originX": 20, "size": 12, "gap": 8, "endX": 72,
-                   "originX26": 19, "size26": 14, "gap26": 9, "endX26": 79, "toolbarContainer26": 66, "tolerance": 0.5},
- "rail": {"width": 76, "lightsClearance": 4, "width26": 84, "tile": 38, "tileHit": 44, "tileRadius": 11, "tileCenterX": 38,
+ # clearX: the first x clear of the lights, the larger of 76 and the smallest even number at least endX + rail.lightsClearance
+ # (the rail's width until 1.20); the minimal-mode masthead and a reader window's kicker count from it (§3.2).
+ "trafficLights": {"mechanism": "emptyUnifiedToolbar", "centerY": 26, "originX": 20, "size": 12, "gap": 8, "endX": 72, "clearX": 76,
+                   "originX26": 19, "size26": 14, "gap26": 9, "endX26": 79, "clearX26": 84, "toolbarContainer26": 66, "tolerance": 0.5},
+ # width = trafficLights.originX + endX, the lights' leading inset mirrored past their end, so the tiles sit under the
+ # lights' centre (§3.2): rounded up to an even number, never under minWidth; width26 from originX26 and endX26; tileCenterX
+ # is half of width (build.py checks all three). namesWidth is the rail with its names (§5.2), whatever the lights.
+ "rail": {"width": 92, "minWidth": 76, "lightsClearance": 4, "width26": 98, "namesWidth": 220, "rowInset": 12, "nameGap": 6, "rowTrailing": 11,
+          "nameCountGap": 8, "tile": 38, "tileHit": 44, "tileRadius": 11, "tileCenterX": 46,
           "folderTop": 62, "folderPitch": 44, "folderGlyph": 16, "folderDividerY": 285, "allMailTop": 294, "dividerWidth": 20, "groupGap": 20,
           "dividerGap": 16, "accountGap": 14, "accountPitch": 50, "face": 30, "faceAlpha": 0.14, "monogram": 14, "monogramTwoLetter": 12,
           "utility": 28, "utilityGlyph": 15, "addTopFromBottom": 92, "settingsTopFromBottom": 52, "marginRuleHeight": 24,
@@ -302,7 +309,8 @@ LAYOUT = {
                 "answerGlyph": 12, "attendeesMax": 4, "noticeTop": 10, "gapBelow": 16},
  # Day and week (spec §5.54): the day column beside the reader, its folded strip, and the week in the reader's place.
  # Points, except eventTintAlpha (the account ink's opacity over `sheet` in an event's face), coreStartHour and coreEndHour
- # (the hours of the day always open), blockMinutes and snapMinutes (minutes), maxSideBySide and allDayRowsMax (counts)
+ # (the hours of the day always open), blockMinutes and snapMinutes (minutes), maxSideBySide, allDayRowsMax,
+ # detailsNotesLines and detailsGuestsKept (counts)
  # and overlayShadow (the elevation of the column opened over the reader's edge). columnWidth and stripWidth include their
  # leading hairline, as the rail's and the list's widths include their trailing one (§3.2).
  "calendarPane": {"columnWidth": 240, "stripWidth": 28, "readerMinWithColumn": 400, "overlayShadow": "e2",
@@ -322,10 +330,13 @@ LAYOUT = {
                   "markLine": 1, "mentionLine": 2, "markDash": [3, 3], "markChipHeight": 18,
                   "markChipInset": 3, "markChipPadLeading": 5, "markChipPadTrailing": 7, "markChipGap": 4,
                   "pencilDash": [3, 2], "hatchLine": 1, "hatchPitch": 5, "joinMinWidth": 120,
-                  "joinMinHeight": 22, "joinLabelMinWidth": 150, "detailsWidth": 240, "detailsGap": 8,
+                  "joinMinHeight": 22, "joinLabelMinWidth": 150, "detailsWidth": 300, "detailsGap": 8,
                   "detailsRadius": 8, "detailsPadTop": 12, "detailsPadX": 14, "detailsPadBottom": 14,
                   "detailsTitleTop": 6, "detailsWhenTop": 2, "detailsPlaceTop": 4, "detailsActionsTop": 12,
-                  "detailsActionGap": 4, "ghostEdge": 2, "dropDash": [4, 3], "dropRing": 2,
+                  "detailsActionGap": 4, "detailsMaxHeight": 560, "detailsMiddleMinHeight": 80,
+                  "detailsSectionTop": 10, "detailsRowGap": 4, "detailsLineTop": 2, "detailsStatusTop": 6,
+                  "detailsCopyButton": 22, "detailsCopyGap": 4, "detailsMailPadX": 6, "detailsFooterGap": 8,
+                  "detailsNotesLines": 6, "detailsGuestsKept": 100, "ghostEdge": 2, "dropDash": [4, 3], "dropRing": 2,
                   "stripGlyph": 15, "stripBarWidth": 8, "stripBarRadius": 3, "stripLineInset": 3,
                   "footPadY": 10, "footGap": 6, "footLinesMax": 2, "blockMinutes": 30,
                   "snapMinutes": 15},
@@ -364,21 +375,23 @@ LAYOUT = {
               "formatRow": 36, "formatToggle": 28, "formatGap": 2, "formatGroupGap": 12,
               "linkPopoverWidth": 320, "linkPopoverPad": 12, "linkPopoverRadius": 8, "linkPopoverGap": 8,
               "linkPopoverAlign": "selectionStart", "linkPopoverOffsetY": 6, "popoverEdgeMin": 8, "pictureSelectedWash": 0.45},
- # Help me write at the caret (§5.56, 1.13): every affordance is drawn in the reply's own text, at or after the caret,
- # the selection or the draft, never in a bar. The ghost (“⌘J to write a reply”, “⌘J to write from your notes”) starts
- # `ghostGap` after the caret (or the quick reply's placeholder) on the caret's baseline, in the field's writing font; its
- # quiet keycap (no fill, a hairline, `keycapHeight` tall, `keycapPadX` each side of its legend) sits `keycapGap` from its
- # words. The notes ghost waits `ghostPause` after the last key; a selection settles `selectionSettle` after the last
- # keyboard change. The selection pill hangs `pillGap` under the selection's last line: a capsule `pillHeight` tall,
- # `pillPadX` in, its glyph `pillGlyph`, `pillGlyphGap` before “Rewrite”. A reserved block (the prompt line, the
- # afterline) is a gap in the text's flow under its anchor line, `blockGapTop` above its content and `blockGapBottom`
- # below. The prompt line is a `promptHeight` capsule, at most `promptMaxWidth` wide, `promptPadX` in, its glyph
- # `promptGlyph` and `promptGlyphGap` before the field; `chipsGap` under it the preset chips, `chipHeight` tall, their
- # words `chipPadX` in, `chipGap` apart. The afterline is one row `afterlineHeight` tall, its glyph `afterGlyph` and
- # `afterGlyphGap` before its words, `afterGap` between its parts. While a reply streams, the pencil (`pencilGlyph`)
- # sits `pencilGap` after the last letter and bobs `pencilBob` pt each way once every `pencilBobPeriod`, its esc keycap
- # `keycapGap` on. Text streaming in is drawn in `pencilInk` (ink2) and turns to ink as the reply lands. The notes ghost
- # shows once the user's own text holds `hintMinWords` words.
+ # Help me write at the caret (§5.56, 1.13; in every composer since 1.21): every affordance is drawn in the text being
+ # written, at or after the caret, the selection or the draft, never in a bar. The ghost (“⌘J to write a reply”, “⌘J to
+ # say what to write”, “⌘J to write from your notes”) starts `ghostGap` after the caret (or the quick reply's
+ # placeholder) on the caret's baseline, in the field's writing font; its quiet keycap (no fill, a hairline,
+ # `keycapHeight` tall, `keycapPadX` each side of its legend) sits `keycapGap` from its words. The notes ghost waits
+ # `ghostPause` after the last key; a selection settles `selectionSettle` after the last keyboard change. The selection
+ # pill hangs `pillGap` under the selection's last line: a capsule `pillHeight` tall, `pillPadX` in, its glyph
+ # `pillGlyph`, `pillGlyphGap` before “Rewrite”. A reserved block (the prompt line, the afterline) is a gap in the
+ # text's flow under its anchor line, `blockGapTop` above its content and `blockGapBottom` below. The prompt line is a
+ # `promptHeight` capsule, at most `promptMaxWidth` wide, `promptPadX` in, its glyph `promptGlyph` and `promptGlyphGap`
+ # before the field; `chipsGap` under it the preset chips, `chipHeight` tall, their words `chipPadX` in, `chipGap` apart
+ # (where no chip could run, on an empty new message, the block is the capsule alone, shorter by `chipsGap` and
+ # `chipHeight`). The afterline is one row `afterlineHeight` tall, its glyph `afterGlyph` and `afterGlyphGap` before its
+ # words, `afterGap` between its parts. While a reply streams, the pencil (`pencilGlyph`) sits `pencilGap` after the
+ # last letter and bobs `pencilBob` pt each way once every `pencilBobPeriod`, its esc keycap `keycapGap` on. Text
+ # streaming in is drawn in `pencilInk` (ink2) and turns to ink as the reply lands. The notes ghost shows once the
+ # user's own text holds `hintMinWords` words.
  "writeCaret": {"ghostGap": 6, "keycapHeight": 16, "keycapPadX": 4, "keycapGap": 5,
                 "ghostPause": "motion.duration.writeGhostPause", "selectionSettle": "motion.duration.writeSelectionSettle",
                 "pillGap": 4, "pillHeight": 24, "pillPadX": 9, "pillGlyph": 12, "pillGlyphGap": 5,
@@ -482,7 +495,7 @@ ICON = {
  "failed": "exclamationmark.triangle.fill", "upToDate": "checkmark", "offline": "wifi.slash", "retrying": "clock",
  "error": "exclamationmark.triangle.fill", "signIn": "exclamationmark.triangle.fill", "retry": "arrow.clockwise", "remove": "xmark",
  "more": "ellipsis", "accountsTab": "person.crop.circle", "oauthTab": "key", "generalTab": "gearshape", "appearanceTab": "paintpalette",
- "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "archivebox",
+ "viewInbox": "tray", "viewStarred": "star", "viewSent": "paperplane", "viewDrafts": "doc", "viewTrash": "trash", "viewAllMail": "tray.2",
  "viewLater": "clock", "viewOutbox": "tray.and.arrow.up", "later": "clock", "spam": "xmark.bin",
  "moveToInbox": "tray.and.arrow.down", "privacy": "lock", "success": "checkmark.circle.fill", "info": "info.circle", "warning": "exclamationmark.triangle.fill",
  "brand": "paper.paperPlane", "keyboard": "keyboard", "dismiss": "xmark",
@@ -501,7 +514,7 @@ ICON = {
  "download": "arrow.down.circle",
  # day and week (§5.54); `later` and `send` mark Later and Send Later times on it, `warning` an overlap
  "dayColumn": "calendar", "week": "rectangle.split.3x1", "previousDay": "chevron.left", "nextDay": "chevron.right",
- "blockTime": "calendar.badge.plus", "joinCall": "video", "eventPlace": "mappin.and.ellipse", "fromThisMail": "envelope",
+ "blockTime": "calendar.badge.plus", "joinCall": "video", "eventPlace": "mappin.and.ellipse", "fromThisMail": "envelope", "copy": "doc.on.doc",
 }
 GLYPHS = {
  "paper.quire": {"grid": 16, "stroke": 1.5, "paths": ["M2.75 6.25h10.5a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z", "M2.1 7 8 10.6 13.9 7", "M3.5 3.75h9", "M5.25 1.5h5.5"], "fills": [], "meaning": "All Inboxes: a gathering of letters"},

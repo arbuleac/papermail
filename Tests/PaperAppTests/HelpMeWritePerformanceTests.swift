@@ -72,14 +72,23 @@ final class HelpMeWritePerformanceTests: XCTestCase {
     /// The ghost, the pill and the rest placed again as each key lands, on a reply composer's body of 2,000 words: the
     /// caret's line is laid out, never the whole body (`ai.place`).
     func testTheMarksArePlacedInUnder1msAKeystrokeOnALongBody() throws {
+        try placeMarks(in: .reply(MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2"), all: false))
+    }
+
+    /// The same on a new message, whose body has a session since 1.21 as every composer's does: its marks cost what a
+    /// reply's do, though what ⌘J does there is read from the body on every key (notes, or nothing to write from).
+    func testTheMarksArePlacedInUnder1msAKeystrokeOnALongNewMessage() throws {
+        try placeMarks(in: .new)
+    }
+
+    private func placeMarks(in mode: ComposeMode) throws {
         let harness = try MainWindowHarness()
         defer { harness.close() }
         harness.settings.aiProvider = .claudeAPI
         harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
         let accounts = harness.controller.accounts
-        let original = MessageID(accountID: ListTestSupport.accountA.id, providerID: "msg-2-2")
         let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
-                                                       mode: .reply(original, all: false))
+                                                       mode: mode)
         defer { composer.closeWithoutSaving() }
         let editor = composer.bodyEditor
         composer.window?.makeFirstResponder(editor)
@@ -106,8 +115,99 @@ final class HelpMeWritePerformanceTests: XCTestCase {
         XCTAssertNotNil(session.layer.state.ghost, "the ghost was placed each time")
         let median = places.sorted()[places.count / 2]
         let p95 = places.sorted()[Int(Double(places.count) * 0.95)]
-        print(String(format: "Help me write marks: placed in %.3f ms median, %.3f ms p95 on %d words", median, p95,
-                     WriteSession.wordCount(in: editor.string)))
+        print(String(format: "Help me write marks (\(mode == .new ? "new message" : "reply")): placed in %.3f ms median, %.3f ms p95 on %d words",
+                     median, p95, WriteSession.wordCount(in: editor.string)))
         XCTAssertLessThan(median, 1)
+    }
+
+    /// ⌘J on an empty new message has nothing to write from: it opens the prompt line within a frame and sends nothing.
+    /// The body's session is there by the time the window is (it is made as the window comes forward, from this Mac's
+    /// facts alone).
+    func testCommandJOnAnEmptyNewMessageOpensTheLineWithinAFrame() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let accounts = harness.controller.accounts
+        var opens: [Double] = []
+        for _ in 0..<15 {
+            let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                           mode: .new)
+            composer.window?.makeFirstResponder(composer.bodyEditor)
+            let session = try XCTUnwrap(composer.bodyWriteSession)
+            let start = DispatchTime.now().uptimeNanoseconds
+            composer.helpMeWrite(nil)
+            composer.window?.contentView?.layoutSubtreeIfNeeded()
+            opens.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+            XCTAssertTrue(session.isPromptShown)
+            composer.closeWithoutSaving()
+        }
+        XCTAssertEqual(harness.environment.helpMeWrite.demoScript?.requests.count, 0, "nothing was sent")
+        let open = opens.sorted()[opens.count / 2]
+        print(String(format: "Help me write on a new message: ⌘J to the prompt line %.2f ms (median of %d)", open, opens.count))
+        XCTAssertLessThan(open, 16)
+    }
+
+    // MARK: A selection's rewrite (§5.56)
+
+    /// ⌘J on a selection in mid-paragraph of a 2,000-word body reads the draft around it and finds the words beside it
+    /// in under 1 ms: the windows look at most 64 units each side, and the draft is copied once.
+    func testARewriteReadsTheDraftAroundItInUnder1ms() throws {
+        let harness = try MainWindowHarness()
+        defer { harness.close() }
+        harness.settings.aiProvider = .claudeAPI
+        harness.settings.setAIConsent(true, for: .claudeAPI, demo: false)
+        let accounts = harness.controller.accounts
+        let composer = ComposeWindowController.present(client: harness.environment.engine, account: accounts[0], accounts: accounts,
+                                                       mode: .new)
+        defer { composer.closeWithoutSaving() }
+        let editor = composer.bodyEditor
+        composer.window?.makeFirstResponder(editor)
+        let session = try XCTUnwrap(composer.bodyWriteSession)
+        let paragraph = Array(repeating: "Tuesday at ten works for me and I will bring the draft budget along.", count: 20).joined(separator: " ")
+        editor.insertText(Array(repeating: paragraph, count: 10).joined(separator: "\n\n"), replacementRange: NSRange(location: 0, length: 0))
+        let text = editor.string as NSString
+        let core = text.range(of: "the draft budget", options: [], range: NSRange(location: text.length / 2, length: text.length / 2))
+        var reads: [Double] = []
+        for _ in 0..<40 {
+            let start = DispatchTime.now().uptimeNanoseconds
+            let around = session.around(core, in: editor.string as NSString)
+            reads.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+            XCTAssertEqual(around?.beforeWindow, ("I will bring" as NSString).length)
+        }
+        let median = reads.sorted()[reads.count / 2]
+        print(String(format: "Help me write rewrite: the draft around a selection read in %.3f ms median", median))
+        XCTAssertLessThan(median, 1)
+    }
+
+    /// Each update of a rewrite's answer is split again whole, in under 0.5 ms however long it grows; the guards at the
+    /// end take under 5 ms on 8,000 characters of draft around the selection.
+    func testARewritesAnswerIsReadFastEnough() {
+        let answer = Array(repeating: "we can have the garden too, and the terrace if the weather holds,", count: 30).joined(separator: " ")
+            + "\n<<<AFTER 1a2b3c4d>>>; so the March<<<END AFTER 1a2b3c4d>>>"
+        let words = answer.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        var raw = ""
+        var splits: [Double] = []
+        for pair in stride(from: 0, to: words.count, by: 2) {
+            raw += words[pair..<min(pair + 2, words.count)].joined(separator: " ") + " "
+            let start = DispatchTime.now().uptimeNanoseconds
+            _ = WriteRewriteAnswer.split(raw, final: false, fence: "1a2b3c4d")
+            splits.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+        }
+        let draft = String(repeating: "The quick brown fox jumps over the lazy dog near the river bank today. ", count: 120)
+        let frame = WriteRewriteFrame(lead: String(draft.prefix(6_000)), selection: "a part", trail: String(draft.prefix(2_000)))
+        var guards: [Double] = []
+        for _ in 0..<10 {
+            let start = DispatchTime.now().uptimeNanoseconds
+            let part = WriteRewriteAnswer.stripEchoes(WriteRewriteAnswer.split(raw, final: true, fence: "1a2b3c4d").part, frame: frame)
+            _ = WriteRewriteAnswer.repeatsDraft(part ?? "", frame: frame, instruction: "")
+            guards.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+        }
+        let p95 = splits.sorted()[Int(Double(splits.count) * 0.95)]
+        let guard95 = guards.sorted()[Int(Double(guards.count) * 0.9)]
+        print(String(format: "Help me write rewrite: a split %.3f ms p95 over %d updates to %d characters; the final guards %.2f ms",
+                     p95, splits.count, raw.count, guard95))
+        XCTAssertLessThan(p95, 0.5)
+        XCTAssertLessThan(guard95, 5)
     }
 }

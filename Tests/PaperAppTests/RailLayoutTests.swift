@@ -33,7 +33,8 @@ final class RailLayoutTests: XCTestCase {
         defer { harness.close() }
         let strip = layOut(harness)
         XCTAssertEqual(strip.folderTiles.map(\.content), TitleMenu.entries.map { .folder(symbol: $0.symbol) })
-        XCTAssertEqual(TitleMenu.entries.map(\.symbol), ["tray", "clock", "star", "paperplane", "doc", "tray.and.arrow.up", "trash", "archivebox"])
+        XCTAssertEqual(TitleMenu.entries.map(\.symbol), ["tray", "clock", "star", "paperplane", "doc", "tray.and.arrow.up", "trash", "tray.2"])
+        XCTAssertNotEqual(Quire.Icon.viewAllMail, Quire.Icon.archive, "All Mail is not the Archive action's box")
         XCTAssertEqual(strip.folderTiles.map(\.toolTip), ["Inbox  G I", "Later  G L", "Starred  G S", "Sent  G T", "Drafts  G D", "Outbox  G O",
                                                          "Trash  G #", "All Mail  G A"])
         // Nothing is snoozed and nothing waits to go: Later and the Outbox are hidden and the six views keep their places.

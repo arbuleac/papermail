@@ -235,6 +235,9 @@ enum MailSchema {
             // would mean sanitizing every stored body again.
             try db.execute(sql: "ALTER TABLE bodies ADD COLUMN tracker_images INTEGER")
         }
+        migrator.registerMigration("v25-event-details") { db in
+            try db.execute(sql: v25)
+        }
         return migrator
     }
 
@@ -287,6 +290,27 @@ enum MailSchema {
         FOREIGN KEY (account_id, provider_id) REFERENCES messages(account_id, provider_id) ON DELETE CASCADE
     );
     CREATE INDEX mail_times_by_conversation ON mail_times(account_id, conversation_provider_id, start_ms, provider_id, ord);
+    """
+
+    /// Event details (docs/DATA-MODEL.md, `calendar_events` and `calendar_event_details`). Six nullable columns with no
+    /// default, which SQLite adds without touching a row, a partial index whose predicate no row meets yet, and an empty
+    /// table: milliseconds on any store. Nothing is backfilled: each event's columns fill at its account's next read of
+    /// the window, and details when a card opens or the next day's are read ahead. The details row goes with its event
+    /// by the cascade, so the sweep, the prune, Remove's settle and an account's removal take it as they take the event.
+    static let v25 = """
+    ALTER TABLE calendar_events ADD COLUMN series_id TEXT;
+    ALTER TABLE calendar_events ADD COLUMN original_start_ms INTEGER;
+    ALTER TABLE calendar_events ADD COLUMN time_zone TEXT;
+    ALTER TABLE calendar_events ADD COLUMN kind TEXT;
+    ALTER TABLE calendar_events ADD COLUMN call_service TEXT;
+    ALTER TABLE calendar_events ADD COLUMN version TEXT;
+    CREATE INDEX calendar_events_by_series ON calendar_events(account_id, series_id) WHERE series_id IS NOT NULL;
+    CREATE TABLE calendar_event_details (
+        event_id TEXT PRIMARY KEY NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        version TEXT,
+        read_ms INTEGER NOT NULL,
+        details_json TEXT NOT NULL
+    );
     """
 
     /// Migrates the file at `path` up to and including the migration `identifier`, as the build that shipped it left

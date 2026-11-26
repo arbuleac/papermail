@@ -107,6 +107,22 @@ final class AnthropicMessagesProviderTests: HTTPProviderTestCase {
         XCTAssertFalse(text.contains("ignored-by-api-providers"), "the request's model field is the CLIs'; the API sends its own")
     }
 
+    /// A new message with no subject and no names has nothing but the ask to send: the user turn is the task alone, and
+    /// what the request says of itself (its kind, that a subject is wanted) stays on this Mac.
+    func testANewMessageSendsItsInstructionsAndItsTaskAndNothingAboutItself() async throws {
+        HTTPStubURLProtocol.serve([.sse(try fixture("anthropic/stream-text-synthetic.sse"))])
+        let request = AIWriteRequest(kind: .newMessage, instructions: Self.instructions, transcript: "", task: Self.task,
+                                     wantsSubject: true, fence: "0a1b2c3d")
+        _ = await write(request)
+        let sent = try XCTUnwrap(requests.first)
+        XCTAssertEqual(sent.json()["system"] as? String, Self.instructions)
+        let messages = try XCTUnwrap(sent.json()["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.map { $0["content"] as? String }, [Self.task], "no empty lines where a conversation would be")
+        for local in [WritePrompt.newMessageVersion, "newMessage", "wantsSubject", "0a1b2c3d"] {
+            XCTAssertFalse(sent.bodyText.contains(local), local)
+        }
+    }
+
     // MARK: Reading the stream
 
     func testTextStreamsInOrderThenUsageThenDone() async throws {

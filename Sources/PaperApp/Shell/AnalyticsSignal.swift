@@ -33,14 +33,23 @@ enum AnalyticsSignal: Equatable, Sendable {
     case dayColumn(shown: Bool, Trigger)
     case weekOpened(Trigger)
     case timeBlocked(Trigger)
-    case invitationAnswered(InvitationAnswer)
+    /// Accept, Tentative or Decline: where it was given, what it answered, and how it went (through the mail or on the
+    /// calendar alone).
+    case invitationAnswered(InvitationAnswer, Surface, AnswerSpan, AnswerRoute)
+    /// An event's details opened by the user (§5.54): what kind of event, and how. Never the details the week opens by
+    /// itself beside the selected conversation's invitation.
+    case detailsOpened(EventKind, Trigger)
+    /// A step in an event's details, or Join on an event's face: once it took (a link once the opener took it, a copy
+    /// once the pasteboard did).
+    case eventAction(EventAction, Surface, Trigger)
     /// A step taken back: an undo-history group reverted (Z, ⌘Z, a toast's Undo).
     case undo(Trigger)
     case accountAdded(Provider)
     case accountRemoved(Provider)
-    /// A Help me write write ended (§5.56; `AIWriter`'s milestones): which kind of provider wrote and how it ended. Never
-    /// the instruction, the notes, the conversation, the model or a word of the reply, and none for a reply the demo makes
-    /// up (`HelpMeWrite.analyticsSignal`).
+    /// A Help me write write ended (§5.56; `AIWriter`'s milestones): which kind of provider wrote, how it ended and, by
+    /// kind only, what was written, from what and where (`WriteDetails`). Never the instruction, the notes, the subject,
+    /// the conversation, the model or a word of the draft, and none for a draft the demo makes up
+    /// (`HelpMeWrite.analyticsSignal`).
     case helpMeWriteUsed(Writer, WriteEnding, WriteDetails?)
     /// Reader mode switched on or off from the reader (§5.59): its switch in the header, ⇧⌘R or View › Reader Mode. Never
     /// when its experiment's gate moved it (that is Settings › Experimental's change).
@@ -85,6 +94,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         case weekOpened = "Calendar.weekOpened"
         case timeBlocked = "Calendar.timeBlocked"
         case invitationAnswered = "Calendar.invitationAnswered"
+        case detailsOpened = "Calendar.detailsOpened"
+        case eventAction = "Calendar.eventAction"
         case undo = "Undo.used"
         case accountAdded = "Account.added"
         case accountRemoved = "Account.removed"
@@ -110,7 +121,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// A button in the reader's header or the page's own (Reply, Archive, Star…).
         case toolbar
         case swipe
-        /// Rows dragged onto a rail folder or the calendar; files or a message's attachments dropped on the quick reply.
+        /// Rows dragged onto a rail folder or the calendar; files or a message's attachments dropped on the quick reply;
+        /// the rail's edge dragged to show or hide its names.
         case drag
         /// A double-click on a row.
         case click
@@ -184,6 +196,58 @@ enum AnalyticsSignal: Equatable, Sendable {
         }
     }
 
+    /// What an event's details were opened on.
+    enum EventKind: String, CaseIterable, Sendable {
+        /// An event the user is a guest of.
+        case invitee
+        /// The user's own (organized, a kind, no guests).
+        case own
+        /// Time set aside for a mail.
+        case setAside
+        /// The selected mail's invitation drawn from the mail.
+        case pencil
+        case later
+        case sendLater
+    }
+
+    /// A step in an event's details.
+    enum EventAction: String, CaseIterable, Sendable {
+        case join, copyLink, phone, copyPhone, morePhones, copyMeetingID, copyPasscode, placeLink, notesLink, showAllGuests,
+             showMoreNotes, showMail, remove, openIn
+    }
+
+    /// Where a calendar step was taken: the reader's invitation card, an event's details, an event's own Join.
+    enum Surface: String, CaseIterable, Sendable {
+        case reader, details, face
+    }
+
+    /// What an answer answered.
+    enum AnswerSpan: String, CaseIterable, Sendable {
+        case single, occurrence, series
+
+        init(_ span: PaperCore.AnswerSpan) {
+            switch span {
+            case .single: self = .single
+            case .occurrence: self = .occurrence
+            case .series: self = .series
+            }
+        }
+
+        /// What an invitation's mail answers: one occurrence (RECURRENCE-ID), the series (a repeat), else one event.
+        init(_ invitation: CalendarInvitation) {
+            self = invitation.recurrenceID != nil ? .occurrence : invitation.repeats != nil ? .series : .single
+        }
+    }
+
+    /// How an answer went to the provider.
+    enum AnswerRoute: String, CaseIterable, Sendable {
+        case mail, calendar
+
+        init(_ route: PaperCore.AnswerRoute) {
+            self = route == .mail ? .mail : .calendar
+        }
+    }
+
     enum Provider: String, CaseIterable, Sendable {
         case gmail, microsoft
 
@@ -225,7 +289,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         }
     }
 
-    /// What a Help me write write worked from and how it was asked for, and where (§5.56): never the words.
+    /// What a Help me write write wrote, what it worked from and how it was asked for, and where (§5.56): never the
+    /// words.
     struct WriteDetails: Equatable, Sendable {
         var draft: WriteDraft
         /// An instruction came with it: the prompt line's words or a chip.
@@ -233,16 +298,55 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// Try again: written again from the notes the last reply came from.
         var retry: Bool
         var source: SendSource
+        /// What was being written, in the composers' own kinds, so a write lines up with `Compose.started` and
+        /// `Compose.sent`: a new message, a reply, a reply to all or a forward. Never `draft`.
+        var kind: ComposeKind
+        /// A subject was asked for with the message. Whether one came back and was set is not known as the signal is
+        /// made, so it is not said.
+        var subject: Bool
+        /// For a selection's rewrite only: whether the user's draft around the selection went with it, or the selection
+        /// alone. Nil for every other write.
+        var around: WriteAround?
+        /// For a rewrite that sent the draft around it and finished only: how the words beside the selection came out
+        /// (the writer's milestone says, as the write ends). Nil otherwise.
+        var join: WriteJoinResult?
 
-        init(draft: WriteDraft, instruction: Bool, retry: Bool, source: SendSource) {
+        init(draft: WriteDraft, instruction: Bool, retry: Bool, source: SendSource, kind: ComposeKind, subject: Bool,
+             around: WriteAround? = nil, join: WriteJoinResult? = nil) {
             self.draft = draft
             self.instruction = instruction
             self.retry = retry
             self.source = source
+            self.kind = kind
+            self.subject = subject
+            self.around = around
+            self.join = join
         }
 
-        init(_ ask: WriteAsk, retry: Bool, source: SendSource) {
-            self.init(draft: WriteDraft(ask.draft), instruction: !ask.instruction.isEmpty, retry: retry, source: source)
+        init(_ ask: WriteAsk, retry: Bool, source: SendSource, kind: ComposeKind, subject: Bool) {
+            self.init(draft: WriteDraft(ask.draft), instruction: !ask.instruction.isEmpty, retry: retry, source: source,
+                      kind: kind, subject: subject, around: ask.isRewrite ? (ask.around == nil ? .alone : .draft) : nil)
+        }
+    }
+
+    /// What a selection's rewrite sent besides the selection (§5.56): the user's draft around it, or nothing of it.
+    enum WriteAround: String, CaseIterable, Sendable {
+        case draft, alone
+    }
+
+    /// How the words beside a rewritten selection came out (`WriteJoinOutcome`): no seam line came; the words before
+    /// it, after it, or both were changed; or seam lines came and none passed the writer's checks.
+    enum WriteJoinResult: String, CaseIterable, Sendable {
+        case none, before, after, both, refused
+
+        init(_ outcome: WriteJoinOutcome) {
+            switch outcome {
+            case .none: self = .none
+            case .before: self = .before
+            case .after: self = .after
+            case .both: self = .both
+            case .refused: self = .refused
+            }
         }
     }
 
@@ -320,8 +424,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         var typeface: QuireFont.Typeface
     }
 
-    /// A setting changed, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows), with its
-    /// new value.
+    /// A setting changed, in Settings or by its own control elsewhere (Send's drop-down, View › Compact Rows, the rail's
+    /// names), with its new value.
     enum SettingChange: Equatable, Sendable {
         case listDensity(AppSettings.ListDensity)
         case accountFaces(Bool)
@@ -349,6 +453,9 @@ enum AnalyticsSignal: Equatable, Sendable {
         /// Settings › Accounts' Face for an account (§5.10): chosen automatically, the letters, or a paper face (never
         /// which, nor whose).
         case accountFace(AccountFace)
+        /// The rail shows its names beside its icons, or the icons alone again (§5.2), and how it was asked: View › Show
+        /// Names in Rail, or a drag of the rail's edge.
+        case railNames(Bool, Trigger)
 
         /// An account's face, by kind.
         enum FaceKind: String, CaseIterable, Sendable {
@@ -366,7 +473,7 @@ enum AnalyticsSignal: Equatable, Sendable {
         enum Setting: String, CaseIterable, Sendable {
             case listDensity, accountFaces, undoSend, remoteImages, notifications, notificationPreviews, keepMail, theme
             case appearance, font, textSize, adaptMailColours, sendAction, launchAtLogin, defaultMailApp
-            case offerReaderMode, blockTrackers, aiProvider, accountFace
+            case offerReaderMode, blockTrackers, aiProvider, accountFace, railNames
         }
 
         var setting: Setting {
@@ -390,7 +497,14 @@ enum AnalyticsSignal: Equatable, Sendable {
             case .blockTrackers: return .blockTrackers
             case .aiProvider: return .aiProvider
             case .accountFace: return .accountFace
+            case .railNames: return .railNames
             }
+        }
+
+        /// Where the change came from, for the one setting with two ways in outside Settings: the rail's names.
+        var trigger: Trigger? {
+            if case .railNames(_, let trigger) = self { return trigger }
+            return nil
         }
 
         /// The new value, as one of `values(of:)`.
@@ -398,7 +512,8 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch self {
             case .listDensity(let density): return density.rawValue
             case .accountFaces(let on), .remoteImages(let on), .notifications(let on), .notificationPreviews(let on),
-                 .adaptMailColours(let on), .launchAtLogin(let on), .offerReaderMode(let on), .blockTrackers(let on):
+                 .adaptMailColours(let on), .launchAtLogin(let on), .offerReaderMode(let on), .blockTrackers(let on),
+                 .railNames(let on, _):
                 return Toggle(on).rawValue
             case .defaultMailApp: return Toggle.on.rawValue
             case .undoSend(let seconds): return Self.undoSendValue(seconds)
@@ -423,7 +538,7 @@ enum AnalyticsSignal: Equatable, Sendable {
             switch setting {
             case .listDensity: return AppSettings.ListDensity.allCases.map(\.rawValue)
             case .accountFaces, .remoteImages, .notifications, .notificationPreviews, .adaptMailColours, .launchAtLogin,
-                 .offerReaderMode, .blockTrackers:
+                 .offerReaderMode, .blockTrackers, .railNames:
                 return Toggle.allCases.map(\.rawValue)
             case .aiProvider: return Writer.allCases.map(\.rawValue) + [Toggle.off.rawValue]
             case .accountFace: return FaceKind.allCases.map(\.rawValue)
@@ -513,12 +628,20 @@ enum AnalyticsSignal: Equatable, Sendable {
             "scope": Scope.allCases.map(\.rawValue),
             "state": DayColumnState.allCases.map(\.rawValue),
             "answer": InvitationAnswer.allCases.map(\.rawValue),
+            "eventKind": EventKind.allCases.map(\.rawValue),
+            "eventAction": EventAction.allCases.map(\.rawValue),
+            "surface": Surface.allCases.map(\.rawValue),
+            "span": AnswerSpan.allCases.map(\.rawValue),
+            "route": AnswerRoute.allCases.map(\.rawValue),
             "provider": Provider.allCases.map(\.rawValue),
             "aiProvider": Writer.allCases.map(\.rawValue),
             "ending": WriteEnding.allCases.map(\.rawValue),
             "draft": WriteDraft.allCases.map(\.rawValue),
             "instruction": Toggle.allCases.map(\.rawValue),
             "retry": Toggle.allCases.map(\.rawValue),
+            "subject": Toggle.allCases.map(\.rawValue),
+            "around": WriteAround.allCases.map(\.rawValue),
+            "join": WriteJoinResult.allCases.map(\.rawValue),
             "readerLine": ReaderLine.allCases.map(\.rawValue),
             "trackers": CountBuckets.trackers.labels,
             "attachmentAction": AttachmentAction.allCases.map(\.rawValue),
@@ -565,6 +688,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         case .weekOpened: return .weekOpened
         case .timeBlocked: return .timeBlocked
         case .invitationAnswered: return .invitationAnswered
+        case .detailsOpened: return .detailsOpened
+        case .eventAction: return .eventAction
         case .undo: return .undo
         case .accountAdded: return .accountAdded
         case .accountRemoved: return .accountRemoved
@@ -603,7 +728,9 @@ enum AnalyticsSignal: Equatable, Sendable {
         case .settingsOpened:
             return [:]
         case .settingChanged(let change):
-            return ["setting": change.setting.rawValue, "value": change.value]
+            var parameters = ["setting": change.setting.rawValue, "value": change.value]
+            if let trigger = change.trigger { parameters["trigger"] = trigger.rawValue }
+            return parameters
         case .mailAction(let action, let trigger, let count):
             return ["action": action.rawValue, "trigger": trigger.rawValue, "conversations": CountBuckets.conversations.label(count)]
         case .composeStarted(let kind, let origin, let trigger):
@@ -627,8 +754,12 @@ enum AnalyticsSignal: Equatable, Sendable {
             return ["view": view.rawValue, "scope": (unified ? Scope.unified : .account).rawValue, "trigger": trigger.rawValue]
         case .dayColumn(let shown, let trigger):
             return ["state": (shown ? DayColumnState.shown : .hidden).rawValue, "trigger": trigger.rawValue]
-        case .invitationAnswered(let answer):
-            return ["answer": answer.rawValue]
+        case .invitationAnswered(let answer, let surface, let span, let route):
+            return ["answer": answer.rawValue, "surface": surface.rawValue, "span": span.rawValue, "route": route.rawValue]
+        case .detailsOpened(let kind, let trigger):
+            return ["eventKind": kind.rawValue, "trigger": trigger.rawValue]
+        case .eventAction(let action, let surface, let trigger):
+            return ["eventAction": action.rawValue, "surface": surface.rawValue, "trigger": trigger.rawValue]
         case .accountAdded(let provider), .accountRemoved(let provider), .senderRuleRemoved(let provider):
             return ["provider": provider.rawValue]
         case .helpMeWriteUsed(let writer, let ending, let details):
@@ -638,6 +769,10 @@ enum AnalyticsSignal: Equatable, Sendable {
                 parameters["instruction"] = Toggle(details.instruction).rawValue
                 parameters["retry"] = Toggle(details.retry).rawValue
                 parameters["source"] = details.source.rawValue
+                parameters["kind"] = details.kind.rawValue
+                parameters["subject"] = Toggle(details.subject).rawValue
+                if let around = details.around { parameters["around"] = around.rawValue }
+                if let join = details.join { parameters["join"] = join.rawValue }
             }
             return parameters
         case .readerModeSwitched(let on, let trigger):

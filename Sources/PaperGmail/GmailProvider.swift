@@ -565,12 +565,14 @@ public final class GmailProvider: MailProvider, Sendable {
     // MARK: Changes to messages
 
     public func apply(_ change: MetadataChange, to providerIDs: [String]) async throws {
-        guard !providerIDs.isEmpty else { return }
         if case .answerInvitation(let answer) = change {
+            // An answer given from the calendar names no message: it names the event instead.
+            guard !providerIDs.isEmpty || answer.calendar?.providerEventID != nil else { return }
             // One answer per event, however many copies of the invitation the operations named.
             try await self.answer(answer)
             return
         }
+        guard !providerIDs.isEmpty else { return }
         let edit = GmailLabelEdit(change)
         guard !(edit.add.isEmpty && edit.remove.isEmpty) else { return }
         for chunk in providerIDs.chunked(into: Self.batchModifyChunk) {
@@ -648,6 +650,10 @@ public final class GmailProvider: MailProvider, Sendable {
         var answer = answer
         // Fixed before the copy can change the attendee, so every attempt names the same message.
         let messageID = answer.replyID.flatMap { Self.replyMessageID($0, from: answer.attendee.address) }
+        if let eventID = answer.calendar?.providerEventID {
+            try await answerOnCalendar(answer, eventID: eventID, messageID: messageID)
+            return
+        }
         // The copy's own attendee is the address Google knows the user by on this event, which can be an alias the
         // sync-time reader could not know was theirs; without a copy the reply names whom the answer named.
         if let own = try await markCalendarCopy(answer) { answer.attendee = own }
@@ -656,6 +662,84 @@ public final class GmailProvider: MailProvider, Sendable {
             return
         }
         try await mailReply(answer, messageID: messageID)
+    }
+
+    /// The fields an answer given from the calendar reads of its event: whatever the iMIP reply needs.
+    static let answerFields = "id,status,iCalUID,sequence,summary,start,end,recurringEventId,originalStartTime,"
+        + "organizer(email,displayName,self),attendees(email,displayName,self,responseStatus)"
+
+    /// An answer given from the calendar, with no message: the event is read by its id (only the user's own attendee
+    /// entry, `maxAttendees=1`, so an all-hands stays small), the user's entry alone is patched (`attendeesOmitted`, which
+    /// Google documents for a participant's own answer, so no other guest's entry is touched), and the organizer gets
+    /// the same iMIP reply the mail route sends, built from what the event says (its UID, SEQUENCE, times and, for an
+    /// instance, RECURRENCE-ID). A group or resource calendar organizer is never mailed. A gone or cancelled event, or
+    /// one that does not list the user, cannot be answered: `notFound`, which the outbox gives up at once.
+    private func answerOnCalendar(_ queued: InvitationAnswer, eventID: String, messageID: String?) async throws {
+        let read: GmailHTTPClient.Response
+        do {
+            read = try await http.send(try GmailRequest.calendarEvents(Self.pathComponent(eventID), query: [
+                URLQueryItem(name: "maxAttendees", value: "1"),
+                URLQueryItem(name: "prettyPrint", value: "false"),
+                URLQueryItem(name: "fields", value: Self.answerFields),
+            ]))
+        } catch ProviderError.server(let status, _) where status == 410 {
+            throw ProviderError.notFound
+        }
+        guard let event = try? JSONDecoder().decode(GoogleCalendarEvent.self, from: read.data) else {
+            throw ProviderError.decoding("Calendar event is not an event")
+        }
+        guard event.status != "cancelled", let own = event.attendees?.first(where: { $0.isSelf == true }),
+              let ownAddress = own.email?.trimmingCharacters(in: .whitespacesAndNewlines), !ownAddress.isEmpty else {
+            throw ProviderError.notFound
+        }
+        let status = Self.calendarResponseStatus(queued.response)
+        if own.responseStatus != status {
+            let body = Data(("{\"attendeesOmitted\":true,\"attendees\":[{\"email\":" + Self.jsonString(ownAddress)
+                + ",\"responseStatus\":\"" + status + "\"}]}").utf8)
+            do {
+                _ = try await http.send(try GmailRequest.calendarEvents(Self.pathComponent(eventID), method: .patch, query: [
+                    URLQueryItem(name: "sendUpdates", value: "none"),
+                    URLQueryItem(name: "fields", value: "id"),
+                    URLQueryItem(name: "prettyPrint", value: "false"),
+                ], json: body))
+            } catch let error where Self.skipsCalendarCopy(error) {
+                log.notice("invitation: calendar copy not updated: \(String(describing: error), privacy: .private)")
+            }
+        }
+        var answer = queued
+        let mapper = GoogleCalendarMapper(accountID: accountID)
+        if let uid = event.iCalUID, !uid.isEmpty { answer.uid = uid }
+        answer.sequence = event.sequence ?? 0
+        if let title = event.summary { answer.title = title }
+        if let start = event.start, let times = mapper.times(start: start, end: event.end) {
+            answer.start = times.start
+            answer.end = times.end
+            answer.isAllDay = times.isAllDay
+            answer.isFloating = times.isAllDay
+        }
+        answer.recurrenceID = event.recurringEventId == nil ? nil : event.originalStartTime.flatMap { original in
+            original.date.flatMap(GoogleCalendarMapper.floatingDay) ?? original.dateTime.flatMap(mapper.instant(_:))
+        }
+        var ownEntry: [String: Any] = ["email": ownAddress]
+        if let name = own.displayName { ownEntry["displayName"] = name }
+        if let attendee = Self.ownAttendee(ownEntry, answering: queued.attendee) { answer.attendee = attendee }
+        let organizerAddress = event.organizer?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard event.organizer?.isSelf != true, !organizerAddress.isEmpty,
+              !organizerAddress.lowercased().hasSuffix("calendar.google.com") else {
+            log.debug("invitation: answered on the calendar, no organizer to mail")
+            return
+        }
+        answer.organizer = EmailAddress(name: event.organizer?.displayName, address: organizerAddress)
+        if let messageID, try await mailboxHolds(messageID: messageID) {
+            log.debug("invitation: reply already sent")
+            return
+        }
+        try await mailReply(answer, messageID: messageID)
+    }
+
+    /// `value` as a JSON string, quotes and escapes included.
+    private static func jsonString(_ value: String) -> String {
+        (try? String(decoding: JSONEncoder().encode(value), as: UTF8.self)) ?? "\"\""
     }
 
     /// The reply's Message-ID for an answer: its reply id at the attendee's domain. Nil for an id that is not the

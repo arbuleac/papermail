@@ -316,7 +316,7 @@ final class ConversationShellPointerTests: XCTestCase {
 
     /// Nothing kept the hand from the links the reader finds in plain text: the pointer over one reaches it. The shell
     /// lays nothing over the frame there, the body lays nothing over the link, the link keeps its address, and the frame's
-    /// sandbox allows only same-origin access, which leaves hit testing and the cursor to WebKit.
+    /// sandbox (same origin and popups, no script) leaves hit testing and the cursor to WebKit.
     func testAPointerOverALinkFoundInPlainTextReachesIt() async throws {
         let (webView, _) = try await loadedShell()
         let message = F.message("m1", date: F.utc(2025, 3, 1, 9, 0))
@@ -336,7 +336,7 @@ final class ConversationShellPointerTests: XCTestCase {
             })()
             """
         let hit = try await evaluate(probe, in: webView) as? String
-        XCTAssertEqual(hit, "allow-same-origin https://example.com/notes true true pointer")
+        XCTAssertEqual(hit, ConversationShellAssets.bodyFrameSandbox + " https://example.com/notes true true pointer")
     }
 
     // MARK: Helpers

@@ -277,6 +277,7 @@ final class ThemeTests: XCTestCase {
     func testEveryLinkInTheInkAsksTheUnderlineHelper() {
         let alwaysUnderlined: Set<String> = [
             "Sources/PaperApp/Compose/ComposeTextView.swift",          // the composer's links are always underlined
+            "Sources/PaperApp/Calendar/EventNotesTextView.swift",      // an event's notes' links are always underlined (§5.54)
             "Sources/PaperApp/Compose/ComposeWindowController.swift",  // Format › Underline, not a link
             "Sources/PaperDesign/SwiftUI/QuireSettingsGallery.swift",            // a signature sample, underlined as typed
         ]

@@ -4,7 +4,7 @@ import PaperDesign
 import os
 
 /// Help me write's marks in a reply's text (§5.56): the ghost after the caret, the selection pill, the prompt line, the
-/// pencil while a reply streams and the afterline under a draft. One per field (the quick reply's, a reply composer's
+/// pencil while a draft streams and the afterline under a draft. One per field (the quick reply's, a composer's
 /// body), the same in both: only the host differs. They are subviews of the text view, so they scroll with the text, and
 /// placed from its layout manager: the caret's line and baseline, a selection's or a draft's last line. The pill floats
 /// in `floatHost`, which does not clip it where the text's own scroll view would (the quick reply's bar).
@@ -33,12 +33,13 @@ final class WriteInlineLayer {
     }
 
     enum Block: Equatable {
-        case prompt(Anchor)
+        /// The prompt line, with its chips or as the capsule alone: the block carries which, since its height does.
+        case prompt(Anchor, chips: Bool)
         case afterline(Anchor, WriteAfterline.Content)
 
         var anchor: Anchor {
             switch self {
-            case .prompt(let anchor), .afterline(let anchor, _): return anchor
+            case .prompt(let anchor, _), .afterline(let anchor, _): return anchor
             }
         }
 
@@ -46,7 +47,7 @@ final class WriteInlineLayer {
         var height: CGFloat {
             let c = Quire.Layout.WriteCaret.self
             switch self {
-            case .prompt: return WritePromptLine.blockHeight
+            case .prompt(_, let chips): return WritePromptLine.blockHeight(chips: chips)
             case .afterline: return c.blockGapTop + WriteAfterline.height + c.blockGapBottom
             }
         }
@@ -281,7 +282,8 @@ final class WriteInlineLayer {
         let column = column
         let top = origin.y + rect.minY + c.blockGapTop
         switch block {
-        case .prompt:
+        case .prompt(_, let chips):
+            prompt.showsChips = chips
             prompt.frame = NSRect(x: column.minX, y: top, width: column.width, height: rect.height - c.blockGapTop - c.blockGapBottom)
         case .afterline(_, let content):
             afterline.content = content

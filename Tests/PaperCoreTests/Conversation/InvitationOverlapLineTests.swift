@@ -129,6 +129,10 @@ final class InvitationOverlapLineTests: XCTestCase {
         let elsewhere = event("own-2", "Design review", F.utc(2025, 3, 11, 15, 0), F.utc(2025, 3, 11, 16, 0), account: otherAccount,
                               uid: "uid-1")
         XCTAssertNil(try line(invitation(), events: [elsewhere]), "nor its copy in another account's calendar")
+        let otherInvitation = event("theirs", "Vendor call", F.utc(2025, 3, 11, 15, 30), F.utc(2025, 3, 11, 16, 30),
+                                    account: otherAccount, response: .needsAction, uid: "uid-9")
+        XCTAssertEqual(try line(invitation(), events: [own, elsewhere, otherInvitation]), "Overlaps Vendor call, 15:30 - 16:00",
+                       "another account's other invitation counts, as the calendar's card counts it")
     }
 
     func testARepeatingExchangeMeetingsOccurrenceIsTheInvitationsOwnEvent() throws {

@@ -288,9 +288,25 @@ final class DemoMailbox: @unchecked Sendable {
         return copy
     }
 
+    /// The event's details as the demo's provider reads them, nil for an event it no longer has.
+    func calendarEventDetails(providerID: String) -> CalendarDetailsRead? {
+        lock.lock(); defer { lock.unlock() }
+        guard let event = calendarEvents[providerID] else { return nil }
+        return CalendarDetailsRead(details: DemoEventDetails.details(for: event, profile: profile), version: event.version,
+                                   requestCount: 1)
+    }
+
     private func answerCalendarEvents(_ answer: InvitationAnswer) {
         guard let response = CalendarEvent.Response(rawValue: answer.response.rawValue) else { return }
         lock.lock(); defer { lock.unlock() }
+        // Given from the calendar, with no message: the event it names, or every occurrence of the series it names.
+        if let target = answer.calendar?.providerEventID {
+            for (providerID, event) in calendarEvents where providerID == target || event.seriesID == target {
+                calendarEvents[providerID]?.response = response
+                calendarEvents[providerID]?.updatedAt = now()
+            }
+            return
+        }
         for (providerID, event) in calendarEvents where event.invitationUID == answer.uid {
             // An answer to one occurrence (its recurrence id) leaves the others as they were.
             if let occurrence = answer.recurrenceID, event.start != occurrence { continue }

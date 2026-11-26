@@ -123,7 +123,17 @@ struct GraphLocation: Decodable, Sendable {
 }
 
 struct GraphOnlineMeeting: Decodable, Sendable {
+    struct Phone: Decodable, Sendable {
+        var number: String?
+    }
+
     var joinUrl: String?
+    // Only in the details' read: the call's numbers and its conference ID.
+    var conferenceId: String?
+    var tollNumber: String?
+    var tollFreeNumbers: [String]?
+    var quickDial: String?
+    var phones: [Phone]?
 }
 
 struct GraphRecurrencePattern: Decodable, Sendable {
@@ -177,6 +187,16 @@ struct GraphEvent: Decodable, Sendable {
     /// The key the app that created the event gave it (a block's `CalendarEvent.clientKey`); absent otherwise.
     var transactionId: String?
     var lastModifiedDateTime: String?
+    /// The series an occurrence or exception belongs to.
+    var seriesMasterId: String?
+    /// The event's version: changes whenever the event does, so details read at another are stale.
+    var changeKey: String?
+    /// teamsForBusiness, skypeForBusiness, skypeForConsumer or unknown.
+    var onlineMeetingProvider: String?
+    // Only in the details' read and the answer's look at the event.
+    var body: GraphItemBody?
+    var hideAttendees: Bool?
+    var responseRequested: Bool?
 }
 
 struct GraphFolder: Decodable, Sendable {

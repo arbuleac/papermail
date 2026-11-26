@@ -34,26 +34,75 @@ struct GoogleCalendarMapper {
     func event(from item: GoogleCalendarEvent) -> CalendarEvent? {
         guard item.status != "cancelled", item.eventType != "workingLocation" else { return nil }
         guard let start = item.start, let times = times(start: start, end: item.end) else { return nil }
+        let location = Self.trimmed(item.location)
+        let joinURL = Self.joinURL(of: item) ?? EventLinkPolicy.callAddress(inLocation: location)
         return CalendarEvent(
             id: CalendarEvent.localID(accountID: accountID, providerID: item.id),
             accountID: accountID,
             providerID: item.id,
             title: Self.trimmed(item.summary) ?? "",
-            location: Self.trimmed(item.location),
+            location: location,
             start: times.start,
             end: times.end,
             isAllDay: times.isAllDay,
             response: Self.response(of: item),
             isFree: item.transparency == "transparent",
-            joinURL: Self.joinURL(of: item),
+            joinURL: joinURL,
             webURL: Self.secureWebAddress(item.htmlLink),
             organizer: item.organizer?.isSelf == true ? nil : Self.trimmed(item.organizer?.displayName) ?? Self.trimmed(item.organizer?.email),
             invitationUID: Self.trimmed(item.iCalUID),
             clientKey: Self.clientKey(item.extendedProperties?.privateProperties),
             sync: .synced,
-            updatedAt: item.updated.flatMap(instant(_:))
+            updatedAt: item.updated.flatMap(instant(_:)),
+            seriesID: Self.trimmed(item.recurringEventId),
+            originalStart: Self.trimmed(item.recurringEventId) == nil ? nil : item.originalStartTime.flatMap(originalStart(_:)),
+            timeZone: times.isAllDay ? nil : Self.knownZone(start.timeZone),
+            kind: Self.kind(item.eventType),
+            callService: Self.callService(of: item, joinURL: joinURL),
+            version: Self.trimmed(item.etag)
         )
     }
+
+    /// An instance's original start, read as `start` is: a date as its floating midnight, a time as its instant.
+    private func originalStart(_ time: GoogleCalendarEvent.Time) -> Date? {
+        if let day = time.date { return Self.floatingDay(day) }
+        return time.dateTime.flatMap(instant(_:))
+    }
+
+    /// The zone, when this Mac knows its IANA name.
+    static func knownZone(_ name: String?) -> String? {
+        guard let name = trimmed(name), TimeZone(identifier: name) != nil else { return nil }
+        return name
+    }
+
+    /// Out of office and focus time; every other type is an ordinary event (a working location is left out earlier).
+    static func kind(_ eventType: String?) -> CalendarEvent.Kind? {
+        switch eventType {
+        case "outOfOffice": return .outOfOffice
+        case "focusTime": return .focusTime
+        default: return nil
+        }
+    }
+
+    /// The call's service: Meet when the conference is Google's own, an add-on's by its name, else the join address's
+    /// host; nil without a call.
+    static func callService(of item: GoogleCalendarEvent, joinURL: String?) -> CallService? {
+        guard let joinURL else { return nil }
+        let solution = item.conferenceData?.conferenceSolution
+        switch solution?.key?.type {
+        case "hangoutsMeet", "eventHangout", "eventNamedHangout":
+            return .meet
+        case "addOn":
+            let name = solution?.name?.lowercased() ?? ""
+            if name.contains("zoom") { return .zoom }
+            if name.contains("webex") { return .webex }
+            if name.contains("teams") { return .teams }
+            return CallService(joinURL: joinURL) ?? .other
+        default:
+            return CallService(joinURL: joinURL) ?? .other
+        }
+    }
+
 
     /// Where the event sits. An all-day event's dates are held as UTC midnights (floating), its end exclusive as Google
     /// gives it; a timed one's are the instants its offsets name. An end before the start (or missing) is taken as one

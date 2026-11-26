@@ -87,7 +87,7 @@ enum MainMenu {
     /// Where the G-sequence keys end: past the View menu's longest title and its native shortcut column.
     private static var sequenceColumn: CGFloat {
         let font = NSFont.menuFont(ofSize: 0)
-        let widest = ["Show Account Rail", "Check for New Mail", "Original Colors"]
+        let widest = ["Show Account Rail", "Show Names in Rail", "Check for New Mail", "Original Colors"]
             .map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 120
         return ceil(widest) + 64
     }
@@ -167,7 +167,7 @@ enum MainMenu {
         // field runs it (§5.6), and a menu's plain ↩ would take Return from the list, the composer and every sheet.
         let searchServer = item(ServerSearchRow.menuTitle(for: nil), #selector(MainWindowController.searchServer(_:)))
         menu.addItem(searchServer)
-        // Help me write (§5.56): on the focused quick reply or reply composer's text, beside the Mac's own Writing Tools,
+        // Help me write (§5.56): on the focused quick reply's or composer's text, beside the Mac's own Writing Tools,
         // which AppKit adds to this menu. Nil-targeted: the reader or the composer answers it while its field has focus,
         // and titles it for what it does there (“Write Reply from Notes”, “Rewrite Selection”, “Write Reply”).
         menu.addItem(.separator())
@@ -256,6 +256,8 @@ enum MainMenu {
                           symbol: Quire.Icon.retry, target: delegate))
         menu.addItem(item("Hide Account Rail", #selector(MainWindowController.toggleAccountStrip(_:)), "s", [.command, .control],
                           symbol: Quire.Icon.toggleRail))
+        // The rail's names (§5.2), retitled by what shows. No key: none on the key table is free that says it (§6).
+        menu.addItem(item("Show Names in Rail", #selector(MainWindowController.toggleRailNames(_:))))
         menu.addItem(item("Compact Rows", #selector(AppDelegate.toggleCompactRows(_:)), "c", [.command, .option], target: delegate))
         menu.addItem(.separator())
         menu.addItem(item("Load Images", #selector(MainWindowController.loadImages(_:)), "i", [.command, .shift], symbol: Quire.Icon.loadImages))

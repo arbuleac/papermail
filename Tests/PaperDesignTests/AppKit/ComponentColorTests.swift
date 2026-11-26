@@ -49,6 +49,28 @@ final class ComponentColorTests: XCTestCase {
         }
     }
 
+    /// The choice variant (§5.24): off, the secondary look; on, `accentWash` and its hover and pressed, no edge.
+    func testAChoiceIsSecondaryOffAndAccentWashOn() {
+        for mode in QuireMode.allCases {
+            let off = QuireButton(title: "Accept", variant: .choice, size: .small)
+            var (snapshot, face) = render(off, mode)
+            assertPixel(snapshot, fillPoint(face), expected("raised", mode: mode), "\(mode) off face")
+            assertPixel(snapshot, NSPoint(x: face.minX + 0.25, y: face.midY), expected("ruleStrong", mode: mode), "\(mode) off edge")
+            off.displayState = .hover
+            (snapshot, face) = render(off, mode)
+            assertPixel(snapshot, fillPoint(face), expected("raised", "hover", mode: mode), "\(mode) off hover")
+
+            for (state, token) in [(QuireDisplayState.rest, "accentWash"), (.hover, "accentWashHover"), (.pressed, "accentWashPressed")] {
+                let on = QuireButton(title: "Accept", variant: .choice, size: .small)
+                on.isOn = true
+                on.displayState = state
+                (snapshot, face) = render(on, mode)
+                assertPixel(snapshot, NSPoint(x: face.minX + 2, y: face.minY + 3), expected(token, mode: mode), "\(mode) on \(state)")
+                assertPixel(snapshot, NSPoint(x: face.minX + 0.25, y: face.midY), expected(token, mode: mode), "\(mode) on: no edge")
+            }
+        }
+    }
+
     func testPrimaryDrawsAsSecondaryWhenTheWindowIsNotKey() {
         for mode in QuireMode.allCases {
             let button = QuireButton(title: "Send", variant: .primary)

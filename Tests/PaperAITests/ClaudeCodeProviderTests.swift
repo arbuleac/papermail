@@ -6,6 +6,7 @@ import PaperCore
 final class ClaudeCodeProviderTests: XCTestCase {
     private var fake: CLIFakeTool!
     private let request = AIWriteRequest(
+        kind: .reply,
         instructions: "You write the reply body only.\nPlain text, no \"Markdown\".",
         transcript: "<<<CONVERSATION 1a2b3c4d>>>\nDana: MAIL-MARKER-4711 Can we meet Thursday?\n<<<END CONVERSATION 1a2b3c4d>>>",
         task: "Instruction: TASK-MARKER-0815 say Thursday works", model: "haiku")
@@ -281,7 +282,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
             + #"printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Thurs"}}}'; "#
             + "while :; do /bin/sleep 0.05; done")
         let provider = provider()
-        let writer = AIWriter(resolve: { _ in provider }, hasConsent: { _ in true })
+        let writer = AIWriter(resolve: { _ in provider }, hasConsent: { _, _ in true })
         let field = AIFieldID(name: "quick reply")
         var events: [AIWriteEvent] = []
         for try await event in writer.write(request, using: AIProviderConfiguration(kind: .claudeCode, model: "haiku"), in: field, action: pressedWrite) {

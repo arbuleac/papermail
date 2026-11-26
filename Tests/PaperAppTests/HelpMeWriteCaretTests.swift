@@ -464,6 +464,28 @@ final class HelpMeWriteCaretTests: XCTestCase {
         XCTAssertFalse(AIError.rateLimited(retryAfter: 30).lineMessage(for: .claudeAPI).contains("Try again"))
     }
 
+    /// A notice is the afterline with nothing to act on: the info glyph and its words, no action, its words kept
+    /// whatever the room and cut where they must be. Nothing past the room.
+    func testANoticeIsItsWordsAloneCutWhereTheyMustBe() throws {
+        let words = WriteWords.forwardLoading
+        let afterline = WriteAfterline(frame: NSRect(x: 0, y: 0, width: 800, height: WriteAfterline.height))
+        afterline.content = .notice(words)
+        afterline.layoutSubtreeIfNeeded()
+        XCTAssertEqual(afterline.form, WriteAfterline.Form())
+        XCTAssertEqual(afterline.shownWords, words)
+        XCTAssertEqual(afterline.lineWords, words)
+        XCTAssertEqual(afterline.toolTip, words)
+        XCTAssertEqual(afterline.accessibilityLabel(), words)
+        XCTAssertTrue(afterline.actions.values.allSatisfy(\.isHidden), "no Try again, no Settings…")
+        XCTAssertLessThan(afterline.fittingWidth, 800)
+        afterline.setFrameSize(NSSize(width: 120, height: WriteAfterline.height))
+        afterline.layoutSubtreeIfNeeded()
+        XCTAssertTrue(afterline.form.cutsReason)
+        XCTAssertTrue(afterline.shownWords.hasSuffix("\u{2026}"), afterline.shownWords)
+        XCTAssertTrue(words.hasPrefix(String(afterline.shownWords.dropLast())))
+        XCTAssertEqual(afterline.lineWords, words, "VoiceOver still hears them whole")
+    }
+
     /// In a composer a block often opens inside the body's text (under a line more notes or the signature follow): the
     /// lines under it move down, and the body grows by as much, so they stay in the editor, over nothing of the quoted
     /// original, where a click reaches them; and back as it closes.

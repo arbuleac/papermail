@@ -57,7 +57,8 @@ extension MailStoreContractTests {
             title: "Design review", location: "Room 4", start: date(3_600), end: date(7_200), isAllDay: false, response: .tentative,
             isFree: true, joinURL: "https://meet.google.com/abc-defg-hij", webURL: "https://calendar.google.com/event?eid=1",
             organizer: "Ben Carter", invitationUID: "uid-7@google.com", clientKey: "0123456789abcdef0123456789abcdef",
-            updatedAt: date(30)
+            updatedAt: date(30), seriesID: "series-1", originalStart: date(3_000), timeZone: "America/Los_Angeles",
+            kind: .focusTime, callService: .meet, version: "\"3512345678901234\""
         )
         // Held floating: the start of its day as UTC, the end exclusive.
         let allDay = CalendarEvent(id: CalendarEvent.localID(accountID: accountA, providerID: "evt-day"), accountID: accountA,
@@ -497,51 +498,112 @@ extension MailStoreContractTests {
         XCTAssertEqual(try store.pendingCalendarEvents(accountID: accountA), [])
     }
 
-    // MARK: Answers
+    // MARK: Details
 
-    func testAnAnswerOnThisMacShowsOnTheInvitationsEventsAtOnce() throws {
-        func invited(_ id: String, uid: String?, account: AccountID? = nil, start: TimeInterval,
-                     response: CalendarEvent.Response = .needsAction) -> CalendarEvent {
-            var event = calendarRead(id, account: account, from: start, to: start + 1_800, response: response)
-            event.invitationUID = uid
-            return event
+    func testDetailsAreSavedByEventReadBackAndKeptByAReRead() throws {
+        let event = calendarRead("evt", from: 3_600, to: 5_400)
+        try store.replaceCalendarEvents([event], accountID: accountA, window: calendarWeek)
+        let details = CalendarEventDetails(
+            organizer: EmailAddress(name: "Rachel Kim", address: "rachel@example.com"), guests: [
+                EventGuest(name: "You", address: "a@example.com", response: .accepted, isSelf: true),
+                EventGuest(address: "sam@example.com", response: .needsAction),
+            ], guestCount: 2, answersKnown: true,
+            notes: EventNotes(text: "Agenda: https://docs.example.com/a", links: [.init(location: 8, length: 26, url: "https://docs.example.com/a")]),
+            call: EventCall(meetingID: "284 113 905 771", passcode: "Qx7bTe",
+                            phones: [EventPhone(number: "+1 555-0134", dial: "+15550134,,601225430#", region: "US", pin: "601225430")],
+                            pinLabel: .conferenceID),
+            repeats: "Every week on Friday")
+        XCTAssertNil(try store.calendarEventDetails(id: event.id))
+        XCTAssertTrue(try store.saveCalendarEventDetails(details, eventID: event.id, version: "v1", readAt: date(60)))
+        XCTAssertEqual(try store.calendarEventDetails(id: event.id), StoredEventDetails(details: details, version: "v1", readAt: date(60)))
+
+        var updated = details
+        updated.repeats = "Every week on Thursday"
+        XCTAssertTrue(try store.saveCalendarEventDetails(updated, eventID: event.id, version: "v2", readAt: date(120)))
+        XCTAssertEqual(try store.calendarEventDetails(id: event.id)?.version, "v2", "upserted by the event's id")
+
+        var changed = event
+        changed.version = "v3"
+        try store.replaceCalendarEvents([changed], accountID: accountA, window: calendarWeek)
+        XCTAssertEqual(try store.calendarEventDetails(id: event.id)?.details.repeats, "Every week on Thursday",
+                       "a re-read keeps the details; a new version makes them stale, never deletes them")
+
+        XCTAssertFalse(try store.saveCalendarEventDetails(details, eventID: "acct-a|gone", version: nil, readAt: date(60)),
+                       "an event that is gone takes no details")
+        XCTAssertNil(try store.calendarEventDetails(id: "acct-a|gone"))
+    }
+
+    func testDetailsGoWithTheirEvent() throws {
+        let swept = calendarRead("swept", from: 3_600, to: 5_400)
+        let pruned = calendarRead("old", from: -60 * 86_400, to: -60 * 86_400 + 1_800)
+        let removed = calendarRead("removed", from: 7_200, to: 9_000)
+        let otherAccount = calendarRead("b", account: accountB, from: 3_600, to: 5_400)
+        try store.replaceCalendarEvents([swept, pruned, removed], accountID: accountA,
+                                        window: DateInterval(start: date(-61 * 86_400), end: date(7 * 86_400)))
+        try store.replaceCalendarEvents([otherAccount], accountID: accountB, window: calendarWeek)
+        for event in [swept, pruned, removed, otherAccount] {
+            XCTAssertTrue(try store.saveCalendarEventDetails(CalendarEventDetails(repeats: "x"), eventID: event.id, version: nil,
+                                                             readAt: date(0)))
         }
-        // Exchange gives each occurrence its own UID, the series' with its date written in.
-        let series = "040000008200E00074C5B7101A82E00800000000A0B1C2D3000000000000000010000000AABBCCDD"
-        let occurrence = { (date: String) in
-            String(series.prefix(32)) + date + String(series.dropFirst(40))
-        }
-        try store.replaceCalendarEvents([
-            invited("once", uid: "uid-1@google.com", start: 3_600),
-            invited("mine", uid: "uid-1@google.com", start: 3_600, response: .organizer),
-            invited("other", uid: "uid-2@google.com", start: 7_200),
-            invited("plain", uid: nil, start: 9_000),
-            invited("w1", uid: occurrence("07EA0105"), start: 86_400),
-            invited("w2", uid: occurrence("07EA0106"), start: 2 * 86_400),
-            invited("w3", uid: occurrence("07EA0107"), start: 3 * 86_400),
-        ], accountID: accountA, window: calendarWeek)
-        try store.replaceCalendarEvents([invited("theirs", uid: "uid-1@google.com", account: accountB, start: 3_600)],
-                                        accountID: accountB, window: calendarWeek)
-        let response = { (id: String, account: AccountID) in
-            try self.calendarRow(CalendarEvent.localID(accountID: account, providerID: id))?.response
-        }
+        // Removed and deleted by the provider: the settle takes the row.
+        try store.removeCalendarEvent(id: removed.id)
+        try store.settleCalendarEvent(id: removed.id, created: nil)
+        XCTAssertNil(try store.calendarEventDetails(id: removed.id), "Remove's settle")
+        // A read that no longer lists one sweeps it; history long behind the window is pruned.
+        try store.replaceCalendarEvents([], accountID: accountA, window: calendarWeek)
+        XCTAssertNil(try store.calendarEventDetails(id: swept.id), "the sweep")
+        XCTAssertNil(try store.calendarEventDetails(id: pruned.id), "the prune")
+        XCTAssertNotNil(try store.calendarEventDetails(id: otherAccount.id))
+        try store.deleteAccount(accountB)
+        XCTAssertNil(try store.calendarEventDetails(id: otherAccount.id), "the account's removal")
+    }
 
-        try store.answerCalendarEvents(.declined, invitationUID: "uid-1@google.com", accountID: accountA, near: nil)
-        XCTAssertEqual(try response("once", accountA), .declined)
-        XCTAssertEqual(try response("mine", accountA), .organizer, "the user's own event is not an invitation to them")
-        XCTAssertEqual(try response("other", accountA), .needsAction)
-        XCTAssertEqual(try response("theirs", accountB), .needsAction, "another account's copy is its own")
+    func testEventsNeedingDetailsAreTheMissingAndStaleOnesInOrder() throws {
+        var first = calendarRead("first", from: 3_600, to: 5_400)
+        first.version = "v1"
+        var fresh = calendarRead("fresh", from: 1_800, to: 2_400)
+        fresh.version = "v1"
+        var stale = calendarRead("stale", from: 7_200, to: 9_000)
+        stale.version = "v2"
+        let unversioned = calendarRead("plain", from: 10_000, to: 11_000)
+        let later = calendarRead("later", from: 2 * 86_400, to: 2 * 86_400 + 600)
+        let theirs = calendarRead("theirs", account: accountB, from: 3_600, to: 5_400)
+        try store.replaceCalendarEvents([first, fresh, stale, unversioned, later], accountID: accountA, window: calendarWeek)
+        try store.replaceCalendarEvents([theirs], accountID: accountB, window: calendarWeek)
+        try store.addCalendarEvent(calendarBlock("lunch", from: 4_000, to: 5_000))
+        XCTAssertTrue(try store.saveCalendarEventDetails(CalendarEventDetails(), eventID: fresh.id, version: "v1", readAt: date(0)))
+        XCTAssertTrue(try store.saveCalendarEventDetails(CalendarEventDetails(), eventID: stale.id, version: "v1", readAt: date(0)))
+        XCTAssertTrue(try store.saveCalendarEventDetails(CalendarEventDetails(), eventID: unversioned.id, version: nil, readAt: date(0)))
 
-        // A series answered: every occurrence. One occurrence answered: the one nearest its start.
-        try store.answerCalendarEvents(.accepted, invitationUID: series, accountID: accountA, near: nil)
-        XCTAssertEqual(try ["w1", "w2", "w3"].map { try response($0, accountA) }, [.accepted, .accepted, .accepted])
-        try store.answerCalendarEvents(.tentative, invitationUID: series, accountID: accountA, near: date(2 * 86_400 + 600))
-        XCTAssertEqual(try ["w1", "w2", "w3"].map { try response($0, accountA) }, [.accepted, .tentative, .accepted])
+        let day = DateInterval(start: date(0), end: date(86_400))
+        XCTAssertEqual(try store.eventsNeedingDetails(accountID: accountA, in: day, limit: 8).map(\.providerID), ["first", "stale"],
+                       "missing or at another version, by start; a fresh one, a block, the next day and another account left out")
+        XCTAssertEqual(try store.eventsNeedingDetails(accountID: accountA, in: day, limit: 1).map(\.providerID), ["first"])
+    }
 
-        // A row being deleted is left as it is.
-        try store.removeCalendarEvent(id: CalendarEvent.localID(accountID: accountA, providerID: "other"))
-        try store.answerCalendarEvents(.accepted, invitationUID: "uid-2@google.com", accountID: accountA, near: nil)
-        XCTAssertEqual(try response("other", accountA), .needsAction)
+    func testSeriesRowsAndTheirWords() throws {
+        var one = calendarRead("s1", from: 3_600, to: 5_400)
+        one.seriesID = "S"
+        var two = calendarRead("s2", from: 86_400, to: 86_400 + 1_800)
+        two.seriesID = "S"
+        var other = calendarRead("t1", from: 7_200, to: 9_000)
+        other.seriesID = "T"
+        var theirs = calendarRead("b1", account: accountB, from: 3_600, to: 5_400)
+        theirs.seriesID = "S"
+        try store.replaceCalendarEvents([two, one, other], accountID: accountA, window: calendarWeek)
+        try store.replaceCalendarEvents([theirs], accountID: accountB, window: calendarWeek)
+        XCTAssertEqual(try store.calendarEvents(seriesID: "S", accountID: accountA).map(\.providerID), ["s1", "s2"])
+        XCTAssertEqual(try store.calendarEvent(id: one.id), one)
+        XCTAssertNil(try store.calendarEvent(id: "acct-a|none"))
+
+        XCTAssertNil(try store.seriesRepeats(accountID: accountA, seriesID: "S", since: date(0)))
+        XCTAssertTrue(try store.saveCalendarEventDetails(CalendarEventDetails(repeats: "Every week"), eventID: one.id, version: nil,
+                                                         readAt: date(-2 * 86_400)))
+        XCTAssertNil(try store.seriesRepeats(accountID: accountA, seriesID: "S", since: date(-86_400)), "read too long ago")
+        XCTAssertTrue(try store.saveCalendarEventDetails(CalendarEventDetails(repeats: "Every weekday"), eventID: two.id, version: nil,
+                                                         readAt: date(60)))
+        XCTAssertEqual(try store.seriesRepeats(accountID: accountA, seriesID: "S", since: date(-86_400)), "Every weekday")
+        XCTAssertNil(try store.seriesRepeats(accountID: accountB, seriesID: "S", since: date(-86_400)), "the account's own")
     }
 
     // MARK: Accounts and mail

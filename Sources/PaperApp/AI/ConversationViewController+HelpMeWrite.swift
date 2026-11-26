@@ -79,6 +79,10 @@ final class QuickReplyWriteField: WriteField {
 
     var writeTextView: NSTextView { bar?.writingTextView ?? NSTextView() }
 
+    var writeKind: WriteKind { .reply }
+
+    var analyticsKind: AnalyticsSignal.ComposeKind { bar?.mode == .replyAll ? .replyAll : .reply }
+
     var ownTextRange: NSRange {
         NSRange(location: 0, length: (writeTextView.string as NSString).length)
     }
@@ -119,7 +123,7 @@ final class QuickReplyWriteField: WriteField {
         reader.client.keepBodies(of: messages.map(\.id))
         let account = reader.accountsByID[target.id.accountID]
         let signature = ComposeSignature.export(html: account?.signature)?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return WriteContextInputs(store: reader.client.store, messages: messages, target: target.id,
-                                  accounts: Array(reader.accountsByID.values), appendsSignature: !signature.isEmpty)
+        return .reply(ReplyWriteInputs(store: reader.client.store, messages: messages, target: target.id,
+                                       accounts: Array(reader.accountsByID.values), appendsSignature: !signature.isEmpty))
     }
 }
