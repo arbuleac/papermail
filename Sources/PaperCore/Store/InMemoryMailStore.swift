@@ -1067,15 +1067,43 @@ public final class InMemoryMailStore: MailStoring, @unchecked Sendable {
         }
         operationWrittenLocked(operation, previousStatus: previous)
         if let previous, previous.isLive, !dropped.isEmpty { targetsTakenLocked(dropped, from: operation) }
+        if operation.status == .confirmed, previous != .confirmed {
+            applyFailedCalendarSettlementLocked(failedCalendarAnswersSettledLocked(by: operation))
+        }
         applySnoozeRulesLocked(touched: conversationsLocked(targetedBy: operation))
         notifyAll()
     }
 
     public func confirmOperation(id: String) throws {
         lock.lock(); defer { lock.unlock() }
-        guard let confirmed = removeOperationLocked(id: id) else { return }
+        guard let confirmed = operations[id] else { return }
+        // Before the removal: the failed answers it settles are those queued before it.
+        let settled = failedCalendarAnswersSettledLocked(by: confirmed)
+        _ = removeOperationLocked(id: id)
         settleLocked(confirmed, .confirmed)
+        applyFailedCalendarSettlementLocked(settled)
         notifyAll()
+    }
+
+    /// `OperationTable.settleFailedCalendarAnswers`: what a confirmed answer settles among the account's failed answers
+    /// queued before it (`CalendarAnswers.settling`).
+    private func failedCalendarAnswersSettledLocked(by confirmed: Operation)
+        -> (deleted: [String], rewritten: [(id: String, answer: InvitationAnswer)]) {
+        guard let answer = CalendarAnswers.answer(of: confirmed.change) else { return ([], []) }
+        let failed = operations.values
+            .filter { $0.accountID == confirmed.accountID && $0.status == .failed && isOlderLocked($0, than: confirmed) }
+            .sorted { isOlderLocked($0, than: $1) }
+            .compactMap { op -> (id: String, answer: InvitationAnswer)? in CalendarAnswers.answer(of: op.change).map { (op.id, $0) } }
+        guard !failed.isEmpty else { return ([], []) }
+        let recorded = Set(failed.flatMap { $0.answer.calendar?.previous.keys.map { $0 } ?? [] })
+        let rows = calendarRows.filter { recorded.contains($0.key) }.mapValues(\.event)
+        return CalendarAnswers.settling(answer, rows: rows, failed: failed)
+    }
+
+    private func applyFailedCalendarSettlementLocked(
+        _ settled: (deleted: [String], rewritten: [(id: String, answer: InvitationAnswer)])) {
+        for (id, answer) in settled.rewritten { operations[id]?.change = .answerInvitation(answer) }
+        for id in settled.deleted { deleteOperationLocked(id: id) }
     }
 
     public func deleteOperation(id: String) throws {

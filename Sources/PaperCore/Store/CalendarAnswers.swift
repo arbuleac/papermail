@@ -109,6 +109,36 @@ enum CalendarAnswers {
         return (putBack, rewritten)
     }
 
+    /// What a confirmation of `confirmed` settles among the account's failed answers queued before it, oldest first: it
+    /// went out after them, so on every row it covers their failure is past, even when a still later answer brings the row
+    /// back to the word a give-up put back (Accept given up from tentative, then Decline and Tentative sent: the row says
+    /// tentative again, and the card must not say the Accept failed). Each loses the rows `confirmed` covers; one left
+    /// with none is deleted, as `FailedOperationMarks.settle(.confirmed)` clears an older failure's conversation mark.
+    /// `rows` holds the recorded rows the store still has; one it lost counts as covered only when `confirmed` recorded it.
+    static func settling(_ confirmed: InvitationAnswer, rows: [String: CalendarEvent],
+                         failed: [(id: String, answer: InvitationAnswer)])
+        -> (deleted: [String], rewritten: [(id: String, answer: InvitationAnswer)]) {
+        guard let confirmedCopies = confirmed.calendar else { return ([], []) }
+        var deleted: [String] = []
+        var rewritten: [(id: String, answer: InvitationAnswer)] = []
+        for (id, answer) in failed {
+            guard var copies = answer.calendar, !copies.previous.isEmpty else { continue }
+            let settled = copies.previous.keys.filter { rowID in
+                rows[rowID].map { covers(confirmed, $0) } ?? (confirmedCopies.previous[rowID] != nil)
+            }
+            guard !settled.isEmpty else { continue }
+            guard settled.count < copies.previous.count else {
+                deleted.append(id)
+                continue
+            }
+            for rowID in settled { copies.previous[rowID] = nil }
+            var narrowed = answer
+            narrowed.calendar = copies
+            rewritten.append((id, narrowed))
+        }
+        return (deleted, rewritten)
+    }
+
     /// Where the newest answer covering the row stands, from the account's answers (live and failed), oldest first. A
     /// given-up answer says so only while the row still says what the give-up put back: a later answer that went out
     /// (and left the outbox) or a read with the provider's word has moved the row on since, and the failure is past.

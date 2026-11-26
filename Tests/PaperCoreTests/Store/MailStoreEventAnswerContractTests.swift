@@ -263,6 +263,97 @@ extension MailStoreContractTests {
         expect("sent: the failure is past") { $0?.event.response == .accepted && $0?.answer == nil }
     }
 
+    /// Accept given up (the row back to tentative), then Decline and Tentative sent: the row says tentative again, the
+    /// word the give-up put back, but later answers went out, so the failure is past and leaves the outbox with the first.
+    func testAConfirmedAnswerSettlesTheFailuresQueuedBeforeIt() throws {
+        try store.replaceCalendarEvents([invitedEvent("e", start: 3_600, response: .tentative)], accountID: accountA,
+                                        window: answerWeek)
+        let id = CalendarEvent.localID(accountID: accountA, providerID: "e")
+        let card = CardBox()
+        let observation = store.observeEventCard(id: id) { card.append($0) }
+        let failures = ObservedValues()
+        let failedObservation = store.observeFailedCalendarAnswers { failures.append($0.sorted()) }
+        defer { observation.cancel(); failedObservation.cancel() }
+        expectCard(card, "the row first") { $0?.answer == nil }
+        expectFailures(failures, [], "none yet")
+
+        try store.enqueue(answerOperation(.accepted, scope: .event(id: id), id: "op-1"))
+        try giveUp("op-1")
+        expectCard(card, "given up, put back") { $0?.event.response == .tentative && $0?.answer == .failed }
+        expectFailures(failures, ["op-1"], "the window's toast hears of it")
+
+        try store.enqueue(answerOperation(.declined, scope: .event(id: id), at: 1, id: "op-2"))
+        try store.confirmOperation(id: "op-2")
+        expectCard(card, "declined, sent") { $0?.event.response == .declined && $0?.answer == nil }
+        expectFailures(failures, [], "the failure went with the answer that went out after it")
+
+        try store.enqueue(answerOperation(.tentative, scope: .event(id: id), at: 2, id: "op-3"))
+        try store.confirmOperation(id: "op-3")
+        expectCard(card, "tentative again, sent: no failure line") { $0?.event.response == .tentative && $0?.answer == nil }
+    }
+
+    /// A failure stands on the rows no later answer covers, and a failure queued after the confirmed answer is its own.
+    func testAConfirmedAnswerSettlesAFailureOnlyWhereItGoesAndOnlyAnOlderOne() throws {
+        try store.replaceCalendarEvents([
+            invitedEvent("a", series: "S", start: 3_600, response: .tentative),
+            invitedEvent("b", series: "S", start: 86_400, response: .tentative),
+        ], accountID: accountA, window: answerWeek)
+        let a = CalendarEvent.localID(accountID: accountA, providerID: "a")
+        let b = CalendarEvent.localID(accountID: accountA, providerID: "b")
+        let cardA = CardBox(), cardB = CardBox()
+        let observations = [store.observeEventCard(id: a) { cardA.append($0) }, store.observeEventCard(id: b) { cardB.append($0) }]
+        let failures = ObservedValues()
+        let failedObservation = store.observeFailedCalendarAnswers { failures.append($0.sorted()) }
+        defer { observations.forEach { $0.cancel() }; failedObservation.cancel() }
+        expectCard(cardA, "a first") { $0?.answer == nil }
+        expectCard(cardB, "b first") { $0?.answer == nil }
+        expectFailures(failures, [], "none yet")
+
+        try store.enqueue(answerOperation(.accepted, scope: .series(id: "S"), id: "op-1"))
+        try giveUp("op-1")
+        try store.enqueue(answerOperation(.declined, scope: .event(id: a), at: 1, id: "op-2"))
+        try store.confirmOperation(id: "op-2")
+        try store.enqueue(answerOperation(.tentative, scope: .event(id: a), at: 2, id: "op-3"))
+        try store.confirmOperation(id: "op-3")
+        expectCard(cardA, "the occurrence answered since: past") { $0?.event.response == .tentative && $0?.answer == nil }
+        expectCard(cardB, "the occurrence nothing answered since: still failed") {
+            $0?.event.response == .tentative && $0?.answer == .failed
+        }
+        expectFailures(failures, ["op-1"], "kept while a row of it still stands")
+
+        // Decline queued, then Accept queued and given up over it; the Decline then goes: the Accept came after it, and
+        // its failure stands.
+        try store.enqueue(answerOperation(.declined, scope: .event(id: a), at: 3, id: "op-4"))
+        try store.enqueue(answerOperation(.accepted, scope: .event(id: a), at: 4, id: "op-5"))
+        try giveUp("op-5")
+        try store.confirmOperation(id: "op-4")
+        expectCard(cardA, "a newer failure is its own") { $0?.event.response == .declined && $0?.answer == .failed }
+        expectFailures(failures, ["op-1", "op-5"], "both still stand")
+    }
+
+    private func giveUp(_ id: String) throws {
+        var operation = try XCTUnwrap(try store.pendingOperations(accountID: accountA, limit: 100).first { $0.id == id })
+        operation.status = .failed
+        operation.nextAttemptAt = date(86_400)
+        try store.updateOperation(operation)
+    }
+
+    /// Waits for the value the observation delivers when it starts (the in-memory store sends it on the next turn of the
+    /// run loop, after any write made meanwhile has been delivered at once), so a later value is never overtaken by it.
+    private func expectCard(_ box: CardBox, _ step: String, file: StaticString = #filePath, line: UInt = #line,
+                            _ check: @escaping (EventCardState?) -> Bool) {
+        let deadline = Date().addingTimeInterval(3)
+        while !(box.last.map(check) ?? false), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertTrue(box.last.map(check) ?? false, step, file: file, line: line)
+    }
+
+    private func expectFailures(_ box: ObservedValues, _ ids: [String], _ step: String, file: StaticString = #filePath,
+                                line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(3)
+        while box.values.last != ids, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(box.values.last, ids, step, file: file, line: line)
+    }
+
     func testOnlyFailedAnswersWithNoMessageAreReported() throws {
         try store.upsertMessages([message("m1", in: "c1")])
         let box = ObservedValues()
