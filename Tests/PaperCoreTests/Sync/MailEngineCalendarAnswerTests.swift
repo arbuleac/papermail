@@ -215,6 +215,17 @@ final class MailEngineCalendarAnswerTests: XCTestCase {
         await harness.shutdown()
     }
 
+    /// All Events from an occurrence that already says the answer still answers the others.
+    func testAllEventsFromAnOccurrenceThatSaysItAlreadyAnswersTheRest() async throws {
+        let rows = [event("s1", series: "S", response: .accepted), event("s2", series: "S", start: 7 * 86_400)]
+        let harness = try await harness(events: rows, invitation: invitation(repeats: "Every week"))
+        XCTAssertEqual(try harness.engine.answerCalendarEvent(.accepted, eventID: rows[0].id, span: .series, invitationMessage: message),
+                       .calendar, "the mail's copy says it already: the calendar route answers the series")
+        XCTAssertEqual(try rows.map { try harness.store.calendarEvent(id: $0.id)?.response }, [.accepted, .accepted])
+        XCTAssertEqual(try queuedAnswers(harness).first?.answer.calendar?.scope, .series(id: "S"))
+        await harness.shutdown()
+    }
+
     func testOnlyAnInvitationOnTheCalendarCanBeAnswered() async throws {
         let mine = event("mine", response: .organizer)
         let focus = event("focus", kind: .focusTime)

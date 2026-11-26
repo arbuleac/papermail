@@ -654,9 +654,13 @@ public final class MailEngine: MailClient, @unchecked Sendable {
                 return .notThisRoute
             }
         }
-        // The event's row is what the details show chosen: the same answer again sends nothing. The message's own reply
-        // never decides this alone, since the row may say something newer (an answer changed on the phone).
-        if let wanted = CalendarEvent.Response(rawValue: response.rawValue), event.response == wanted { return .alreadySaid }
+        // The event's row is what the details show chosen: the same answer again to it sends nothing. The message's own
+        // reply never decides this alone, since the row may say something newer (an answer changed on the phone). All
+        // Events covers more rows than the one clicked: the invitation's own copy decides it, and the calendar route
+        // the rest.
+        if span != .series, let wanted = CalendarEvent.Response(rawValue: response.rawValue), event.response == wanted {
+            return .alreadySaid
+        }
         do {
             // Nothing queued: the invitation's calendar copy (for a series, the occurrence nearest its start) already
             // says it, so this row is answered on the calendar.
