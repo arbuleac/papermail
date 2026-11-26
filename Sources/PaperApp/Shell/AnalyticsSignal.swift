@@ -33,7 +33,15 @@ enum AnalyticsSignal: Equatable, Sendable {
     case dayColumn(shown: Bool, Trigger)
     case weekOpened(Trigger)
     case timeBlocked(Trigger)
-    case invitationAnswered(InvitationAnswer)
+    /// Accept, Tentative or Decline: where it was given, what it answered, and how it went (through the mail or on the
+    /// calendar alone).
+    case invitationAnswered(InvitationAnswer, Surface, AnswerSpan, AnswerRoute)
+    /// An event's details opened by the user (§5.54): what kind of event, and how. Never the details the week opens by
+    /// itself beside the selected conversation's invitation.
+    case detailsOpened(EventKind, Trigger)
+    /// A step in an event's details, or Join on an event's face: once it took (a link once the opener took it, a copy
+    /// once the pasteboard did).
+    case eventAction(EventAction, Surface, Trigger)
     /// A step taken back: an undo-history group reverted (Z, ⌘Z, a toast's Undo).
     case undo(Trigger)
     case accountAdded(Provider)
@@ -86,6 +94,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         case weekOpened = "Calendar.weekOpened"
         case timeBlocked = "Calendar.timeBlocked"
         case invitationAnswered = "Calendar.invitationAnswered"
+        case detailsOpened = "Calendar.detailsOpened"
+        case eventAction = "Calendar.eventAction"
         case undo = "Undo.used"
         case accountAdded = "Account.added"
         case accountRemoved = "Account.removed"
@@ -183,6 +193,58 @@ enum AnalyticsSignal: Equatable, Sendable {
             case .declined: self = .decline
             case .needsAction: return nil
             }
+        }
+    }
+
+    /// What an event's details were opened on.
+    enum EventKind: String, CaseIterable, Sendable {
+        /// An event the user is a guest of.
+        case invitee
+        /// The user's own (organized, a kind, no guests).
+        case own
+        /// Time set aside for a mail.
+        case setAside
+        /// The selected mail's invitation drawn from the mail.
+        case pencil
+        case later
+        case sendLater
+    }
+
+    /// A step in an event's details.
+    enum EventAction: String, CaseIterable, Sendable {
+        case join, copyLink, phone, copyPhone, morePhones, copyMeetingID, copyPasscode, placeLink, notesLink, showAllGuests,
+             showMoreNotes, showMail, remove, openIn
+    }
+
+    /// Where a calendar step was taken: the reader's invitation card, an event's details, an event's own Join.
+    enum Surface: String, CaseIterable, Sendable {
+        case reader, details, face
+    }
+
+    /// What an answer answered.
+    enum AnswerSpan: String, CaseIterable, Sendable {
+        case single, occurrence, series
+
+        init(_ span: PaperCore.AnswerSpan) {
+            switch span {
+            case .single: self = .single
+            case .occurrence: self = .occurrence
+            case .series: self = .series
+            }
+        }
+
+        /// What an invitation's mail answers: one occurrence (RECURRENCE-ID), the series (a repeat), else one event.
+        init(_ invitation: CalendarInvitation) {
+            self = invitation.recurrenceID != nil ? .occurrence : invitation.repeats != nil ? .series : .single
+        }
+    }
+
+    /// How an answer went to the provider.
+    enum AnswerRoute: String, CaseIterable, Sendable {
+        case mail, calendar
+
+        init(_ route: PaperCore.AnswerRoute) {
+            self = route == .mail ? .mail : .calendar
         }
     }
 
@@ -566,6 +628,11 @@ enum AnalyticsSignal: Equatable, Sendable {
             "scope": Scope.allCases.map(\.rawValue),
             "state": DayColumnState.allCases.map(\.rawValue),
             "answer": InvitationAnswer.allCases.map(\.rawValue),
+            "eventKind": EventKind.allCases.map(\.rawValue),
+            "eventAction": EventAction.allCases.map(\.rawValue),
+            "surface": Surface.allCases.map(\.rawValue),
+            "span": AnswerSpan.allCases.map(\.rawValue),
+            "route": AnswerRoute.allCases.map(\.rawValue),
             "provider": Provider.allCases.map(\.rawValue),
             "aiProvider": Writer.allCases.map(\.rawValue),
             "ending": WriteEnding.allCases.map(\.rawValue),
@@ -621,6 +688,8 @@ enum AnalyticsSignal: Equatable, Sendable {
         case .weekOpened: return .weekOpened
         case .timeBlocked: return .timeBlocked
         case .invitationAnswered: return .invitationAnswered
+        case .detailsOpened: return .detailsOpened
+        case .eventAction: return .eventAction
         case .undo: return .undo
         case .accountAdded: return .accountAdded
         case .accountRemoved: return .accountRemoved
@@ -685,8 +754,12 @@ enum AnalyticsSignal: Equatable, Sendable {
             return ["view": view.rawValue, "scope": (unified ? Scope.unified : .account).rawValue, "trigger": trigger.rawValue]
         case .dayColumn(let shown, let trigger):
             return ["state": (shown ? DayColumnState.shown : .hidden).rawValue, "trigger": trigger.rawValue]
-        case .invitationAnswered(let answer):
-            return ["answer": answer.rawValue]
+        case .invitationAnswered(let answer, let surface, let span, let route):
+            return ["answer": answer.rawValue, "surface": surface.rawValue, "span": span.rawValue, "route": route.rawValue]
+        case .detailsOpened(let kind, let trigger):
+            return ["eventKind": kind.rawValue, "trigger": trigger.rawValue]
+        case .eventAction(let action, let surface, let trigger):
+            return ["eventAction": action.rawValue, "surface": surface.rawValue, "trigger": trigger.rawValue]
         case .accountAdded(let provider), .accountRemoved(let provider), .senderRuleRemoved(let provider):
             return ["provider": provider.rawValue]
         case .helpMeWriteUsed(let writer, let ending, let details):

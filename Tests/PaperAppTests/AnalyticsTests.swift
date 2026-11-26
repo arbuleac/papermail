@@ -165,7 +165,21 @@ final class AnalyticsTests: XCTestCase {
                         .weekOpened(trigger), .timeBlocked(trigger), .undo(trigger)]
             for view in MailboxView.allCases { signals += [.viewOpened(view, unified: true, trigger), .viewOpened(view, unified: false, trigger)] }
         }
-        signals += S.InvitationAnswer.allCases.map(S.invitationAnswered)
+        for answer in S.InvitationAnswer.allCases {
+            for surface in S.Surface.allCases {
+                for span in S.AnswerSpan.allCases {
+                    for route in S.AnswerRoute.allCases { signals.append(.invitationAnswered(answer, surface, span, route)) }
+                }
+            }
+        }
+        for kind in S.EventKind.allCases {
+            for trigger in S.Trigger.allCases { signals.append(.detailsOpened(kind, trigger)) }
+        }
+        for action in S.EventAction.allCases {
+            for surface in S.Surface.allCases {
+                for trigger in [S.Trigger.toolbar, .key] { signals.append(.eventAction(action, surface, trigger)) }
+            }
+        }
         for provider in S.Provider.allCases { signals += [.accountAdded(provider), .accountRemoved(provider)] }
         for writer in S.Writer.allCases {
             for ending in S.WriteEnding.allCases {
@@ -221,7 +235,7 @@ final class AnalyticsTests: XCTestCase {
 
     func testTheSamplesCoverEveryNameInTheCatalog() {
         XCTAssertEqual(Set(Self.everySignal.map(\.name)), Set(AnalyticsSignal.Name.allCases))
-        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 32, "the catalog the doc lists")
+        XCTAssertEqual(AnalyticsSignal.Name.allCases.count, 34, "the catalog the doc lists")
     }
 
     /// (a) Every parameter of every signal, `mode` included, is a key of the vocabulary and takes one of its values.
@@ -1106,6 +1120,17 @@ final class AnalyticsTests: XCTestCase {
         }
         for row in harness.list.conversations {
             words.insert(row.subject.lowercased())
+        }
+        // An event's words: titles, places, organizers, meeting IDs and passcodes the demo and the tests write.
+        let wide = DateInterval(start: Date().addingTimeInterval(-90 * 86_400), duration: 200 * 86_400)
+        for event in (try? store.calendarEvents(in: wide, accountIDs: nil)) ?? [] {
+            words.insert(event.title.lowercased())
+            if let location = event.location { words.insert(location.lowercased()) }
+            if let organizer = event.organizer { words.insert(organizer.lowercased()) }
+            if let call = (try? store.calendarEventDetails(id: event.id))??.details.call {
+                if let id = call.meetingID { words.insert(id.lowercased()) }
+                if let passcode = call.passcode { words.insert(passcode.lowercased()) }
+            }
         }
         words = words.filter { $0.count >= 3 }
         for sent in recorder.sent {

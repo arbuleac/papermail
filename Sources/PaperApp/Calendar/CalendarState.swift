@@ -311,9 +311,42 @@ final class CalendarState {
     /// The engine's account statuses, as `observeStatus` delivers them; internal so a window's test can deliver some.
     func statusesChanged(_ statuses: [AccountSyncStatus]) {
         let states = Dictionary(statuses.map { ($0.accountID, Self.withoutDates($0.calendar)) }, uniquingKeysWith: { _, last in last })
-        guard states != calendarStates else { return }
+        let needed = Dictionary(statuses.map { ($0.accountID, $0.permissionsNeeded) }, uniquingKeysWith: { _, last in last })
+        guard states != calendarStates || needed != permissionsNeeded else { return }
         calendarStates = states
+        permissionsNeeded = needed
         notify(.statuses)
+    }
+
+    /// Each account's permissions its queued work waits for (`AccountSyncStatus.permissionsNeeded`): an event's details
+    /// show the permission notice while an answer covering it waits for the calendar's.
+    private(set) var permissionsNeeded: [AccountID: Set<AccountPermission>] = [:]
+
+    // MARK: An event's details
+
+    /// The card's state of one event, from the store (`CalendarStoring.observeEventCard`).
+    func observeEventCard(id: String, onChange: @escaping @Sendable (EventCardState?) -> Void) -> StoreObservation {
+        store.observeEventCard(id: id, onChange: onChange)
+    }
+
+    /// The mail an event came from, read off the main thread: the invitation mail by UID and title (`invitationMessages`
+    /// and `RelatedInvitation.pick`). Delivered on the main thread; nil when none is found.
+    func relatedMail(for event: CalendarEvent, completion: @escaping @MainActor (RelatedInvitation?) -> Void) {
+        let store = self.store
+        reader.async {
+            let candidates = (try? store.invitationMessages(for: event)) ?? []
+            let picked = RelatedInvitation.pick(candidates, for: event)
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(picked) } }
+        }
+    }
+
+    /// The message time was set aside for, read off the main thread; nil when the store no longer has it.
+    func message(_ id: MessageID, completion: @escaping @MainActor (MessageMetadata?) -> Void) {
+        let store = self.store
+        reader.async {
+            let message = try? store.message(id)
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(message ?? nil) } }
+        }
     }
 
     /// A state with its dates dropped: every read publishes `.current` at a new instant, once a minute per account,

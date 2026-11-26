@@ -158,10 +158,26 @@ final class RecordingCalendarDelegate: CalendarViewDelegate {
     }
     func removeEvent(_ event: CalendarEvent) { removed.append(event); calls.append("removeEvent") }
     func openURL(_ url: URL) { openedURLs.append(url); calls.append("openURL") }
-    func showMail(_ message: MessageID) { calls.append("showMail") }
+    func showMail(_ message: MessageID, fromWeek: Bool) { shownMail.append(message); calls.append("showMail") }
+    var shownMail: [MessageID] = []
+    var calendarAnswers: [(InvitationResponse, String, AnswerSpan, MessageID?)] = []
+    var detailsAsked: [String] = []
+    /// Whether the opener takes a link.
+    var opensLinks = true
+    func answerCalendarEvent(_ response: InvitationResponse, eventID: String, span: AnswerSpan, invitationMessage: MessageID?) {
+        calendarAnswers.append((response, eventID, span, invitationMessage))
+        calls.append("answerCalendarEvent")
+    }
+    func openEventLink(_ url: URL) -> Bool {
+        guard opensLinks, EventLinkPolicy.checked(url) != nil else { return false }
+        openedURLs.append(url)
+        calls.append("openEventLink")
+        return true
+    }
+    func readEventDetails(eventID: String) { detailsAsked.append(eventID) }
     func showPendingSend(id: String) { calls.append("showPendingSend") }
     func connect(accountIDs: [AccountID]) { connected.append(accountIDs); calls.append("connect") }
-    func answerInvitation(_ response: InvitationResponse, for message: MessageID) {
+    func answerInvitation(_ response: InvitationResponse, for message: MessageID, surface: AnalyticsSignal.Surface) {
         answers.append((response, message))
         calls.append("answerInvitation")
     }

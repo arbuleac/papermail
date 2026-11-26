@@ -142,7 +142,7 @@ final class CalendarRenderTests: XCTestCase {
             let week = WeekView(state: state)
             let weekWindow = Support.host(week, size: NSSize(width: 1_064, height: 800), appearance: mode.appearance)
             defer { weekWindow.close(); state.span = .day }
-            let invitationCard = try XCTUnwrap(week.invitationCard)
+            let invitationCard = try XCTUnwrap(week.selectionDetails)
             XCTAssertGreaterThan(invitationCard.frame.height, 100)
             let weekBitmap = try XCTUnwrap(Support.render(week))
             assertDrawn(weekBitmap, "week card \(mode.name)")

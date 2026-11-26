@@ -67,7 +67,8 @@ final class DayColumnView: NSView, CalendarStateObserver {
     // MARK: State
 
     func calendarState(_ state: CalendarState, didChange change: CalendarChange) {
-        if change.contains(.shown) || change.contains(.selection) { details.dismiss() }
+        // The details close on a turn of the day and a change of the selected conversation, and follow the rest.
+        details.stateDidChange(change)
         // Nothing is read or fitted for a column no one sees: it catches up when it shows again.
         guard isShowing else { needsReload = true; return }
         if change.contains(.shown) || change.contains(.day) {

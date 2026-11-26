@@ -65,6 +65,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var onConnectRules: ((Account, @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Opens a calendar link (Join, Open in Google Calendar, the setup guide). Tests replace it, so no test opens a browser.
     var openCalendarURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// The calendar answers given up that this window has seen (nil until the first delivery, whose failures predate
+    /// this launch and stay quiet): each new one says so once.
+    var knownFailedCalendarAnswers: Set<String>?
+    /// Debug snapshots: a state still being applied (an event's details opening), which the capture waits for.
+    var debugStatesPending = false
+    /// Debug snapshots: the time `details=block` set aside.
+    var debugBlockID: String?
+    var failedCalendarAnswersObservation: StoreObservation?
     /// Asks the engine to read every account's calendar: the kept window (nil), or shown days outside it as well.
     /// Tests replace it to see what was asked.
     lazy var readCalendars: (DateInterval?) -> Void = { [weak self] range in
@@ -1554,7 +1562,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // The column opened over the reader's edge closes back to its strip (row 11), then the week's invitation card
         // hides until the selection changes (row 12); the week itself stays until W or D.
         if closeCalendarOverlay() { return true }
-        if desk.placement == .week, desk.week.hideInvitationCard() { return true }
+        if desk.placement == .week, desk.week.hideSelectionDetails() { return true }
         if isReaderFocused || isCalendarFocused {
             focusList()
             return true

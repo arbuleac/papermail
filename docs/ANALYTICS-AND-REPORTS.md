@@ -135,7 +135,9 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `Calendar.dayColumn` | D, View › Hide Day or Show Day, or the column's toggle shows or hides the day column. | `state`, `trigger` |
 | `Calendar.weekOpened` | W, View › Show Week or the column's Week button opens the week. | `trigger` |
 | `Calendar.timeBlocked` | B, a drop on the calendar or a mail's own time sets 30 minutes aside. | `trigger` |
-| `Calendar.invitationAnswered` | Accept, Tentative or Decline on an invitation card. | `answer` |
+| `Calendar.invitationAnswered` | Accept, Tentative or Decline on an invitation card or in an event's details (This Event or All Events picked, on a repeating event). Clicking the answer already chosen is none. | `answer`, `surface`, `span`, `route` |
+| `Calendar.detailsOpened` | An event's details open: a click, ↩, Space or VoiceOver's press on an event, a pencilled invitation, or a Later or Send Later mark. The details the week opens by itself beside the selected conversation's invitation are none. | `eventKind`, `trigger` |
+| `Calendar.eventAction` | A step in an event's details (Join, a phone number, More phone numbers, a copy, a link in the place or the notes, Show all, Show more, Show the mail, Remove, Open in…), or Join on an event in the day column or the week. A copy counts once the pasteboard took it, a link once it opened. | `eventAction`, `surface`, `trigger` |
 | `Undo.used` | A step taken back: Z, ⌘Z, Edit › Undo or a toast's Undo. | `trigger` |
 | `Account.added` | An account is added (the demo replaced included). | `provider` |
 | `Account.removed` | An account is removed. | `provider` |
@@ -144,7 +146,7 @@ Every signal carries `mode` (`demo` or `accounts`: which mailbox was on screen) 
 | `ReaderMode.versionSwitched` | Show original or Show text on one message in reader mode. | `readerLine` |
 | `Reader.quotedText` | A message's quoted text is shown or hidden: its Show quoted text mark, or “.”. Find opening it to show a match is none. | `state`, `trigger` |
 | `Trackers.blocked` | Block trackers held trackers back in a conversation the reader shows (a message shown as its text version holds none). Once a conversation per window and run. | `trackers` |
-| `Trackers.linkCleaned` | A link opened from a message, with Block trackers on, went without its tracking parameters. | none |
+| `Trackers.linkCleaned` | A link opened from a message or the calendar, with Block trackers on, went without its tracking parameters. | none |
 | `Attachment.used` | An attachment is opened in Quick Look (a click on its chip, Space) or its app (a double click, Open), saved (Download, Download all, Save As…), copied, or dragged out of the reader and dropped where it was taken (the Finder, a composer, the quick reply). | `attachmentAction`, `trigger` |
 | `Account.permission` | The sign-in that asks an account for a permission on top of its mail ends: the server's sender rules (Allow… in Senders, a rule's Continue, Reconnect) or its calendar (the day column's Connect). | `permission`, `result`, `provider` |
 | `SenderRule.removed` | A sender rule is removed with Settings › Accounts › Senders…'s −. | `provider` |
@@ -167,7 +169,7 @@ Every value a parameter can take:
 | `setting` | `listDensity`, `accountFaces`, `undoSend`, `remoteImages`, `notifications`, `notificationPreviews`, `keepMail`, `theme`, `appearance`, `font`, `textSize`, `adaptMailColours`, `sendAction`, `launchAtLogin`, `defaultMailApp`, `offerReaderMode`, `blockTrackers`, `aiProvider`, `accountFace`, `railNames` |
 | `value` | the setting's own: the values of `density`, `theme`, `appearance`, `font` and `textSize` above; `on`, `off` (Mail links only `on`: the app cannot hand the role back; `railNames`: the rail shows its names, or its icons alone); `5s`, `10s`, `20s`, `other` (Undo send); `everything`, `oneYear`, `threeMonths` (Keep mail); `sendAndArchive`, `send`; the values of `aiProvider` below, or `off` (Settings › AI's Provider); `automatic`, `monogram`, `paper` (an account's Face: never which paper face, nor whose account). For `ReaderMode.switched`, `on` or `off` |
 | `action` | `archive`, `trash`, `spam`, `moveToInbox`, `star`, `unstar`, `markRead`, `markUnread`, `later`, `mute`, `unmute`, `unsubscribe`, `alwaysArchiveSender`, `blockSender` |
-| `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar, the reader header's Reader switch, a message's own controls: an attachment's chip and Download, Show quoted text), `swipe`, `drag` (rows dropped on a rail folder or the calendar, files or a message's attachments dropped on the quick reply, an attachment dragged out of the reader, the rail's edge dragged to show or hide its names), `click` (a double-click: a row, an attachment's chip), `rail` (a click on the account rail), `toast`, `notification` |
+| `trigger` | `key`, `menu` (the menu bar, a context menu, the title menu), `toolbar` (a button in the reader or the calendar, a click on an event, the reader header's Reader switch, a message's own controls: an attachment's chip and Download, Show quoted text), `swipe`, `drag` (rows dropped on a rail folder or the calendar, files or a message's attachments dropped on the quick reply, an attachment dragged out of the reader, the rail's edge dragged to show or hide its names), `click` (a double-click: a row, an attachment's chip), `rail` (a click on the account rail), `toast`, `notification` |
 | `conversations` | `0` (Always Archive only: the rule set for a sender whose mail took no row out of any Inbox; every other action that takes nothing sends nothing), `1`, `2-5`, `6-20`, `21+` |
 | `kind` | `new`, `reply`, `replyAll`, `forward`, `draft` (a kept draft opened again). Help me write: what was being written, `new`, `reply`, `replyAll` or `forward`, the quick reply's included; never `draft` (a kept draft is written in as what it is). It is what the composer was opened as: a forward whose forwarded message could not be read is still `forward` |
 | `origin` | `app`, `mailLink`, `service` |
@@ -181,6 +183,11 @@ Every value a parameter can take:
 | `scope` | `unified` (All Inboxes), `account` (one account, never which) |
 | `state` | `shown`, `hidden` (the day column; a message's quoted text) |
 | `answer` | `accept`, `tentative`, `decline` |
+| `eventKind` | `invitee` (an event the user is a guest of), `own` (the user's own: organized, a kind, no guests), `setAside` (time set aside for a mail), `pencil` (the selected mail's invitation drawn from the mail), `later` (a Later mark), `sendLater` (a Send Later mark) |
+| `eventAction` | `join` (Join), `copyLink` (the call's Copy), `phone` (a number dialled), `copyPhone` (the number's Copy), `morePhones` (More phone numbers), `copyMeetingID`, `copyPasscode`, `placeLink` (the place's link), `notesLink` (a link in the notes), `showAllGuests` (Show all), `showMoreNotes` (Show more), `showMail` (Show the mail), `remove` (Remove), `openIn` (Open in Google Calendar or Outlook) |
+| `surface` | `reader` the reader's invitation card, `details` an event's details, `face` an event's own Join |
+| `span` | `single`, `occurrence` (This Event, or an invitation to one occurrence), `series` (All Events, or an invitation to the series) |
+| `route` | `mail` (through the invitation's mail), `calendar` (on the calendar with no mail) |
 | `provider` | `gmail`, `microsoft` |
 | `aiProvider` | `claudeAPI`, `claudeCode`, `openAIAPI`, `codex` (the kind of provider chosen in Settings › AI, never the model) |
 | `ending` | `finished`, `stopped`, `failed` |
@@ -214,7 +221,7 @@ TelemetryDeck says it stores no IP address ([privacy FAQ](https://telemetrydeck.
 
 ### What is never sent
 
-Mail of any kind (bodies, subjects, snippets, attachments, their names, types or sizes, links and their parameters, the trackers' addresses or senders), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events' titles or times, anything of Help me write's but what `HelpMeWrite.used` lists above, each from a closed set: its provider's kind, how a write ended, what was being written, what it worked from, whether an instruction came with it, whether it was a Try again, where it ran, whether a subject was asked for, whether the draft around a rewritten selection went with it and whether the words beside it were changed (no instruction, notes, subject, recipient, draft, model, error words or API key), the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
+Mail of any kind (bodies, subjects, snippets, attachments, their names, types or sizes, links and their parameters, the trackers' addresses or senders), addresses and names (the user's, their accounts', anyone's), account names, monograms and signatures, search words, URLs and paths, calendar events (an event's notes, place, guests, organizer, call link, phone number, meeting ID or passcode included)' titles or times, anything of Help me write's but what `HelpMeWrite.used` lists above, each from a closed set: its provider's kind, how a write ended, what was being written, what it worked from, whether an instruction came with it, whether it was a Try again, where it ran, whether a subject was asked for, whether the draft around a rewritten selection went with it and whether the words beside it were changed (no instruction, notes, subject, recipient, draft, model, error words or API key), the Mac's name or the user's. Nothing is logged by the SDK beyond its errors.
 
 ## 4. Check it end to end
 

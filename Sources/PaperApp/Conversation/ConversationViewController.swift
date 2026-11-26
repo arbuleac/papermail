@@ -1617,7 +1617,10 @@ final class ConversationViewController: NSViewController, NSMenuItemValidation {
     private func answerInvitation(_ response: InvitationResponse, _ id: MessageID) {
         do {
             try client.answerInvitation(response, to: id)
-            if let answer = AnalyticsSignal.InvitationAnswer(response) { Analytics.send(.invitationAnswered(answer)) }
+            if let answer = AnalyticsSignal.InvitationAnswer(response) {
+                let invitation = try? client.store.invitation(for: id)
+                Analytics.send(.invitationAnswered(answer, .reader, invitation.map(AnalyticsSignal.AnswerSpan.init) ?? .single, .mail))
+            }
         } catch {
             ConversationSignposts.log.error("answering an invitation failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()

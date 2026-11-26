@@ -55,6 +55,16 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
             self.calendarState.reloadSelection()
         }
         calendarPlacementDidChange()
+        // An answer given from the calendar, with no mail, that the outbox gave up: the window says so once (§5.54).
+        failedCalendarAnswersObservation = environment.store.observeFailedCalendarAnswers { [weak self] ids in
+            MainActor.assumeIsolated { self?.failedCalendarAnswersChanged(ids) }
+        }
+    }
+
+    private func failedCalendarAnswersChanged(_ ids: Set<String>) {
+        defer { knownFailedCalendarAnswers = ids }
+        guard let known = knownFailedCalendarAnswers, !ids.subtracting(known).isEmpty else { return }
+        toasts.show(MailActionCopy.failure(for: .answerInvitation), kind: .error, symbol: Quire.Icon.invitation)
     }
 
     // MARK: What shows
@@ -452,13 +462,36 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         openCalendarURL(checked)
     }
 
-    /// Show the mail, in the details of time set aside for a mail: its conversation selected.
-    func showMail(_ message: MessageID) {
-        guard let id = (try? environment.store.message(message))?.conversationID else {
+    /// The one opener of the calendar's links (spec §5.54, §5.60): https or a phone number (`EventLinkPolicy`), stripped
+    /// of its tracking parameters while Block trackers is on, through `openCalendarURL`. Anything else beeps.
+    @discardableResult
+    func openEventLink(_ url: URL) -> Bool {
+        guard let checked = EventLinkPolicy.checked(url) else {
+            NSSound.beep()
+            return false
+        }
+        var final = checked
+        if checked.scheme?.lowercased() == "https", settings.blocksTrackers {
+            final = TrackingParameters.stripped(checked)
+            if final != checked { Analytics.send(.linkCleaned) }
+        }
+        openCalendarURL(final)
+        return true
+    }
+
+    func readEventDetails(eventID: String) {
+        environment.engine.readCalendarEventDetails(eventID: eventID)
+    }
+
+    /// Show the mail, in an event's details: its conversation selected; from the week, the reader and the column come
+    /// back on the event's day first.
+    func showMail(_ message: MessageID, fromWeek: Bool) {
+        guard let metadata = try? environment.store.message(message), accountsByID[message.accountID] != nil else {
             NSSound.beep()
             return
         }
-        showConversation(id)
+        if fromWeek, desk.placement == .week { leaveWeek(on: calendarState.shownDay, columnOn: nil) }
+        showConversation(metadata.conversationID)
     }
 
     /// A pencilled invitation, or Show the mail on a Later mark: that conversation selected.
@@ -469,7 +502,10 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
     /// Selects `id` in the list, switching the list to a view that holds it when this one does not (as a notification's
     /// click does): its Inbox while any of it is there, Later while it is snoozed, else All Mail.
     func showConversation(_ id: ConversationID) {
-        guard accountsByID[id.accountID] != nil else { return }
+        guard accountsByID[id.accountID] != nil else {
+            NSSound.beep()
+            return
+        }
         if !list.conversations.contains(where: { $0.id == id }) {
             let messages = (try? environment.store.messages(in: id)) ?? []
             let view: MailboxView
@@ -477,6 +513,9 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
                 view = .inbox
             } else if snoozes.contains(where: { $0.conversationID == id }) {
                 view = .later
+            } else if !messages.isEmpty, messages.allSatisfy({ $0.roles.contains(.trash) }) {
+                // All Mail does not list a conversation wholly in the Trash.
+                view = .trash
             } else {
                 view = .all
             }
@@ -495,13 +534,33 @@ extension MainWindowController: CalendarViewDelegate, CalendarStateObserver {
         present(selection: [row])
     }
 
-    /// Accept · Tentative · Decline on the week's invitation card: as on the reader's card (§5.14), no toast and no undo.
-    func answerInvitation(_ response: InvitationResponse, for message: MessageID) {
+    /// Accept · Tentative · Decline on a pencilled invitation's details: as on the reader's card (§5.14), through its
+    /// mail, no toast and no undo.
+    func answerInvitation(_ response: InvitationResponse, for message: MessageID, surface: AnalyticsSignal.Surface) {
         do {
             try environment.engine.answerInvitation(response, to: message)
-            if let answer = AnalyticsSignal.InvitationAnswer(response) { Analytics.send(.invitationAnswered(answer)) }
+            if let answer = AnalyticsSignal.InvitationAnswer(response) {
+                let invitation = try? environment.store.invitation(for: message)
+                Analytics.send(.invitationAnswered(answer, surface, invitation.map(AnalyticsSignal.AnswerSpan.init) ?? .single, .mail))
+            }
         } catch {
             Self.log.error("answering an invitation failed: \(String(describing: error), privacy: .public)")
+            NSSound.beep()
+        }
+    }
+
+    /// Accept · Tentative · Decline in an event's details: the engine answers through the invitation's mail or on the
+    /// calendar alone, store first; no toast and no undo (§5.14).
+    func answerCalendarEvent(_ response: InvitationResponse, eventID: String, span: AnswerSpan, invitationMessage: MessageID?) {
+        do {
+            guard let route = try environment.engine.answerCalendarEvent(response, eventID: eventID, span: span,
+                                                                         invitationMessage: invitationMessage),
+                  let answer = AnalyticsSignal.InvitationAnswer(response) else { return }
+            let event = try? environment.store.calendarEvent(id: eventID)
+            let sent: AnswerSpan = event?.seriesID == nil ? .single : span
+            Analytics.send(.invitationAnswered(answer, .details, AnalyticsSignal.AnswerSpan(sent), AnalyticsSignal.AnswerRoute(route)))
+        } catch {
+            Self.log.error("answering an event failed: \(String(describing: error), privacy: .public)")
             NSSound.beep()
         }
     }

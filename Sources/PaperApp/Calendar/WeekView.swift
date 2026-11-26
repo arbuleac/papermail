@@ -27,9 +27,10 @@ final class WeekView: NSView, CalendarStateObserver {
     let foot: CalendarFootView
     let details: CalendarDetailsPresenter
     /// The selected conversation's invitation, beside its slot while it falls in the week.
-    private(set) var invitationCard: CalendarCardView?
     /// Esc hid the card until the selection changes or its event is clicked (§6.1 row 12).
-    private(set) var isInvitationCardHidden = false
+    private(set) var isSelectionDetailsHidden = false
+    /// The selection when the selection's details were hidden: a re-read of it keeps them hidden.
+    private var selectionAtHide: ConversationID?
 
     init(state: CalendarState) {
         self.state = state
@@ -60,8 +61,8 @@ final class WeekView: NSView, CalendarStateObserver {
     // MARK: State
 
     func calendarState(_ state: CalendarState, didChange change: CalendarChange) {
-        if change.contains(.shown) || change.contains(.selection) { details.dismiss() }
-        if change.contains(.selection) { isInvitationCardHidden = false }
+        if change.contains(.selection), state.selectedConversation != selectionAtHide { isSelectionDetailsHidden = false }
+        details.stateDidChange(change)
         // Nothing is read or fitted for a week no one sees: it catches up when it shows again.
         guard isShowing else { needsReload = true; return }
         if change.contains(.content) || change.contains(.shown) || change.contains(.day) || change.contains(.selection) {
@@ -92,26 +93,36 @@ final class WeekView: NSView, CalendarStateObserver {
         timeline.nowDidChange()
         headings.days = timeline.fit?.days ?? []
         headings.needsDisplay = true
-        updateInvitationCard()
+        updateSelectionDetails()
         let days = state.shownWeekDays
         setAccessibilityLabel("Week, " + state.text.weekHeadline(days, now: state.now))
         needsLayout = true
         CalendarSignposts.signposter.endInterval("calendar.week", signpost)
     }
 
-    /// Closes an open event's details (Esc's row 4). Returns whether one was open.
+    /// Closes an open event's details (Esc's row 4): the selection's, opened by the week, stay hidden until the selection
+    /// changes or the event is clicked (row 12). Returns whether one was open.
     @discardableResult
-    func dismissDetails() -> Bool { details.dismiss() }
-
-    /// Hides the invitation card until the selection changes or its event is clicked (Esc's row 12). Returns whether
-    /// one showed.
-    @discardableResult
-    func hideInvitationCard() -> Bool {
-        guard let invitationCard, !invitationCard.isHidden else { return false }
-        isInvitationCardHidden = true
-        updateInvitationCard()
-        return true
+    func dismissDetails() -> Bool {
+        if details.openedBySelection { hideSelectionDetailsUntilChanged() }
+        return details.dismiss()
     }
+
+    /// Hides the selection's details until the selection changes or the event is clicked (Esc's row 12). Returns
+    /// whether they showed.
+    @discardableResult
+    func hideSelectionDetails() -> Bool {
+        guard details.openedBySelection else { return false }
+        return dismissDetails()
+    }
+
+    private func hideSelectionDetailsUntilChanged() {
+        isSelectionDetailsHidden = true
+        selectionAtHide = state.selectedConversation
+    }
+
+    /// The selection's details, while they are open.
+    var selectionDetails: EventDetailsCardView? { details.openedBySelection ? details.card : nil }
 
     // MARK: Layout
 
@@ -126,8 +137,8 @@ final class WeekView: NSView, CalendarStateObserver {
         timeline.frame = NSRect(x: 0, y: top, width: width, height: max(0, bounds.height - footHeight - top))
         headings.gutter = timeline.style.gutter
         headings.days = timeline.fit?.days ?? []
-        // The card goes beside its event, which has a place only once the timeline has a size.
-        if invitationCard == nil { updateInvitationCard() } else { placeInvitationCard() }
+        // The selection's details go beside its event, which has a place only once the timeline has a size.
+        if !details.isShowing { updateSelectionDetails() }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -135,26 +146,21 @@ final class WeekView: NSView, CalendarStateObserver {
         dirtyRect.intersection(bounds).fill()
     }
 
-    // MARK: The invitation card
+    // MARK: The selection's details
 
-    private func updateInvitationCard() {
-        guard !isInvitationCardHidden, let selection = state.selection, let placed = invitationPlaced(),
-              let model = WeekInvitationCard.model(for: selection, overlap: state.selectionOverlap, event: placed.event, state: state,
-                                                   answer: { [weak self] response, message in
-                                                       self?.delegate?.answerInvitation(response, for: message)
-                                                   }) else {
-            invitationCard?.removeFromSuperview()
-            invitationCard = nil
+    /// While the selected conversation's invitation falls in the shown week, its event's details open beside its slot by
+    /// themselves (the calendar's copy in the invitation's account, else the pencil), without taking the keyboard.
+    private func updateSelectionDetails() {
+        guard isShowing else { return }
+        guard !isSelectionDetailsHidden, let selection = state.selection, let invitation = selection.invitation,
+              !invitation.isCancelled, let placed = invitationPlaced() else {
+            if details.openedBySelection { details.dismiss(returningFocus: false) }
             return
         }
-        if let invitationCard {
-            invitationCard.apply(model)
-        } else {
-            let card = CalendarCardView(model: model)
-            addSubview(card, positioned: .above, relativeTo: nil)
-            invitationCard = card
-        }
-        placeInvitationCard()
+        // A card the user opened stays; the selection's own is opened again only when it shows another event.
+        if details.isShowing, !details.openedBySelection { return }
+        if details.openedBySelection, details.eventID == placed.event.id { return }
+        details.show(placed.event, anchor: placed.face, in: timeline, fromKeyboard: false, bySelection: true)
     }
 
     /// The invitation's event as the timeline drew it: the calendar's copy, or the pencil from the mail.
@@ -163,19 +169,18 @@ final class WeekView: NSView, CalendarStateObserver {
         return timeline.placed(withID: id)
     }
 
-    private func placeInvitationCard() {
-        guard let card = invitationCard, let placed = invitationPlaced() else { return }
-        let frame = CalendarDetailsPresenter.frame(for: card.preferredHeight, anchor: placed.face, in: timeline, host: self,
-                                                   placement: .besideEvent)
-        card.frame = convert(frame, from: timeline)
-    }
-
-    /// A click on the invitation's event brings its hidden card back.
+    /// A click on another event hides the selection's details as Esc does; a click on its own event brings them back.
     private func timelineWillActivate(_ target: CalendarTimelineView.Target) -> Bool {
-        guard isInvitationCardHidden, case .event(let id) = target, id == state.selectionOverlap?.event.id else { return false }
-        isInvitationCardHidden = false
-        updateInvitationCard()
-        return true
+        guard case .event(let id) = target else { return false }
+        if id == state.selectionOverlap?.event.id {
+            guard isSelectionDetailsHidden else { return false }
+            // Hidden with Esc: a click on its event brings the selection's details back, and does nothing else.
+            isSelectionDetailsHidden = false
+            updateSelectionDetails()
+            return true
+        }
+        if details.openedBySelection || state.selection?.invitation != nil { hideSelectionDetailsUntilChanged() }
+        return false
     }
 
     // MARK: Visibility
@@ -201,7 +206,7 @@ final class WeekView: NSView, CalendarStateObserver {
     // MARK: Keyboard
 
     /// The week's stops for the window's Tab loop: the header's buttons, the events, the foot's button.
-    var keyViews: [NSView] { header.keyViews + [timeline] + foot.keyViews + (invitationCard?.buttons ?? []) }
+    var keyViews: [NSView] { header.keyViews + [timeline] + foot.keyViews }
 
     // MARK: Accessibility
 
@@ -210,7 +215,7 @@ final class WeekView: NSView, CalendarStateObserver {
         var children: [Any] = [header.previous, header.today, header.next, header.day, header.week]
         children.append(contentsOf: timeline.weekColumns(headings: headings, parent: self))
         children.append(contentsOf: timeline.markAndFoldElements)
-        if let invitationCard { children.append(invitationCard) }
+        if let card = selectionDetails { children.append(card) }
         children.append(contentsOf: foot.keyViews)
         return children
     }

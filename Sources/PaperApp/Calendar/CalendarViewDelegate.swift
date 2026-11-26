@@ -26,14 +26,22 @@ protocol CalendarViewDelegate: AnyObject {
     func removeEvent(_ event: CalendarEvent)
     /// Join, Open in Google Calendar or Outlook, How to turn it on.
     func openURL(_ url: URL)
-    /// Show the mail, in the details of time set aside for a mail.
-    func showMail(_ message: MessageID)
+    /// Show the mail, in an event's details: its conversation selected; from the week, the reader and the day come back.
+    func showMail(_ message: MessageID, fromWeek: Bool)
     /// Show the mail, in the details of a Send Later mark: the message waiting in the Outbox.
     func showPendingSend(id: String)
     /// Connect, in the foot: ask each of these accounts for the calendar permission, one after another.
     func connect(accountIDs: [AccountID])
-    /// Accept · Tentative · Decline on the week's invitation card (spec §5.14 rules: no toast, no undo).
-    func answerInvitation(_ response: InvitationResponse, for message: MessageID)
+    /// Accept · Tentative · Decline on a pencilled invitation's details, through its mail (spec §5.14 rules: no toast,
+    /// no undo).
+    func answerInvitation(_ response: InvitationResponse, for message: MessageID, surface: AnalyticsSignal.Surface)
+    /// Accept · Tentative · Decline in an event's details: the engine picks the route; store first, no toast, no undo.
+    func answerCalendarEvent(_ response: InvitationResponse, eventID: String, span: AnswerSpan, invitationMessage: MessageID?)
+    /// A link from the calendar (Join, Open in, a place, a phone number, a link in the notes): https or tel through the
+    /// one opener, stripped while Block trackers is on. False when it was refused.
+    func openEventLink(_ url: URL) -> Bool
+    /// A card opened on the event: have its details read when the stored ones are missing or stale.
+    func readEventDetails(eventID: String)
     /// A click on the folded strip: open the column over the reader's edge (or close it).
     func openStrip()
     /// The Day button in the week's header: what D does.

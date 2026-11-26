@@ -173,7 +173,8 @@ public final class QuireButton: QuireControl {
     /// The strong role for primary and destructive (wider than the Medium a non-key primary uses), so the
     /// width never changes with key state.
     private var widestRole: QuireFont.Role {
-        variant == .primary || variant == .destructive ? size.strongRole : size.role
+        // A choice keeps the strong role's width whether chosen or not, so choosing it never moves its neighbours.
+        variant == .primary || variant == .destructive || variant == .choice ? size.strongRole : size.role
     }
 
     public override var intrinsicContentSize: NSSize {
