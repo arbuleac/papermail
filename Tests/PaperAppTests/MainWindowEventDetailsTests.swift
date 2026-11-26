@@ -562,12 +562,16 @@ final class MainWindowEventDetailsTests: XCTestCase {
         // A line the capture must find, so an empty capture never passes for a clean one.
         let sentinel = "event log check \(UUID().uuidString)"
         CalendarSignposts.log.notice("\(sentinel, privacy: .public)")
-        ListTestSupport.spin(for: 0.3)
-
-        let logs = try OSLogStore(scope: .currentProcessIdentifier)
-        let entries = try logs.getEntries(at: logs.position(date: start.addingTimeInterval(-1)),
-                                          matching: NSPredicate(format: "subsystem == %@", AppIdentity.bundleIdentifier))
-        let loud = entries.compactMap { $0 as? OSLogEntryLog }.filter { $0.level != .debug && $0.level != .undefined }
+        // The store hands lines over late while the whole suite logs: read it again until the sentinel is there.
+        var loud: [OSLogEntryLog] = []
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            ListTestSupport.spin(for: 0.25)
+            let logs = try OSLogStore(scope: .currentProcessIdentifier)
+            loud = try logs.getEntries(at: logs.position(date: start.addingTimeInterval(-1)),
+                                       matching: NSPredicate(format: "subsystem == %@", AppIdentity.bundleIdentifier))
+                .compactMap { $0 as? OSLogEntryLog }.filter { $0.level != .debug && $0.level != .undefined }
+        } while !loud.contains(where: { $0.composedMessage == sentinel }) && Date() < deadline
         XCTAssertTrue(loud.contains { $0.composedMessage == sentinel }, "the capture sees this process's lines")
         XCTAssertTrue(loud.contains { $0.composedMessage == "copying an event detail failed" }, "the refused copy said so, and only so")
         let leaks = loud.map(\.composedMessage).filter { line in secrets.contains { line.contains($0) } || line.contains("larkspur") }
