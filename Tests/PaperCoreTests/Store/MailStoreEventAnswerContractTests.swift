@@ -311,6 +311,10 @@ extension MailStoreContractTests {
 
         try store.enqueue(answerOperation(.accepted, scope: .series(id: "S"), id: "op-1"))
         try giveUp("op-1")
+        // Delivered before the answers that follow, so the occurrence's check below needs a value the store sent after
+        // them: on SQLite the observation delivers later, and its first value says what the check asks for.
+        expectCard(cardA, "a given up") { $0?.event.response == .tentative && $0?.answer == .failed }
+        expectCard(cardB, "b given up") { $0?.event.response == .tentative && $0?.answer == .failed }
         try store.enqueue(answerOperation(.declined, scope: .event(id: a), at: 1, id: "op-2"))
         try store.confirmOperation(id: "op-2")
         try store.enqueue(answerOperation(.tentative, scope: .event(id: a), at: 2, id: "op-3"))
