@@ -137,7 +137,9 @@ final class EventDetailsRowView: NSView {
         }
         if let copyButton {
             let side = Pane.detailsCopyButton
-            copyButton.frame = NSRect(x: bounds.width - side, y: 0, width: side, height: side)
+            // Placed by its face, as every control in the card is: its frame is the face plus the ring's margin, so a
+            // frame of the face's size would leave a 12 pt face for its hover, press and focus ring.
+            copyButton.frame = copyButton.frame(forVisualRect: NSRect(x: bounds.width - side, y: 0, width: side, height: side))
         }
     }
 

@@ -166,6 +166,13 @@ final class MainWindowEventDetailsTests: XCTestCase {
         let copy = try XCTUnwrap(card.keyViews.compactMap { $0 as? QuireIconButton }.first)
         XCTAssertEqual(copy.accessibilityLabel(), "Copy link")
         XCTAssertEqual(copy.toolTip, "Copy Link")
+        card.layoutSubtreeIfNeeded()
+        let side = Quire.Layout.CalendarPane.detailsCopyButton
+        XCTAssertEqual(copy.faceRect.size, NSSize(width: side, height: side), "its face is the small icon face, not the frame")
+        let clip = try XCTUnwrap(copy.enclosingScrollView?.contentView)
+        let face = clip.convert(copy.faceRect, from: copy)
+        let ring = QuireFocusRing.outset(gap: QuireFocusRing.gap, width: QuireFocusRing.width(increasedContrast: true))
+        XCTAssertLessThanOrEqual(face.maxX + ring, clip.bounds.maxX, "its ring stays in view on the trailing side")
         copy.performClick(nil)
         XCTAssertEqual(board.string(forType: .string), "https://teams.microsoft.com/l/x", "as written, never stripped")
         XCTAssertTrue(copy.isOn, "the check")
